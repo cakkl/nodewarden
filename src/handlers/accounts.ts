@@ -543,7 +543,6 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
 // the user's preference.
 export async function handleSetVerifyDevices(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
-  const auth = new AuthService(env);
   const user = await storage.getUserById(userId);
   if (!user) return errorResponse('User not found', 404);
 
@@ -1189,7 +1188,6 @@ export async function handleBootstrapTwoFactorYubiKeyConfig(request: Request, en
         initialized?.credentials ? 403 : 400
       );
     }
-    credentials = initialized.credentials;
   }
 
   await writeAuditEvent(storage, {

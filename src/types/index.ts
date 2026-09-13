@@ -12,6 +12,14 @@ export interface Env {
   ATTACHMENTS?: R2Bucket;
   // Optional fallback for attachment/send file storage (no credit card required).
   ATTACHMENTS_KV?: KVNamespace;
+  // Cloudflare 版本元数据绑定（见 wrangler.toml 的 [version_metadata]）。
+  // `id` 每次构建/部署都不同，因此它是识别“版本号没变但重新部署了”的唯一依据。
+  // 本地 dev 与测试环境可能没有这个绑定，所以整块可选、字段也可选。
+  CF_VERSION_METADATA?: {
+    id?: string;
+    tag?: string;
+    timestamp?: string;
+  };
   JWT_SECRET: string;
   WEBAUTHN_RP_ID?: string;
   WEBAUTHN_RP_NAME?: string;

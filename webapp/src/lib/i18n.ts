@@ -159,6 +159,19 @@ export function translateServerError(message: string | null | undefined, fallbac
     });
   }
 
+  // 同上：文案带具体字节数，只能用「前缀 + 数字」正则。后端见 backup-archive.ts 的
+  // TOO_LARGE_DB_PAYLOAD_MESSAGE_PREFIX；改动前缀时必须同步更新本正则。
+  const backupArchiveDbPayloadTooLargeMatch = normalized.match(
+    /^Backup database payload is too large to restore: (\d+) database bytes exceed the (\d+) byte limit$/i
+  );
+  if (backupArchiveDbPayloadTooLargeMatch) {
+    const toMegabytes = (bytes: string): string => (Number(bytes) / (1024 * 1024)).toFixed(1);
+    return t('txt_backup_error_archive_db_payload_too_large', {
+      database: toMegabytes(backupArchiveDbPayloadTooLargeMatch[1]),
+      limit: toMegabytes(backupArchiveDbPayloadTooLargeMatch[2]),
+    });
+  }
+
   const remoteAttachmentStatusMatch = normalized.match(/^Remote attachment (download|batch download) failed: (\d+)$/i);
   if (remoteAttachmentStatusMatch) {
     return t(

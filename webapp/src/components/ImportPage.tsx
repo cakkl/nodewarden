@@ -697,10 +697,11 @@ export default function ImportPage({ onImport, onImportEncryptedRaw, accountKeys
       return;
     }
     await runExportWithMasterPassword(masterPassword);
-    if (!isExporting) {
-      setExportAuthPassword('');
-      setExportAuthDialogOpen(false);
-    }
+    // 这里原来用一个 `if (!isExporting)` 包着：`isExporting` 取自本次渲染的闭包，
+    // 在 await 期间不会变化，所以条件恒为真（CodeQL js/trivial-conditional）。
+    // 无条件关闭对话框，行为与原来完全一致。
+    setExportAuthPassword('');
+    setExportAuthDialogOpen(false);
   }
 
   function handleExport() {

@@ -3,6 +3,7 @@ import { NotificationsHub } from './durable/notifications-hub';
 import { BackupTransferRunner } from './durable/backup-transfer-runner';
 import { handleRequest } from './router';
 import { StorageService } from './services/storage';
+import { trackAppVersionOnce } from './services/app-version-log';
 import { applyCors, jsonResponse } from './utils/response';
 import { runScheduledBackupIfDue } from './handlers/backup';
 import {
@@ -77,7 +78,6 @@ async function ensureDatabaseInitialized(env: Env): Promise<void> {
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    void ctx;
     const normalizedRequest = normalizeRequestUrl(request);
     const requestPath = new URL(normalizedRequest.url).pathname;
 
@@ -108,6 +108,11 @@ export default {
       return applyCors(normalizedRequest, resp, env);
     }
 
+    // 版本启动记录：每个 isolate 只跑一次，放进 waitUntil 不占请求关键路径。
+    // 挂在这里是为了「部署后立刻有访客就能立刻在日志中心看到」；
+    // 零流量的情况由下面的 scheduled（每 5 分钟）兜底。
+    ctx.waitUntil(trackAppVersionOnce(env));
+
     const resp = await handleRequest(normalizedRequest, env);
     return applyCors(normalizedRequest, resp, env);
   },
@@ -119,6 +124,9 @@ export default {
       console.error('Skipping scheduled backup because DB init failed:', dbInitError);
       return;
     }
+    // 与请求路径共用同一个“每 isolate 一次”入口：部署后即使零流量，
+    // 最迟 5 分钟内也会把新版本写进日志中心。
+    ctx.waitUntil(trackAppVersionOnce(env));
     ctx.waitUntil(runScheduledBackupIfDue(env).catch((error) => {
       console.error('Scheduled backup failed:', error);
     }));

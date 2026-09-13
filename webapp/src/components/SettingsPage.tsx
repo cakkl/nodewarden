@@ -202,15 +202,6 @@ export default function SettingsPage(props: SettingsPageProps) {
     return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
   }, [props.profile.email, secret]);
 
-  async function enableTotp(): Promise<void> {
-    if (totpLocked) return;
-    if (!secret.trim() || !token.trim()) {
-      props.onNotify?.('error', t('txt_secret_and_code_are_required'));
-      return;
-    }
-    openMasterPasswordPrompt('enableTotp');
-  }
-
   async function refreshAccountPasskeys(): Promise<void> {
     setAccountPasskeysLoading(true);
     try {

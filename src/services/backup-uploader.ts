@@ -64,6 +64,19 @@ function trimSlashes(value: string): string {
   return next;
 }
 
+/**
+ * 只去掉结尾的 `/`。
+ *
+ * 与 `baseUrl.replace(/\/+$/, '')` 等价，但用循环实现：尾部量词在 CodeQL 的
+ * js/polynomial-redos 规则下会被报"长串同一字符时可能变慢"，这里没有任何回溯。
+ */
+function trimTrailingSlashes(value: string): string {
+  const source = String(value || '');
+  let end = source.length;
+  while (end > 0 && source[end - 1] === '/') end -= 1;
+  return source.slice(0, end);
+}
+
 function buildJoinedPath(...segments: string[]): string {
   return segments.map(trimSlashes).filter(Boolean).join('/');
 }
@@ -232,7 +245,8 @@ function ensureDestinationConfigReady(destination: BackupDestinationRecord): voi
 }
 
 function buildWebDavUrl(baseUrl: string, relativePath: string): string {
-  const trimmedBase = baseUrl.replace(/\/+$/, '');
+  // trimTrailingSlashes 用循环实现，避免 /\/+$/ 这种尾部量词命中 CodeQL js/polynomial-redos
+  const trimmedBase = trimTrailingSlashes(baseUrl);
   const normalized = normalizeRelativePath(relativePath);
   return normalized ? `${trimmedBase}/${encodePathSegments(normalized)}` : trimmedBase;
 }
@@ -473,7 +487,7 @@ function isBucketHostedS3Endpoint(endpoint: URL, bucket: string): boolean {
 }
 
 function s3BucketBaseUrl(config: S3BackupDestination): URL {
-  const endpoint = new URL(config.endpoint.replace(/\/+$/, ''));
+  const endpoint = new URL(trimTrailingSlashes(config.endpoint));
   const bucket = config.bucket.trim();
 
   if (config.addressingStyle === 'virtual-hosted-style') {
@@ -482,11 +496,11 @@ function s3BucketBaseUrl(config: S3BackupDestination): URL {
     return endpoint;
   }
 
-  return new URL(`${endpoint.toString().replace(/\/+$/, '')}/${encodeURIComponent(bucket)}`);
+  return new URL(`${trimTrailingSlashes(endpoint.toString())}/${encodeURIComponent(bucket)}`);
 }
 
 function s3ObjectUrl(config: S3BackupDestination, objectKey: string): URL {
-  return new URL(`${s3BucketBaseUrl(config).toString().replace(/\/+$/, '')}/${encodePathSegments(objectKey)}`);
+  return new URL(`${trimTrailingSlashes(s3BucketBaseUrl(config).toString())}/${encodePathSegments(objectKey)}`);
 }
 
 function normalizeS3ObjectKey(config: S3BackupDestination, relativePath: string): string {
@@ -588,7 +602,7 @@ async function listS3Entries(config: S3BackupDestination, relativePath: string):
         : fullPrefix;
       const normalizedRelative = trimSlashes(relative);
       if (!normalizedRelative) continue;
-      const itemPath = normalizedRelative.replace(/\/+$/, '');
+      const itemPath = trimTrailingSlashes(normalizedRelative);
       if ((parentPath(itemPath) || '') !== currentPath) continue;
       items.push({
         path: itemPath,

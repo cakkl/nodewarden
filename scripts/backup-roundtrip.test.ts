@@ -16,6 +16,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  assertBackupDbPayloadRestorable,
   buildBackupArchive,
   parseBackupArchive,
   resolveInlineAttachmentBudgetBytes,
@@ -508,4 +509,123 @@ test('附件 9：导出体积超限文案必须已登记到 i18n 映射表（正
       `${locale} 缺少键 txt_backup_error_archive_export_too_large`
     );
   }
+});
+
+test('附件 10：导出侧 db.json 上限必须与恢复侧的单条目上限一致（32 MiB）', () => {
+  const MIB = 1024 * 1024;
+  // 这两个数字必须锁在一起：导出放行的体积一旦超过恢复侧的 MAX_BACKUP_DB_JSON_BYTES，
+  // 就会重新出现"导出成功、但谁都无法恢复"的归档。此处把 33554432 写死，
+  // 目的是让任何单方面调整上限的改动都会立刻让本用例失败。
+  assertBackupDbPayloadRestorable(32 * MIB, 32 * MIB);
+  assert.throws(
+    () => assertBackupDbPayloadRestorable(32 * MIB + 1),
+    /^Error: Backup database payload is too large to restore: 33554433 database bytes exceed the 33554432 byte limit$/
+  );
+});
+
+test('附件 11：不内联附件的导出路径也必须做 db.json 体积预检（回归）', async () => {
+  // 回归点：预检过去只存在于 `includeAttachments && inlineAttachmentBlobs` 分支里，
+  // 于是**远端 / 定时备份**与**本地导出但不勾选附件**都会产出恢复侧必然拒收的归档。
+  const source = freshDatabase();
+  seedSource(source);
+
+  // 真实上限是 32 MiB，为覆盖拒绝分支注入一个极小的上限（生产调用方不传这个参数）
+  await assert.rejects(
+    () =>
+      buildBackupArchive(envFor(source), new Date(NOW), {
+        includeAttachments: false,
+        restorableDbPayloadLimitBytes: 512,
+      }),
+    (error: Error) => {
+      assert.match(error.message, /database payload is too large to restore/i, `应报 db.json 超限，实际：${error.message}`);
+      assert.match(error.message, /exceed the 512 byte limit/, '报错应带上具体字节数与上限');
+      return true;
+    }
+  );
+
+  // 对照：同一份数据在默认上限下必须能正常导出 —— 证明上面的失败源于体积，而非其他错误
+  const bundle = await buildBackupArchive(envFor(source), new Date(NOW), { includeAttachments: false });
+  assert.ok(bundle.bytes.byteLength > 0);
+  assert.ok(bundle.manifest.tableCounts.ciphers > 0);
+
+  source.close();
+});
+
+test('附件 12：db.json 超限文案必须已登记到 i18n 映射表（正则形式）', () => {
+  const archiveSource = readFileSync(path.join(REPO_ROOT, 'src/services/backup-archive.ts'), 'utf8');
+  const prefix = archiveSource.match(/TOO_LARGE_DB_PAYLOAD_MESSAGE_PREFIX\s*=\s*'([^']+)'/)?.[1];
+  assert.ok(prefix, '应能从 backup-archive.ts 提取 TOO_LARGE_DB_PAYLOAD_MESSAGE_PREFIX');
+
+  const i18nSource = readFileSync(path.join(REPO_ROOT, 'webapp/src/lib/i18n.ts'), 'utf8');
+  assert.ok(i18nSource.includes(prefix), `i18n 正则表缺少该前缀：${prefix}`);
+  assert.ok(
+    i18nSource.includes('txt_backup_error_archive_db_payload_too_large'),
+    'i18n 映射表应引用 txt_backup_error_archive_db_payload_too_large'
+  );
+
+  for (const locale of ['en', 'zh-CN', 'zh-TW', 'ru', 'es', 'fi', 'de', 'fr', 'it', 'sv']) {
+    const localeSource = readFileSync(
+      path.join(REPO_ROOT, `webapp/src/lib/i18n/locales/${locale}.ts`),
+      'utf8'
+    );
+    assert.ok(
+      localeSource.includes('"txt_backup_error_archive_db_payload_too_large"'),
+      `${locale} 缺少键 txt_backup_error_archive_db_payload_too_large`
+    );
+  }
+});
+
+test('附件 13：解析后必须释放 db.json 的解压字节（否则与解析出的对象树同时占内存）', async () => {
+  const source = freshDatabase();
+  seedSource(source);
+  const parsed = parseBackupArchive(await exportBytes(source));
+
+  // 条目名保留（调用方仍能列举归档内容），但字节已被释放
+  assert.deepStrictEqual(Object.keys(parsed.files).sort(), ['db.json', 'manifest.json']);
+  assert.equal(parsed.files['db.json'].byteLength, 0, 'db.json 的解压字节应在解析后立即释放');
+  assert.ok(parsed.payload.db.ciphers.length > 0, '数据本身必须完整解析出来');
+  assert.ok(parsed.payload.db.users.length > 0);
+
+  source.close();
+});
+
+test('附件 14：恢复写入必须分批提交，而不是整表一个 db.batch', async () => {
+  const ROW_TOTAL = 500;
+  const source = freshDatabase();
+  seedSource(source);
+  // 加行到远超一批：整表一次提交的实现会在这里出现一个 500+ 条的 batch
+  const insert = source.connection.prepare(
+    'INSERT INTO ciphers (id, user_id, type, folder_id, name, notes, favorite, data, reprompt, key, created_at, updated_at, archived_at, deleted_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+  );
+  for (let i = 0; i < ROW_TOTAL; i++) {
+    const id = `bulk-${i}`;
+    insert.run(id, 'user-1', 1, 'folder-1', `enc-name-${i}`, `enc-notes-${i}`, 0, JSON.stringify({ i }), null, null, NOW, NOW, null, null);
+  }
+  const bytes = await exportBytes(source);
+
+  const target = freshDatabase();
+  const batches: number[] = [];
+  const countingDb = new Proxy(target.db, {
+    get(targetDb, property, receiver) {
+      if (property === 'batch') {
+        return async (statements: unknown[]) => {
+          batches.push(statements.length);
+          return (targetDb.batch as (items: unknown[]) => Promise<unknown>)(statements);
+        };
+      }
+      const value = Reflect.get(targetDb, property, receiver);
+      return typeof value === 'function' ? value.bind(targetDb) : value;
+    },
+  });
+
+  await importBackupArchiveBytes(bytes, { DB: countingDb } as unknown as Env, 'user-1', false);
+
+  const cipherRows = selectAll(target, 'ciphers', 'id');
+  assert.equal(cipherRows.length, ROW_TOTAL + CIPHER_TYPES.length, '全部行都必须写进去');
+  assert.ok(batches.length > 1, `应分多次 batch 提交，实际只调用 ${batches.length} 次`);
+  const largest = Math.max(...batches);
+  assert.ok(largest <= 200, `单批不应超过 200 条语句，实际最大 ${largest}`);
+
+  source.close();
+  target.close();
 });

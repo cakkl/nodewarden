@@ -136,8 +136,22 @@ function getBackupDestinationSummary(destination: BackupDestinationRecord | null
   };
 }
 
+/**
+ * 去掉字符串首尾的 `/`。
+ *
+ * 用循环而不是 `/^\/+|\/+$/g`：语义一致，但不含"尾部量词"，
+ * 因此不会命中 CodeQL 的 js/polynomial-redos（它会提示"长串同一字符时可能变慢"）。
+ */
+function trimSlashes(value: string): string {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === '/') start += 1;
+  while (end > start && value[end - 1] === '/') end -= 1;
+  return value.slice(start, end);
+}
+
 function ensureBackupBlobName(value: string): string {
-  const normalized = String(value || '').trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  const normalized = trimSlashes(String(value || '').trim().replace(/\\/g, '/'));
   if (!normalized) {
     throw new Error('Backup attachment blob is required');
   }

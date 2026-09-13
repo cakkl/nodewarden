@@ -298,28 +298,21 @@ async function prepareImportedConfigRows(
 }
 
 async function importPreparedBackupRows(db: D1Database, payload: BackupPayload['db'], env: Env): Promise<BackupPayload['db']> {
-  const preparedDb: BackupPayload['db'] = {
-    config: await prepareImportedConfigRows(env, payload.config || [], payload.users || []),
-    users: cloneRows(payload.users || []).map((row) => ({
-      ...row,
-      verify_devices: row.verify_devices ?? 0,
-      yubikey_nfc: row.yubikey_nfc ?? 0,
-    })),
-    domain_settings: cloneRows(payload.domain_settings || []),
-    user_revisions: cloneRows(payload.user_revisions || []),
-    webauthn_credentials: cloneRows(payload.webauthn_credentials || []).map((row) => ({
-      ...row,
-      purpose: normalizeAccountPasskeyPurpose(row.purpose),
-    })),
-    folders: cloneRows(payload.folders || []),
-    ciphers: cloneRows(payload.ciphers || []).map((row) => ({
-      ...row,
-      archived_at: row.archived_at ?? null,
-    })),
-    attachments: cloneRows(payload.attachments || []),
-  };
-  await importBackupRows(db, preparedDb, true);
-  return preparedDb;
+  // 就地补默认值（而不是像过去那样用 cloneRows 整表深拷贝）：解析出来的对象树是本次恢复
+  // 独占的，复制一份只会让内存峰值翻倍；大库（1.6 万行级）最吃内存的就是这一段。
+  payload.config = await prepareImportedConfigRows(env, payload.config || [], payload.users || []);
+  for (const row of payload.users || []) {
+    if (row.verify_devices == null) row.verify_devices = 0;
+    if (row.yubikey_nfc == null) row.yubikey_nfc = 0;
+  }
+  for (const row of payload.webauthn_credentials || []) {
+    row.purpose = normalizeAccountPasskeyPurpose(row.purpose);
+  }
+  for (const row of payload.ciphers || []) {
+    if (row.archived_at == null) row.archived_at = null;
+  }
+  await importBackupRows(db, payload, true);
+  return payload;
 }
 
 function prepareImportPayloadForTarget(env: Env, payload: BackupPayload, files: Record<string, Uint8Array>): PreparedBackupImportPayload {
@@ -422,6 +415,29 @@ async function runInsertBatch(db: D1Database, table: string, statements: D1Prepa
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Restore insert failed for ${table}: ${message}`);
+  }
+}
+
+/**
+ * 恢复写入的批大小。
+ *
+ * 过去是**整表一次** `db.batch()`：一个 3 万行的库里同一批会有 3 万条语句，
+ * 内存峰值随库大小线性增长，也白白撞 D1 对单次 batch 规模的限制。
+ * 分批后峰值只与批大小有关，与库大小无关。
+ */
+const RESTORE_INSERT_BATCH_SIZE = 200;
+
+/** 逐批构造并提交插入语句 —— 不先把整表语句都建出来（那正是要避免的峰值）。 */
+async function insertRows(
+  db: D1Database,
+  table: string,
+  columns: string[],
+  rows: SqlRow[],
+  upsert = false
+): Promise<void> {
+  for (let start = 0; start < rows.length; start += RESTORE_INSERT_BATCH_SIZE) {
+    const chunk = rows.slice(start, start + RESTORE_INSERT_BATCH_SIZE);
+    await runInsertBatch(db, table, buildInsertStatements(db, table, columns, chunk, upsert));
   }
 }
 
@@ -628,67 +644,35 @@ async function cleanupOrphanedBlobFiles(env: Env, beforeKeys: Set<string>, after
 
 async function importBackupRows(db: D1Database, payload: BackupPayload['db'], useShadowTables: boolean = false): Promise<void> {
   const tableName = (table: BackupTableName): string => (useShadowTables ? shadowTableName(table) : table);
-  await runInsertBatch(
-    db,
-    tableName('config'),
-    buildInsertStatements(db, tableName('config'), ['key', 'value'], payload.config || [], true)
-  );
-  await runInsertBatch(
+  await insertRows(db, tableName('config'), ['key', 'value'], payload.config || [], true);
+  await insertRows(
     db,
     tableName('users'),
-    buildInsertStatements(
-      db,
-      tableName('users'),
-      ['id', 'email', 'name', 'master_password_hint', 'master_password_hash', 'key', 'private_key', 'public_key', 'kdf_type', 'kdf_iterations', 'kdf_memory', 'kdf_parallelism', 'security_stamp', 'role', 'status', 'verify_devices', 'totp_secret', 'totp_recovery_code', 'yubikey_key1', 'yubikey_key2', 'yubikey_key3', 'yubikey_key4', 'yubikey_key5', 'yubikey_nfc', 'created_at', 'updated_at'],
-      payload.users || []
-    )
+    ['id', 'email', 'name', 'master_password_hint', 'master_password_hash', 'key', 'private_key', 'public_key', 'kdf_type', 'kdf_iterations', 'kdf_memory', 'kdf_parallelism', 'security_stamp', 'role', 'status', 'verify_devices', 'totp_secret', 'totp_recovery_code', 'yubikey_key1', 'yubikey_key2', 'yubikey_key3', 'yubikey_key4', 'yubikey_key5', 'yubikey_nfc', 'created_at', 'updated_at'],
+    payload.users || []
   );
-  await runInsertBatch(
-    db,
-    tableName('user_revisions'),
-    buildInsertStatements(db, tableName('user_revisions'), ['user_id', 'revision_date'], payload.user_revisions || [], true)
-  );
-  await runInsertBatch(
+  await insertRows(db, tableName('user_revisions'), ['user_id', 'revision_date'], payload.user_revisions || [], true);
+  await insertRows(
     db,
     tableName('domain_settings'),
-    buildInsertStatements(
-      db,
-      tableName('domain_settings'),
-      ['user_id', 'equivalent_domains', 'custom_equivalent_domains', 'excluded_global_equivalent_domains', 'updated_at'],
-      payload.domain_settings || [],
-      true
-    )
+    ['user_id', 'equivalent_domains', 'custom_equivalent_domains', 'excluded_global_equivalent_domains', 'updated_at'],
+    payload.domain_settings || [],
+    true
   );
-  await runInsertBatch(
+  await insertRows(
     db,
     tableName('webauthn_credentials'),
-    buildInsertStatements(
-      db,
-      tableName('webauthn_credentials'),
-      ['id', 'user_id', 'purpose', 'name', 'public_key', 'credential_id', 'counter', 'type', 'aa_guid', 'transports', 'encrypted_user_key', 'encrypted_public_key', 'encrypted_private_key', 'supports_prf', 'created_at', 'updated_at'],
-      payload.webauthn_credentials || []
-    )
+    ['id', 'user_id', 'purpose', 'name', 'public_key', 'credential_id', 'counter', 'type', 'aa_guid', 'transports', 'encrypted_user_key', 'encrypted_public_key', 'encrypted_private_key', 'supports_prf', 'created_at', 'updated_at'],
+    payload.webauthn_credentials || []
   );
-  await runInsertBatch(
-    db,
-    tableName('folders'),
-    buildInsertStatements(db, tableName('folders'), ['id', 'user_id', 'name', 'created_at', 'updated_at'], payload.folders || [])
-  );
-  await runInsertBatch(
+  await insertRows(db, tableName('folders'), ['id', 'user_id', 'name', 'created_at', 'updated_at'], payload.folders || []);
+  await insertRows(
     db,
     tableName('ciphers'),
-    buildInsertStatements(
-      db,
-      tableName('ciphers'),
-      ['id', 'user_id', 'type', 'folder_id', 'name', 'notes', 'favorite', 'data', 'reprompt', 'key', 'created_at', 'updated_at', 'archived_at', 'deleted_at'],
-      payload.ciphers || []
-    )
+    ['id', 'user_id', 'type', 'folder_id', 'name', 'notes', 'favorite', 'data', 'reprompt', 'key', 'created_at', 'updated_at', 'archived_at', 'deleted_at'],
+    payload.ciphers || []
   );
-  await runInsertBatch(
-    db,
-    tableName('attachments'),
-    buildInsertStatements(db, tableName('attachments'), ['id', 'cipher_id', 'file_name', 'size', 'size_name', 'key'], payload.attachments || [])
-  );
+  await insertRows(db, tableName('attachments'), ['id', 'cipher_id', 'file_name', 'size', 'size_name', 'key'], payload.attachments || []);
 }
 
 export async function importBackupArchiveBytes(
