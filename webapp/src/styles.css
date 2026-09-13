@@ -75,6 +75,10 @@
 .dialog-warning-kicker {
   letter-spacing: 0;
   text-transform: none;
+  /* overlays.css 里 kicker 用的是字面量 #b91c1c（浅色主题的红）。同组的
+     .dialog-warning-badge / .dialog-message.warning 都在这层做了 token 化，kicker 漏了⇒
+     暗色下 #b91c1c 落在卡片底 rgb(21,27,36) 上只有 2.673:1（需 4.5）。 */
+  color: var(--danger);
 }
 
 .dialog-message.warning,
@@ -480,9 +484,15 @@ h4 {
 .settings-field-note,
 .backup-inline-note,
 .detail-sub,
-.list-sub,
-.backup-destination-meta {
+.list-sub {
   color: var(--muted);
+}
+
+/* .backup-destination-meta 原本也在上面那组里（--muted = #64748b），但 /backup 的目的地卡片底
+   是浅蓝 rgb(233,239,253)，在其上只有 4.143:1（需 4.5）⇒ 单独拆出来用深一档的 --muted-mid
+   （实测 6.58:1）。暗色另有 dark.css 的 :root[data-theme='dark'] 覆盖，优先级更高，不受影响。 */
+.backup-destination-meta {
+  color: var(--muted-mid);
 }
 
 .field {
@@ -531,6 +541,29 @@ h4 {
   touch-action: manipulation;
 }
 
+/* 弹窗按钮的尺寸。
+ *
+ * 为什么放在入口层、且只用 0-1-0 的 `.dialog-btn`：
+ *   · 组件层 overlays.css 原本写的是 @apply h-[50px] text-xl，但与本文件上方的
+ *     `.btn { height: 38px; font-size: 14px }` 同为 0-1-0，而本文件位于所有 @import 之后
+ *     ⇒ 那两个尺寸声明被静默压掉（实测恒为 38px / 14px，**从未生效**）。
+ *   · 在这里用 0-1-0：压得过上面的 .btn（同权重、更靠前），
+ *     又不会压过任何 0-2-0 的组件级规则（如 vault.css 的
+ *     `.totp-scan-actions .dialog-btn { mt-0 text-base }`，那是扫码弹窗要的小号按钮）。
+ *   · 移动端覆盖也必须放这里：写进 responsive.css 会先加载，被本规则盖住。
+ */
+.dialog-btn {
+  height: 50px;
+  font-size: 1.25rem; /* 与组件层原声明的 text-xl 等值 */
+}
+
+@media (max-width: 1180px) {
+  .dialog-btn {
+    height: 46px;
+    font-size: 16px;
+  }
+}
+
 .btn.small,
 .topbar-actions .btn {
   height: 32px;
@@ -570,7 +603,9 @@ h4 {
 .btn-danger {
   background: color-mix(in srgb, var(--danger) 5%, var(--panel));
   border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
-  color: var(--danger);
+  /* 不用 --danger：浅色下 #dc2626 落在按钮自身的淡红底（实测 rgb(253,244,244)）上只有 4.474:1（需 4.5）。
+     --danger-text 浅色下略深（#c11f1f ⇒ 实测 5.58:1），暗色下等于 --danger ⇒ 暗色表现不变。 */
+  color: var(--danger-text);
 }
 
 .btn-danger:hover:not(:disabled) {

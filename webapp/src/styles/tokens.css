@@ -11,6 +11,9 @@
   --text-muted: #64748b;
   --muted: #64748b;
   --muted-strong: #334155;
+  /* 中间档：--muted(#64748b) 落在浅色卡片底（如 /backup 目的地卡的 rgb(233,239,253)）上
+     只有 4.143:1，低于正文所需的 4.5；本 token 用于这类「浅色底上的次要文字」（实测 6.58:1） */
+  --muted-mid: #475569;
   --primary: #2563eb;
   --primary-hover: #1d4ed8;
   --primary-strong: #1e40af;
@@ -19,6 +22,8 @@
   --accent: #0d9488;
   --accent-soft: #e6f6f3;
   --danger: #dc2626;
+  /* 危险色用作**文字**时的取值：--danger 本身在淡色底上作前景略浅（实测 4.474:1 < 4.5） */
+  --danger-text: #c11f1f;
   --success: #059669;
   --warning: #d97706;
   --overlay-strong: rgba(15, 23, 42, 0.62);
@@ -109,6 +114,10 @@
   --accent: #2dd4bf;
   --accent-soft: rgba(45, 212, 191, 0.12);
   --danger: #f87171;
+  /* 暗色下 --danger 作为文字已达标（实测 0 处不达标），保持一致 */
+  --danger-text: var(--danger);
+  /* 暗色下 --muted 已达标，保持一致 ⇒ 不影响任何现有表现 */
+  --muted-mid: var(--muted);
   --success: #34d399;
   --warning: #fbbf24;
   --overlay-strong: rgba(0, 0, 0, 0.75);

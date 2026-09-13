@@ -90,8 +90,18 @@
   box-shadow: 0 10px 28px rgba(248, 113, 113, 0.08) inset;
 }
 
+/* 只保留「布局」部分；尺寸（高度/字号）已移到入口层 styles.css 的 `.dialog-btn`。
+ *
+ * 原因：这里原本写的是 @apply mt-2 h-[50px] w-full text-xl，但入口层 styles.css 的
+ *   `.btn { height: 38px; font-size: 14px }` 与 .dialog-btn 同为 0-1-0 权重，
+ *   且入口层位于所有 @import 之后 ⇒ 尺寸声明被静默压掉（实测恒为 38px / 14px，从未生效）。
+ *
+ * 为什么不在**这里**用 `.dialog-card .dialog-btn`（0-2-0）压过 .btn：
+ *   vault.css 的 `.totp-scan-actions .dialog-btn`（同为 0-2-0）在它之前导入，
+ *   会被反向压掉 ⇒ 弄坏扫码弹窗按钮的 text-base / mt-0。
+ *   放进入口层用 0-1-0 则两头都不碰：压得过 .btn，压不过任何 0-2-0 组件级规则。 */
 .dialog-btn {
-  @apply mt-2 h-[50px] w-full text-xl;
+  @apply mt-2 w-full;
 }
 
 .dialog-extra {
