@@ -981,18 +981,13 @@
     max-width: 520px;
   }
 
-  .dialog-warning-strip {
-    margin: -18px -16px 16px;
-  }
-
   .dialog-title {
     font-size: 24px;
   }
 
-  .dialog-btn {
-    height: 46px;
-    font-size: 16px;
-  }
+  /* .dialog-btn 的移动端尺寸（46px / 16px）已移到入口层 styles.css：
+     在这里写 0-1-0 会被入口层覆盖，写 0-2-0 又会压过 vault.css 的
+     `.totp-scan-actions .dialog-btn`。详见 styles.css 中 `.dialog-btn` 的注释。 */
 
 .toast-stack {
   top: 10px;

@@ -206,15 +206,12 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
         }}
       >
         {props.variant === 'warning' ? (
-          <>
-            <div className="dialog-warning-strip" aria-hidden="true" />
-            <div className="dialog-warning-head">
-              <div className="dialog-warning-badge" aria-hidden="true">
-                <TriangleAlert size={24} />
-              </div>
-              <div className="dialog-warning-kicker">{t('txt_warning')}</div>
+          <div className="dialog-warning-head">
+            <div className="dialog-warning-badge" aria-hidden="true">
+              <TriangleAlert size={24} />
             </div>
-          </>
+            <div className="dialog-warning-kicker">{t('txt_warning')}</div>
+          </div>
         ) : null}
         {props.closeButton && (
           <button
