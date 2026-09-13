@@ -1,6 +1,6 @@
 import type {
   AuthenticationResponseJSON,
-  AuthenticatorTransportFuture,
+  AuthenticatorTransport,
   RegistrationResponseJSON,
   WebAuthnCredential,
 } from '@simplewebauthn/server';
@@ -230,7 +230,7 @@ export function toSimpleWebAuthnCredential(credential: AccountPasskeyCredential)
     id: credential.credentialId,
     publicKey: Uint8Array.from(base64UrlToBytes(credential.publicKey)),
     counter: credential.counter,
-    transports: (credential.transports || undefined) as AuthenticatorTransportFuture[] | undefined,
+    transports: (credential.transports || undefined) as AuthenticatorTransport[] | undefined,
   };
 }
 
@@ -250,7 +250,7 @@ export function normalizeRegistrationResponse(raw: unknown): RegistrationRespons
       attestationObject: normalizeWebAuthnBase64(response.attestationObject),
       clientDataJSON: normalizeWebAuthnBase64(clientDataJSON),
       authenticatorData: response.authenticatorData ? normalizeWebAuthnBase64(response.authenticatorData) : undefined,
-      transports: Array.isArray(response.transports) ? response.transports.map(String) as AuthenticatorTransportFuture[] : undefined,
+      transports: Array.isArray(response.transports) ? response.transports.map(String) as AuthenticatorTransport[] : undefined,
       publicKey: response.publicKey ? normalizeWebAuthnBase64(response.publicKey) : undefined,
       publicKeyAlgorithm: typeof response.publicKeyAlgorithm === 'number' ? response.publicKeyAlgorithm : undefined,
     },
