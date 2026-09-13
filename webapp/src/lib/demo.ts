@@ -713,7 +713,37 @@ export const DEMO_BACKUP_SETTINGS: AdminBackupSettings = {
   ],
 };
 
+/**
+ * 演示日志的时间戳一律**相对当前时间**生成（参数单位：小时）。
+ *
+ * 为什么不能像本文件其它演示数据那样写死日期：日志中心默认只查「最近 7 天」，
+ * 日期写死在过去会让整个页面在默认视图下空着，示例也就失去了意义。
+ */
+function demoLogAt(hoursAgo: number): string {
+  return new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();
+}
+
 export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
+  {
+    // 应用版本启动记录（系统事件：没有操作者，界面上 actor 显示 "—"）
+    id: 'demo-log-app-version',
+    actorUserId: null,
+    actorEmail: null,
+    action: 'system.app.version.started',
+    category: 'system',
+    level: 'info',
+    targetType: 'system',
+    targetId: null,
+    targetUserEmail: null,
+    metadata: JSON.stringify({
+      version: '1.8.0',
+      previousVersion: '1.7.0',
+      deploymentId: 'demo-deployment-9f3c1a2b',
+      deployedAt: demoLogAt(0.9),
+    }),
+    createdAt: demoLogAt(0.75),
+    object: 'auditLog',
+  },
   {
     id: 'demo-log-auth-login',
     actorUserId: DEMO_USER_ID,
@@ -725,7 +755,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: null,
     targetUserEmail: null,
     metadata: JSON.stringify({ ip: '203.0.113.42', device: 'Chrome 125 on Windows', location: 'San Francisco, US' }),
-    createdAt: '2026-07-08T14:32:10.000Z',
+    createdAt: demoLogAt(2),
     object: 'auditLog',
   },
   {
@@ -739,7 +769,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: null,
     targetUserEmail: null,
     metadata: JSON.stringify({ ip: '198.51.100.7', reason: 'invalid_password', attemptCount: 3 }),
-    createdAt: '2026-07-08T13:15:00.000Z',
+    createdAt: demoLogAt(4),
     object: 'auditLog',
   },
   {
@@ -753,7 +783,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: null,
     targetUserEmail: null,
     metadata: JSON.stringify({ ip: '203.0.113.42', trigger: 'user_initiated' }),
-    createdAt: '2026-07-07T09:00:00.000Z',
+    createdAt: demoLogAt(18),
     object: 'auditLog',
   },
   {
@@ -767,7 +797,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: 'demo-device-browser',
     targetUserEmail: null,
     metadata: JSON.stringify({ ip: '203.0.113.42', device: 'Chrome 125 on Windows' }),
-    createdAt: '2026-07-06T18:45:30.000Z',
+    createdAt: demoLogAt(26),
     object: 'auditLog',
   },
   {
@@ -781,7 +811,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: DEMO_USER_ID,
     targetUserEmail: DEMO_PROFILE.email,
     metadata: JSON.stringify({ ip: '203.0.113.42', trigger: 'user_initiated' }),
-    createdAt: '2026-07-05T10:00:00.000Z',
+    createdAt: demoLogAt(40),
     object: 'auditLog',
   },
   {
@@ -795,7 +825,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: 'demo-user-003',
     targetUserEmail: 'suspended@example.com',
     metadata: JSON.stringify({ ip: '203.0.113.42', reason: 'violation_of_tos' }),
-    createdAt: '2026-07-04T16:20:00.000Z',
+    createdAt: demoLogAt(52),
     object: 'auditLog',
   },
   {
@@ -809,7 +839,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: 'demo-user-004',
     targetUserEmail: 'newuser@example.com',
     metadata: JSON.stringify({ ip: '192.0.2.55', invite: 'DEMO-INVITE-2026' }),
-    createdAt: '2026-07-03T08:30:00.000Z',
+    createdAt: demoLogAt(64),
     object: 'auditLog',
   },
   {
@@ -823,7 +853,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: 'demo-device-mobile',
     targetUserEmail: null,
     metadata: JSON.stringify({ deviceName: 'iPhone', os: 'iOS 18', ip: '203.0.113.42' }),
-    createdAt: '2026-07-02T12:15:00.000Z',
+    createdAt: demoLogAt(76),
     object: 'auditLog',
   },
   {
@@ -837,7 +867,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: 'demo-device-old',
     targetUserEmail: null,
     metadata: JSON.stringify({ deviceName: 'Firefox on Linux', ip: '198.51.100.20', trigger: 'user_initiated' }),
-    createdAt: '2026-07-01T09:45:00.000Z',
+    createdAt: demoLogAt(88),
     object: 'auditLog',
   },
   {
@@ -851,7 +881,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: null,
     targetUserEmail: null,
     metadata: JSON.stringify({ ip: '203.0.113.42', trigger: 'password_change' }),
-    createdAt: '2026-07-01T09:00:00.000Z',
+    createdAt: demoLogAt(92),
     object: 'auditLog',
   },
   {
@@ -865,7 +895,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: null,
     targetUserEmail: null,
     metadata: JSON.stringify({ fileName: 'nodewarden_backup_20260701_030000.zip', size: '1.2 MB', destination: 'Demo WebDAV' }),
-    createdAt: '2026-07-01T03:00:00.000Z',
+    createdAt: demoLogAt(100),
     object: 'auditLog',
   },
   {
@@ -879,7 +909,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: null,
     targetUserEmail: null,
     metadata: JSON.stringify({ fileName: 'nodewarden_backup_20260628_030000.zip', checksum: 'verified' }),
-    createdAt: '2026-06-30T14:00:00.000Z',
+    createdAt: demoLogAt(112),
     object: 'auditLog',
   },
   {
@@ -893,7 +923,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: null,
     targetUserEmail: null,
     metadata: JSON.stringify({ format: 'encrypted_json', totalItems: 24 }),
-    createdAt: '2026-06-28T11:30:00.000Z',
+    createdAt: demoLogAt(124),
     object: 'auditLog',
   },
   {
@@ -907,7 +937,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: null,
     targetUserEmail: null,
     metadata: JSON.stringify({ changedKeys: ['signupsAllowed', 'kdfIterations'], ip: '203.0.113.42' }),
-    createdAt: '2026-06-25T08:00:00.000Z',
+    createdAt: demoLogAt(136),
     object: 'auditLog',
   },
   {
@@ -921,7 +951,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: 'DEMO-INVITE-2026',
     targetUserEmail: null,
     metadata: JSON.stringify({ expiresIn: '168h', ip: '203.0.113.42' }),
-    createdAt: '2026-06-20T10:00:00.000Z',
+    createdAt: demoLogAt(148),
     object: 'auditLog',
   },
   {
@@ -935,7 +965,7 @@ export const DEMO_AUDIT_LOGS: AuditLogEntry[] = [
     targetId: null,
     targetUserEmail: null,
     metadata: JSON.stringify({ changedKeys: ['smtp.host', 'smtp.port'], ip: '203.0.113.42' }),
-    createdAt: '2026-06-18T15:30:00.000Z',
+    createdAt: demoLogAt(158),
     object: 'auditLog',
   },
 ];

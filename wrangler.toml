@@ -31,6 +31,11 @@ class_name = "BackupTransferRunner"
 binding = "ATTACHMENTS"
 bucket_name = "nodewarden-attachments"
 
+#  Worker 版本的元数据（id / tag / timestamp）。每次构建部署都会换一个新的 id，
+#  用来识别“版本号没变、只是重新构建并部署”的情况。
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
 [[migrations]]
 tag = "v1-notifications-hub"
 new_sqlite_classes = [ "NotificationsHub" ]

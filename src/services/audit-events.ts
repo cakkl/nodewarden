@@ -87,6 +87,12 @@ const ALLOWED_METADATA_KEYS = new Set([
   'error',
   'expiresInHours',
   'checksumMismatchAccepted',
+  // 应用版本启动事件（system.app.version.started，见 services/app-version-log.ts）。
+  // 不登记的话 sanitizeMetadata 会把它们静默丢弃，日志中心里就只剩动作名。
+  'version',
+  'previousVersion',
+  'deploymentId',
+  'deployedAt',
 ]);
 
 function normalizePositiveInteger(value: unknown, allowed: readonly number[]): number | null {
