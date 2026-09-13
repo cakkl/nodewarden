@@ -208,28 +208,62 @@ export async function clearAuditLogs(db: D1Database): Promise<number> {
   return Number(result.meta.changes ?? 0);
 }
 
+/**
+ * 列表查询的 FROM/JOIN 子句。
+ *
+ * `buildAuditWhere` 生成的 WHERE 可能引用 `actor.email` / `target.email`
+ * （关键词搜索会查这两列），因此**计数查询必须复用同一段 FROM**，
+ * 否则会出现 "no such column: actor.email" 或口径不一致。
+ */
+const AUDIT_LIST_FROM =
+  'FROM audit_logs l ' +
+  'LEFT JOIN users actor ON actor.id = l.actor_user_id ' +
+  "LEFT JOIN users target ON l.target_type = 'user' AND target.id = l.target_id ";
+
 export async function listAuditLogs(db: D1Database, options: AuditLogListOptions): Promise<AuditLogListResult> {
   const limit = Math.max(1, Math.min(200, Math.floor(options.limit || 50)));
   const offset = Math.max(0, Math.floor(options.offset || 0));
   const { where, params } = buildAuditWhere(options);
 
-  const rows = await db
-    .prepare(
-      'SELECT l.id, l.actor_user_id, actor.email AS actor_email, l.action, l.category, l.level, l.target_type, l.target_id, target.email AS target_user_email, l.metadata, l.created_at ' +
-        'FROM audit_logs l ' +
-        'LEFT JOIN users actor ON actor.id = l.actor_user_id ' +
-        "LEFT JOIN users target ON l.target_type = 'user' AND target.id = l.target_id " +
-        `${where} ORDER BY l.created_at DESC LIMIT ? OFFSET ?`
-    )
-    .bind(...params, limit + 1, offset)
-    .all<any>();
+  // 计数查询：
+  // - 无关键词时 WHERE 只引用 l.*，因此**不要 JOIN**（去掉 JOIN 后规划器会走
+  //   `SEARCH/SCAN ... USING COVERING INDEX idx_audit_logs_category_created`，实测 0.1 ms）；
+  // - 有关键词时 WHERE 会引用 actor.email / target.email，必须复用同一段 FROM，
+  //   否则列名不存在或口径不一致（这条 `LIKE '%q%'` 本来就无法用索引，详见 query-plan 白名单）。
+  const countSql = options.q
+    ? `SELECT COUNT(*) AS total ${AUDIT_LIST_FROM}${where}`
+    : `SELECT COUNT(*) AS total FROM audit_logs l ${where}`;
+
+  // 两个查询并行发出，避免给翻页多叠加一次串行往返。
+  const [rows, countRow] = await Promise.all([
+    db
+      .prepare(
+        'SELECT l.id, l.actor_user_id, actor.email AS actor_email, l.action, l.category, l.level, l.target_type, l.target_id, target.email AS target_user_email, l.metadata, l.created_at ' +
+          `${AUDIT_LIST_FROM}${where} ORDER BY l.created_at DESC LIMIT ? OFFSET ?`
+      )
+      .bind(...params, limit + 1, offset)
+      .all<any>(),
+    db
+      .prepare(countSql)
+      .bind(...params)
+      .first<{ total: number | string | null }>(),
+  ]);
+
   const results = rows.results || [];
   const logs = results.slice(0, limit).map(auditLogFromRow);
+  // 多取一行来判断"还有更多"，避免为此再发一次查询。
   const hasMore = results.length > limit;
+
+  // 分页分母必须是**真实总数**。
+  //
+  // 这里曾经是 `offset + logs.length + (hasMore ? 1 : 0)` —— 那是"已走过的行数 + 本页行数"，
+  // 于是每翻一页分母恰好 +limit，`ceil(total/limit)` 恒等于"页码 + 1"，
+  // 用户永远看不到真实总条数/真实总页数（只有最后一页凑巧是对的）。
+  const total = Number(countRow?.total ?? 0);
 
   return {
     logs,
-    total: offset + logs.length + (hasMore ? 1 : 0),
+    total,
     hasMore,
   };
 }
