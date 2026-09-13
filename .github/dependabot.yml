@@ -8,6 +8,10 @@ updates:
       day: "monday"
       time: "05:00"
       timezone: "Asia/Shanghai"
+    # 新版本发布后先等 7 天再提 PR（cooldown）：避免上游一天连发几个补丁就刷出一串 PR，
+    # 也避免刚发布、尚未被广泛验证的版本立刻进仓。
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     groups:
       npm-minor-and-patch:
@@ -26,6 +30,10 @@ updates:
       day: "monday"
       time: "05:10"
       timezone: "Asia/Shanghai"
+    # 同上。本生态的 open-pull-requests-limit 是 0，即不会开出版本更新 PR，
+    # 所以这条 cooldown 目前不影响实际行为，加它只为两个生态配置保持一致。
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 0
     groups:
       github-actions:

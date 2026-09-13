@@ -1,17 +1,22 @@
-# gitleaks 配置：只用于排除「测试夹具里的假凭据」这一种误报。
+# gitleaks 配置：只用于排除「刻意写死的假凭据」误报 —— 测试夹具里的自述式 JWT 密钥，
+# 以及 Web 端 UI 演示数据里的假 SSH 私钥。
 #
 # 为什么需要配置级白名单，而不是改代码或加行内注释：
 #   - `scripts/lib/test-harness.ts` 定义的测试用 JWT 密钥，取值是自述式字符串
 #     `test-jwt-secret-at-least-32-characters-long`：变量名含 "secret"、熵值 3.602
 #     高于阈值，于是熵值类规则 `generic-api-key` 必然命中；另有 3 个测试文件把同一
 #     字面量写死在本地，合计 4 处（均出自提交 8efe2a6）。
+#   - `webapp/src/lib/demo.ts` 的演示密码库里有一条名为 "Production SSH key" 的假条目：
+#     `notes` 字段自己就写着 `Fake SSH key material for UI preview.`，所谓私钥的主体
+#     是字面量 `DEMO-PRIVATE-KEY`。`private-key` 规则只认 `-----BEGIN/END ... PRIVATE
+#     KEY-----` 装甲头、不校验中间是否为合法 base64，因此必然命中（2026-06-23 首次报出）。
 #   - gitleaks 的扫描单位是「**本次 push 范围内新增的行**」（日志可见它执行的是
 #     `git log -p -U0 --no-merges --first-parent <range>`）。因此即使后续提交删掉
 #     或改写这些行，只要 8efe2a6 仍在该范围内（例如合并进 main 的那次 push），
 #     行内 `gitleaks:allow` 注释也无能为力 —— 只有配置级白名单能稳定生效。
 #
 # 白名单按**那一个字面值**匹配，不是按目录、也不是按文件：
-# 测试目录里若真的混进其它凭据（哪怕同一个文件），其它取值与其它规则仍会照常报出。
+# 测试目录或演示数据里若真的混进其它凭据（哪怕同一个文件），其它取值与其它规则仍会照常报出。
 #
 # 注意：本文件是在 gitleaks 8.24.3（CI 中 gitleaks-action 自动安装的版本）下验证的。
 # 升级 gitleaks 大版本时需复核 `[allowlist]` 的写法（新版本已改用 `[[allowlists]]`）。
@@ -20,5 +25,8 @@
 useDefault = true
 
 [allowlist]
-description = "测试夹具中的自述式假 JWT 密钥（非凭据）"
-regexes = ['''test-jwt-secret-at-least-32-characters-long''']
+description = "刻意写死的假凭据：测试用自述式 JWT 密钥 + UI 演示数据里的假 SSH 私钥"
+regexes = [
+  '''test-jwt-secret-at-least-32-characters-long''',
+  '''DEMO-PRIVATE-KEY''',
+]
