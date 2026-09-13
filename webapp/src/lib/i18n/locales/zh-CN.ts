@@ -313,6 +313,7 @@ const zhCN: Record<string, string> = {
   "txt_backup_error_another_backup_or_restore_running": "已有备份或还原任务正在执行。",
   "txt_backup_error_another_backup_running": "已有备份任务正在执行。",
   "txt_backup_error_archive_missing_attachment_files": "此备份归档不含附件文件，请改用「从远端恢复」。",
+  "txt_backup_error_archive_db_payload_too_large": "备份数据库体积超过恢复上限，无法导出：{database} MB，上限 {limit} MB。请先精简过大的备注或密码项后重新备份。",
   "txt_backup_error_archive_export_too_large": "备份体积超出导出预算，无法导出：数据库 {database} MB + 附件 {attachments} MB，上限 {limit} MB。请减少附件后重试。",
   "txt_backup_error_archive_upload_failed": "备份压缩包上传失败。",
   "txt_backup_error_archive_upload_verification_failed_attempts": "备份上传校验在 {count} 次尝试后仍失败：{reason}",

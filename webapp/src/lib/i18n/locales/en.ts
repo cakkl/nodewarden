@@ -363,6 +363,7 @@ const en: Record<string, string> = {
   "txt_backup_error_another_backup_or_restore_running": "Another backup or restore task is already running.",
   "txt_backup_error_another_backup_running": "Another backup task is already running.",
   "txt_backup_error_archive_missing_attachment_files": "Backup archive has no attachment files. Restore it from the remote destination instead.",
+  "txt_backup_error_archive_db_payload_too_large": "Backup database payload is too large to restore: {database} MB exceeds the {limit} MB limit. Trim oversized notes or vault items and back up again.",
   "txt_backup_error_archive_export_too_large": "Backup is too large to export: {database} MB database + {attachments} MB attachments exceeds the {limit} MB budget. Remove some attachments and try again.",
   "txt_backup_error_archive_upload_failed": "Backup archive upload failed.",
   "txt_backup_error_archive_upload_verification_failed_attempts": "Backup upload verification failed after {count} attempt(s): {reason}",

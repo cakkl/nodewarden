@@ -310,6 +310,7 @@ const it: Record<string, string> = {
   "txt_backup_error_another_backup_or_restore_running": "Un'altra operazione di backup o ripristino è già in esecuzione.",
   "txt_backup_error_another_backup_running": "Un'altra operazione di backup è già in esecuzione.",
   "txt_backup_error_archive_missing_attachment_files": "Questo archivio di backup non contiene file allegati. Ripristinalo dalla destinazione remota.",
+  "txt_backup_error_archive_db_payload_too_large": "Il contenuto del database del backup è troppo grande per il ripristino: {database} MB superano il limite di {limit} MB. Riduci le note o gli elementi della cassaforte troppo grandi e crea di nuovo il backup.",
   "txt_backup_error_archive_export_too_large": "Il backup è troppo grande per l'esportazione: {database} MB di database + {attachments} MB di allegati superano il limite di {limit} MB. Rimuovi alcuni allegati e riprova.",
   "txt_backup_error_archive_upload_failed": "Caricamento dell'archivio di backup fallito.",
   "txt_backup_error_archive_upload_verification_failed_attempts": "Verifica del caricamento del backup fallita dopo {count} tentativi: {reason}",

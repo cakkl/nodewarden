@@ -310,6 +310,7 @@ const ru: Record<string, string> = {
   "txt_backup_error_another_backup_or_restore_running": "Уже выполняется задача резервного копирования или восстановления.",
   "txt_backup_error_another_backup_running": "Уже выполняется задача резервного копирования.",
   "txt_backup_error_archive_missing_attachment_files": "Архив резервной копии не содержит файлов вложений. Восстановите его из удалённого расположения.",
+  "txt_backup_error_archive_db_payload_too_large": "База данных резервной копии слишком велика для восстановления: {database} МБ превышает лимит {limit} МБ. Сократите слишком большие заметки или элементы хранилища и повторите резервное копирование.",
   "txt_backup_error_archive_export_too_large": "Резервная копия слишком велика для экспорта: база данных {database} МБ + вложения {attachments} МБ, лимит {limit} МБ. Удалите часть вложений и повторите попытку.",
   "txt_backup_error_archive_upload_failed": "Не удалось загрузить архив резервной копии.",
   "txt_backup_error_archive_upload_verification_failed_attempts": "Проверка загрузки не прошла после {count} попыток: {reason}",

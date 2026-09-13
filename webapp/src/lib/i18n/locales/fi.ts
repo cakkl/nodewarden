@@ -310,6 +310,7 @@ const fi: Record<string, string> = {
   "txt_backup_error_another_backup_or_restore_running": "Toinen varmuuskopiointi- tai palautustehtävä on jo käynnissä.",
   "txt_backup_error_another_backup_running": "Toinen varmuuskopiointitehtävä on jo käynnissä.",
   "txt_backup_error_archive_missing_attachment_files": "Varmuuskopioarkisto ei sisällä liitetiedostoja. Palauta se etäkohteesta.",
+  "txt_backup_error_archive_db_payload_too_large": "Varmuuskopion tietokannan sisältö on liian suuri palautettavaksi: {database} Mt ylittää rajan {limit} Mt. Karsi liian suuret muistiinpanot tai holvin kohteet ja varmuuskopioi uudelleen.",
   "txt_backup_error_archive_export_too_large": "Varmuuskopio on liian suuri vietäväksi: tietokanta {database} Mt + liitteet {attachments} Mt, raja {limit} Mt. Poista osa liitteistä ja yritä uudelleen.",
   "txt_backup_error_archive_upload_failed": "Varmuuskopioarkiston lähetys epäonnistui.",
   "txt_backup_error_archive_upload_verification_failed_attempts": "Varmuuskopion lähetyksen vahvistus epäonnistui {count} yrityksen jälkeen: {reason}",

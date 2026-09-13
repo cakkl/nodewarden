@@ -310,6 +310,7 @@ const es: Record<string, string> = {
   "txt_backup_error_another_backup_or_restore_running": "Ya hay una tarea de copia o restauración en curso.",
   "txt_backup_error_another_backup_running": "Ya hay una tarea de copia en curso.",
   "txt_backup_error_archive_missing_attachment_files": "Este archivo de copia de seguridad no contiene archivos adjuntos. Restáurelo desde el destino remoto.",
+  "txt_backup_error_archive_db_payload_too_large": "La carga de la base de datos de la copia es demasiado grande para restaurarla: {database} MB supera el límite de {limit} MB. Reduce las notas o los elementos de la bóveda demasiado grandes y vuelve a crear la copia.",
   "txt_backup_error_archive_export_too_large": "La copia de seguridad es demasiado grande para exportarla: {database} MB de base de datos + {attachments} MB de adjuntos superan el límite de {limit} MB. Elimina algunos adjuntos e inténtalo de nuevo.",
   "txt_backup_error_archive_upload_failed": "No se pudo subir el archivo de copia.",
   "txt_backup_error_archive_upload_verification_failed_attempts": "La verificación de subida falló tras {count} intento(s): {reason}",

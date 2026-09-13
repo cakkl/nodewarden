@@ -310,6 +310,7 @@ const sv: Record<string, string> = {
   "txt_backup_error_another_backup_or_restore_running": "En annan säkerhetskopiering eller återställning körs redan.",
   "txt_backup_error_another_backup_running": "En annan säkerhetskopiering körs redan.",
   "txt_backup_error_archive_missing_attachment_files": "Detta säkerhetskopia innehåller inga bilagefiler. Återställ den från fjärrmålet i stället.",
+  "txt_backup_error_archive_db_payload_too_large": "Säkerhetskopians databasinnehåll är för stort för att återställas: {database} MB överskrider gränsen på {limit} MB. Trimma alltför stora anteckningar eller valvobjekt och säkerhetskopiera igen.",
   "txt_backup_error_archive_export_too_large": "Säkerhetskopian är för stor för att exporteras: {database} MB databas + {attachments} MB bilagor, gräns {limit} MB. Ta bort några bilagor och försök igen.",
   "txt_backup_error_archive_upload_failed": "Uppladdning av säkerhetskopia misslyckades.",
   "txt_backup_error_archive_upload_verification_failed_attempts": "Uppladdningsverifiering av säkerhetskopia misslyckades efter {count} försök: {reason}",

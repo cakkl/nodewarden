@@ -310,6 +310,7 @@ const fr: Record<string, string> = {
   "txt_backup_error_another_backup_or_restore_running": "Une autre tâche de sauvegarde ou de restauration est déjà en cours d'exécution.",
   "txt_backup_error_another_backup_running": "Une autre tâche de sauvegarde est déjà en cours d'exécution.",
   "txt_backup_error_archive_missing_attachment_files": "Cette archive de sauvegarde ne contient pas de fichiers joints. Restaurez-la depuis la destination distante.",
+  "txt_backup_error_archive_db_payload_too_large": "La charge de base de données de la sauvegarde est trop volumineuse pour être restaurée : {database} Mo dépassent la limite de {limit} Mo. Réduisez les notes ou les éléments de coffre trop volumineux, puis relancez la sauvegarde.",
   "txt_backup_error_archive_export_too_large": "La sauvegarde est trop volumineuse pour être exportée : {database} Mo de base de données + {attachments} Mo de pièces jointes, limite {limit} Mo. Supprimez des pièces jointes et réessayez.",
   "txt_backup_error_archive_upload_failed": "Le téléchargement de l'archive de sauvegarde a échoué.",
   "txt_backup_error_archive_upload_verification_failed_attempts": "La vérification du téléchargement de la sauvegarde a échoué après {count} tentative(s) : {reason}",

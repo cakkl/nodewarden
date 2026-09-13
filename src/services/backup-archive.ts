@@ -113,6 +113,11 @@ export interface BuildBackupArchiveOptions {
    * 却没有任何附件字节，且会被本地导入以 `missing required file` 拒绝。
    */
   inlineAttachmentBlobs?: boolean;
+  /**
+   * 仅供测试注入更小的「导出侧 db.json 上限」，用于覆盖拒绝分支。
+   * 生产调用方必须省略 —— 真实上限来自恢复侧的 `MAX_BACKUP_DB_JSON_BYTES`。
+   */
+  restorableDbPayloadLimitBytes?: number;
   progress?: BackupArchiveBuildProgressReporter;
   timeZone?: string;
 }
@@ -335,6 +340,37 @@ const MISSING_ATTACHMENT_FILES_MESSAGE =
 export const TOO_LARGE_TO_EXPORT_MESSAGE_PREFIX = 'Backup archive is too large to export';
 
 /**
+ * 导出侧 `db.json` 超限的文案前缀。
+ *
+ * 完整文案带具体字节数，前端同样用「前缀 + 数字」正则匹配
+ * （`webapp/src/lib/i18n.ts` → `txt_backup_error_archive_db_payload_too_large`）；
+ * 修改前缀时必须同步更新该正则。
+ */
+export const TOO_LARGE_DB_PAYLOAD_MESSAGE_PREFIX = 'Backup database payload is too large to restore';
+
+/**
+ * 导出的 `db.json` 必须落在**恢复侧**能接受的上限内，否则产出的归档谁都无法恢复。
+ *
+ * 恢复侧按「单条目」判定 `db.json`（`createBackupUnzipFilter` / `parseBackupArchive`，
+ * 上限 `MAX_BACKUP_DB_JSON_BYTES`）。导出侧过去**只**在"内联附件"分支里做体积预检，
+ * 因此以下路径会产出无法恢复的归档：
+ * - 远端 / 定时备份（`inlineAttachmentBlobs` 恒为 false）
+ * - 本地导出但**不勾选**附件
+ * 现在把这个预检放在所有导出路径的唯一汇聚点（`buildBackupArchive`），一处覆盖全部。
+ *
+ * `limitBytes` 仅供测试注入更小的上限以覆盖拒绝分支；生产调用方必须省略。
+ */
+export function assertBackupDbPayloadRestorable(
+  dbPayloadBytes: number,
+  limitBytes: number = MAX_BACKUP_DB_JSON_BYTES
+): void {
+  if (dbPayloadBytes <= limitBytes) return;
+  throw new Error(
+    `${TOO_LARGE_DB_PAYLOAD_MESSAGE_PREFIX}: ${dbPayloadBytes} database bytes exceed the ${limitBytes} byte limit`
+  );
+}
+
+/**
  * 内联导出时附件允许占用的字节预算（`db.json` 已从总量上限中扣除）。
  *
  * 必须**同时**满足两条约束，缺一就会产出「导出成功、但本地导入必然失败」的归档：
@@ -411,9 +447,15 @@ export function parseBackupArchive(
   const decoder = new TextDecoder();
   let manifest: BackupManifest;
   let rawDb: unknown;
+  // `db.json` 是归档里最大的条目（上限 32 MiB）。它**不需要**以"字节"形态留在返回值里：
+  // 解码成文本后立刻把引用摘掉，避免"解压产物 + 解码字符串 + 解析出的对象树"三份大块
+  // 同时在内存里（Worker isolate 上限 128 MB，恢复大库时这是最紧的一段）。
+  // 条目名保留（值为空数组），调用方仍能通过 Object.keys(files) 列举归档内容。
+  const dbText = decoder.decode(dbBytes);
+  zipped['db.json'] = new Uint8Array(0);
   try {
     manifest = JSON.parse(decoder.decode(manifestBytes)) as BackupManifest;
-    rawDb = JSON.parse(decoder.decode(dbBytes));
+    rawDb = JSON.parse(dbText);
   } catch {
     throw new Error('Backup archive contains invalid JSON metadata');
   }
@@ -637,6 +679,10 @@ export async function buildBackupArchive(
       : 'txt_backup_archive_progress_package_detail',
     includeAttachments,
   });
+
+  // 所有导出路径（本地 / 远端 / 定时）都汇到这里，因此这一处预检即可覆盖全部：
+  // 产出一个恢复侧必然拒收的归档，比直接报错更糟 —— 用户会以为"备份成功了"。
+  assertBackupDbPayloadRestorable(files['db.json'].byteLength, options.restorableDbPayloadLimitBytes);
 
   if (includeAttachments && options.inlineAttachmentBlobs) {
     // 本地导出：把附件字节内联进归档，使 zip 自包含、可被本地导入恢复。

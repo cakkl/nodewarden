@@ -313,6 +313,7 @@ const zhTW: Record<string, string> = {
   "txt_backup_error_another_backup_or_restore_running": "已有備份或還原任務正在執行。",
   "txt_backup_error_another_backup_running": "已有備份任務正在執行。",
   "txt_backup_error_archive_missing_attachment_files": "此備份封存檔不含附件檔案，請改用「從遠端還原」。",
+  "txt_backup_error_archive_db_payload_too_large": "備份資料庫體積超過還原上限，無法匯出：{database} MB，上限 {limit} MB。請先精簡過大的備註或密碼項目後重新備份。",
   "txt_backup_error_archive_export_too_large": "備份體積超出匯出預算，無法匯出：資料庫 {database} MB + 附件 {attachments} MB，上限 {limit} MB。請減少附件後重試。",
   "txt_backup_error_archive_upload_failed": "備份壓縮包上傳失敗。",
   "txt_backup_error_archive_upload_verification_failed_attempts": "備份上傳校驗在 {count} 次嘗試後仍失敗：{reason}",
