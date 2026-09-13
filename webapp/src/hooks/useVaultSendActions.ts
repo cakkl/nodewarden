@@ -361,11 +361,6 @@ export default function useVaultSendActions(options: UseVaultSendActionsOptions)
       });
     }
 
-    function removeCipherFromState(id: string) {
-      patchEncryptedCiphers((prev) => prev.filter((c) => c.id !== id));
-      patchDecryptedCiphers((prev) => prev.filter((c) => c.id !== id));
-    }
-
     function patchCipherBatch(
       ids: string[],
       updater: (cipher: Cipher) => Cipher | null,

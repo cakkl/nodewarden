@@ -68,7 +68,11 @@ function uuidToDotNetGuidBytes(value: string): Uint8Array | null {
 }
 
 function normalizeWebAuthnBase64(value: unknown): string {
-  return String(value || '').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  const normalized = String(value || '').replace(/\+/g, '-').replace(/\//g, '_');
+  // 去掉结尾的 '=' 填充：用循环而不是 /=+$/（语义一致，且不命中 CodeQL js/polynomial-redos）
+  let end = normalized.length;
+  while (end > 0 && normalized[end - 1] === '=') end -= 1;
+  return normalized.slice(0, end);
 }
 
 async function importHmacKey(secret: string): Promise<CryptoKey> {

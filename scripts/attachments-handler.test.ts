@@ -21,7 +21,6 @@ import {
   handleUploadAttachment,
 } from '../src/handlers/attachments';
 import { handleCreateCipher } from '../src/handlers/ciphers';
-import { LIMITS } from '../src/config/limits';
 import type { Env } from '../src/types';
 import { createR2MemoryBucket } from './lib/r2-memory';
 import { createSchemaDatabase, enc, insertUser, TEST_JWT_SECRET } from './lib/test-harness';

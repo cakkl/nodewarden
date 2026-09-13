@@ -7,7 +7,7 @@ import {
 import type { AccountPasskeyChallengeScope, AccountPasskeyCredential, Env, User } from '../types';
 import { StorageService } from '../services/storage';
 import { AuthService } from '../services/auth';
-import { errorResponse, identityErrorResponse, jsonResponse } from '../utils/response';
+import { errorResponse, jsonResponse } from '../utils/response';
 import { generateUUID } from '../utils/uuid';
 import { bytesToBase64Url, parseClientDataJSON } from '../utils/passkey';
 import {

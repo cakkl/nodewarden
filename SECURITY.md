@@ -13,6 +13,9 @@ Use GitHub Private Vulnerability Reporting instead:
 3. Click **Report a vulnerability**.
 4. Submit the report privately.
 
+Direct link (replace the owner if this file is reused by another fork):
+<https://github.com/cakkl/nodewarden/security/advisories/new>
+
 NodeWarden is independent from Bitwarden. Please do not report NodeWarden-specific issues to the official Bitwarden team.
 
 ## What to Include

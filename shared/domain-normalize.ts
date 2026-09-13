@@ -114,10 +114,18 @@ function extractHost(input: string): string {
     if (colonIndex > -1 && raw.indexOf(':') === colonIndex) raw = raw.slice(0, colonIndex);
   }
 
-  return raw
-    .replace(/^\*+\./, '')
-    .replace(/^\.+/, '')
-    .replace(/\.+$/, '');
+  // 用显式循环代替 /^\*+\./、/^\.+/、/\.+$/ 三个正则（语义完全一致）：
+  // CodeQL 的 js/polynomial-redos 会对"尾部量词 + 长串同一字符"报"可能变慢"，
+  // 这里不引入任何回溯，长输入也只是线性扫描。
+  let start = 0;
+  let stars = 0;
+  while (start + stars < raw.length && raw[start + stars] === '*') stars += 1;
+  // 只有"星号后面紧跟着点号"才能一起吃掉（与原 /^\*+\./ 一致）
+  if (stars > 0 && raw[start + stars] === '.') start += stars + 1;
+  while (start < raw.length && raw[start] === '.') start += 1;
+  let end = raw.length;
+  while (end > start && raw[end - 1] === '.') end -= 1;
+  return raw.slice(start, end);
 }
 
 function isValidHost(host: string): boolean {

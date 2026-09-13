@@ -234,7 +234,9 @@ export default function App() {
   const [hashPathRaw, setHashPathRaw] = useState(() => (typeof window !== 'undefined' ? window.location.hash || '' : ''));
   const [unlockPassword, setUnlockPassword] = useState('');
   const [pendingTotp, setPendingTotp] = useState<PendingTotp | null>(null);
-  const [pendingTotpMode, setPendingTotpMode] = useState<'login' | 'unlock' | null>(null);
+  // 只保留 setter：这里写入的值当前没有任何读取点（CodeQL js/unused-local-variable）。
+  // 7 处 setPendingTotpMode 调用保持原样、行为不变；将来真要用这个状态时把首项命名回来即可。
+  const [, setPendingTotpMode] = useState<'login' | 'unlock' | null>(null);
   const [pendingPasskeyPassword, setPendingPasskeyPassword] = useState<PendingPasskeyPassword | null>(null);
   const [passkeyPassword, setPasskeyPassword] = useState('');
   const [totpCode, setTotpCode] = useState('');
