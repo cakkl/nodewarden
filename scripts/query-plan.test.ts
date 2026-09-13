@@ -375,7 +375,10 @@ test('主要列表/分页查询的查询计划（无裸全表扫描）', async (
   // ---- 断言 3：用户维度的列表查询必须按索引定位（热路径，退化后果最重）----
   for (const plan of plans) {
     if (!/WHERE[\s\S]*user_id\s*=\s*\?/i.test(plan.sql)) continue;
-    const table = USER_SCOPED_TABLES.find((name) => new RegExp(`FROM ${name}\\b`).test(plan.sql));
+    // 用**字面量**正则从 SQL 里取出 FROM 后的表名，再与白名单比对：既避开了
+    // `new RegExp(变量)` 这种会被静态规则判为 ReDoS 的写法，也比拼接正则更精确。
+    const fromTables = Array.from(plan.sql.matchAll(/\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)/gi), (m) => m[1]);
+    const table = USER_SCOPED_TABLES.find((name) => fromTables.includes(name));
     if (!table) continue;
     assert.ok(
       plan.details.some((detail) => detail.startsWith('SEARCH')),

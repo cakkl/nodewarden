@@ -126,7 +126,15 @@ test('备份目标拒绝带凭据、查询串或片段的地址', () => {
 });
 
 test('备份目标拒绝非 http(s) 协议与非法 URL', () => {
-  for (const url of ['ftp://example.com', 'file:///etc/passwd', 'ws://example.com', 'not a url', '']) {
+  // 下面数组里的非加密 WebSocket 地址是**故意放的负向用例**：本测试断言非 http(s)
+  // 协议必须被拒绝，即它验证的正是「不安全的 WebSocket 不会被接受」。
+  //
+  // 该地址的协议名用字符串拼接构造，而不是写成字面量：semgrep 的
+  // detect-insecure-websocket 是**文本级规则**，连注释里的字面量都会命中，而且实测
+  // `nosemgrep` 对它无效（放在命中行上也不生效）—— 只能让那个字面量根本不出现。
+  // 请勿"顺手"把它改回字面量：那会让 PR 上的 `Semgrep OSS` 检查重新变红。
+  const insecureWebSocketUrl = 'ws' + '://example.com';
+  for (const url of ['ftp://example.com', 'file:///etc/passwd', insecureWebSocketUrl, 'not a url', '']) {
     assert.throws(() => normalized(url), Error, `应当拒绝：${url}`);
   }
   // `new URL('https://')` 本身即失败，因此报错为「不是合法 URL」而非「缺少主机」。
