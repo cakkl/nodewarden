@@ -1,6 +1,9 @@
 name = "nodewarden"
 main = "src/index.ts"
-compatibility_date = "2024-01-01"
+# 兼容性日期：决定 Workers 运行时的行为版本，与 wrangler/workerd 的版本绑定演进。
+# 2026-09-13 从 2024-01-01 提到 2026-09-08（当时已有最新），与同时升级的 wrangler 4.105 → 4.131、workers-types 4 → 5 配套。
+# 注意：这属**运行时行为变更**，改动后必须做一次本地冒烟（wrangler dev）与预览部署；回退只需改回日期。
+compatibility_date = "2026-09-08"
 
 [build]
 command = "npm run build"

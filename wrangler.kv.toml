@@ -1,6 +1,8 @@
 name = "nodewarden"
 main = "src/index.ts"
-compatibility_date = "2024-01-01"
+# 同 wrangler.toml：两份配置（R2 / KV 两种部署形态）必须同步改，否则会出现
+# "本地能跑、KV 形态部署跑不了" 一类只在一侧暴露的问题。
+compatibility_date = "2026-09-08"
 
 [build]
 command = "npm run build"
