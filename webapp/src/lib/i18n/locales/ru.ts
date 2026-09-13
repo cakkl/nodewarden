@@ -1403,6 +1403,7 @@ const ru: Record<string, string> = {
   "txt_log_target_type_invite": "Приглашение",
   "txt_log_target_type_refresh_token": "Токен обновления",
   "txt_log_target_type_send": "Send",
+  "txt_log_target_type_system": "Система",
   "txt_log_target_type_user": "Пользователь",
   "txt_log_trigger_manual": "Вручную",
   "txt_log_trigger_remote": "Удаленно",

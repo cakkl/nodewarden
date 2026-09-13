@@ -1403,6 +1403,7 @@ const fr: Record<string, string> = {
   "txt_log_target_type_invite": "Invitation",
   "txt_log_target_type_refresh_token": "Jeton d'actualisation",
   "txt_log_target_type_send": "Envoi",
+  "txt_log_target_type_system": "Système",
   "txt_log_target_type_user": "Utilisateur",
   "txt_log_trigger_manual": "Manuel",
   "txt_log_trigger_remote": "Distant",

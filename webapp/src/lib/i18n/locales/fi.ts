@@ -1403,6 +1403,7 @@ const fi: Record<string, string> = {
   "txt_log_target_type_invite": "Kutsu",
   "txt_log_target_type_refresh_token": "Refresh-token",
   "txt_log_target_type_send": "Lähetys",
+  "txt_log_target_type_system": "Järjestelmä",
   "txt_log_target_type_user": "Käyttäjä",
   "txt_log_trigger_manual": "Manuaalinen",
   "txt_log_trigger_remote": "Etä",

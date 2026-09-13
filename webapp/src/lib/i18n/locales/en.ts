@@ -1456,6 +1456,7 @@ const en: Record<string, string> = {
   "txt_log_target_type_invite": "Invite",
   "txt_log_target_type_refresh_token": "Refresh token",
   "txt_log_target_type_send": "Send",
+  "txt_log_target_type_system": "System",
   "txt_log_target_type_user": "User",
   "txt_log_trigger_manual": "Manual",
   "txt_log_trigger_remote": "Remote",

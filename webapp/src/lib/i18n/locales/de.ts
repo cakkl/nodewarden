@@ -1403,6 +1403,7 @@ const de: Record<string, string> = {
   "txt_log_target_type_invite": "Einladung",
   "txt_log_target_type_refresh_token": "Aktualisierungstoken",
   "txt_log_target_type_send": "Sendung",
+  "txt_log_target_type_system": "System",
   "txt_log_target_type_user": "Benutzer",
   "txt_log_trigger_manual": "Manuell",
   "txt_log_trigger_remote": "Remote",

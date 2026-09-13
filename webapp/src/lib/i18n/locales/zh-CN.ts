@@ -1406,6 +1406,7 @@ const zhCN: Record<string, string> = {
   "txt_log_target_type_invite": "邀请",
   "txt_log_target_type_refresh_token": "刷新令牌",
   "txt_log_target_type_send": "Send",
+  "txt_log_target_type_system": "系统",
   "txt_log_target_type_user": "用户",
   "txt_log_trigger_manual": "手动",
   "txt_log_trigger_remote": "远程",

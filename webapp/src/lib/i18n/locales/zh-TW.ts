@@ -1406,6 +1406,7 @@ const zhTW: Record<string, string> = {
   "txt_log_target_type_invite": "邀請",
   "txt_log_target_type_refresh_token": "刷新權杖",
   "txt_log_target_type_send": "Send",
+  "txt_log_target_type_system": "系統",
   "txt_log_target_type_user": "使用者",
   "txt_log_trigger_manual": "手動",
   "txt_log_trigger_remote": "遠端",

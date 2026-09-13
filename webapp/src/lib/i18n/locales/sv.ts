@@ -1403,6 +1403,7 @@ const sv: Record<string, string> = {
   "txt_log_target_type_invite": "Inbjudan",
   "txt_log_target_type_refresh_token": "Uppdateringstoken",
   "txt_log_target_type_send": "Sändning",
+  "txt_log_target_type_system": "System",
   "txt_log_target_type_user": "Användare",
   "txt_log_trigger_manual": "Manuell",
   "txt_log_trigger_remote": "Fjärr",
