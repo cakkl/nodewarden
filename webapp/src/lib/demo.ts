@@ -1646,7 +1646,9 @@ export function createDemoMainRoutesProps(base: AppMainRoutesProps, notify: Noti
         logs: sliced,
         total,
         limit,
-        offset: offset + sliced.length,
+        // 与服务端语义保持一致：回显**请求的** offset（组件自己按 PAGE_SIZE 前进）。
+        // 原先返回 `offset + sliced.length` 会让"下一页"多跳一页（跳过 50 条）。
+        offset,
         hasMore: offset + sliced.length < total,
       };
     },

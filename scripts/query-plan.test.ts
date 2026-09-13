@@ -42,6 +42,15 @@ const USER = 'plan-user';
  * 说明可以删掉这一行），避免它变成"技术债墓地"。
  */
 const ALLOWED_BARE_SCANS: Record<string, string> = {
+  // 键取的是计划文本里的标识符：`audit_logs` 在语句里被别名为 `l`，
+  // 因此这里只能写 `l`（本表集是按键名匹配的，写真实表名不会被识别）。
+  'l':
+    '仅「带关键词的 COUNT(*)」这一种语句裸扫，用于日志中心显示真实总条数。' +
+    '`buildAuditWhere` 的关键词分支是 6 个 `LIKE \'%q%\'`（含两个 JOIN 出来的邮箱列），' +
+    '前导通配符天然无法走索引 —— 实测强制 `INDEXED BY idx_audit_logs_created_at` 反而更慢' +
+    '（20,003 行：裸扫 10.1 ms → 强制索引 23.7 ms），所以裸扫才是这里的正确计划。' +
+    '列表查询本身因 `ORDER BY created_at DESC LIMIT` 会走索引，不受本条豁免影响；' +
+    '不带关键词的计数也已改为不 JOIN，实测 0.1 ms（走 covering index）。',
   users:
     '管理端全局列用户：查询没有 user 维度的过滤条件，任何计划都得读全表；排序列为 created_at 却没有索引。' +
     '属「管理端低频 + 表规模受注册用户数约束」，为它加索引会在每次用户写入时增加维护成本，不划算。',
