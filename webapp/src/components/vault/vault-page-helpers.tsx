@@ -11,7 +11,7 @@ import {
 } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { t } from '@/lib/i18n';
-import type { Cipher, CipherAttachment, CustomFieldType, VaultDraft, VaultDraftField, VaultDraftLoginUri } from '@/lib/types';
+import type { Cipher, CipherAttachment, CustomFieldType, VaultDraft, VaultDraftLoginUri } from '@/lib/types';
 import { firstCipherUri, hostFromUri, websiteIconUrl } from '@/lib/website-utils';
 import { normalizeEquivalentDomain } from '@shared/domain-normalize';
 import WebsiteIcon from './WebsiteIcon';

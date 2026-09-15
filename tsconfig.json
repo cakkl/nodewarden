@@ -12,7 +12,15 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noUnusedLocals": false,
+    // 死声明（声明了 / 导入了却从未读取）交给编译器拦，不再依赖 CodeQL：
+    // 实测 CodeQL 会报**过时位置**且会漏 —— 它报 vault-page-helpers.tsx 的 useMemo，
+    // 而那个文件里真正还留着的死声明是 VaultDraftField（`tsc --noUnusedLocals` 才发现）。
+    // 打开前已清完存量，整树零报错；本地与 CI（npm run verify 的 typecheck 阶段）同时生效。
+    "noUnusedLocals": true,
+    // 刻意保持关闭：handler 签名 / 接口实现里“用不到的形参”是有意写法，
+    // 实测打开会多出 7 处报错（account-passkeys 的 request、ciphers 的 options、
+    // folders 的 request、router-public 的 env、api/vault 的 authedFetch 等），
+    // 全部属于“按签名接住参数但不用”的正常代码，不应该被当成错误。
     "noUnusedParameters": false
   },
   "include": ["src/**/*", "shared/**/*"],

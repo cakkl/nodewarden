@@ -12,6 +12,8 @@
     },
     "strict": true,
     "noEmit": true,
+    // 本配置不 extends 根配置，所以这里需单独打开（根配置的注释里有完整理由与代价）。
+    "noUnusedLocals": true,
     "isolatedModules": true,
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,

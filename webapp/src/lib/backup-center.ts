@@ -1,7 +1,6 @@
 import {
   type BackupDestinationRecord,
   type BackupDestinationType,
-  type BackupRuntimeState,
   type BackupSettings,
   createBackupDestinationRecord,
   createDefaultBackupSettings,
