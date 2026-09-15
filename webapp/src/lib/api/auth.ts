@@ -683,6 +683,44 @@ export async function setTotp(
   }
 }
 
+export interface TwoFactorAuthenticatorSecret {
+  /** 服务端是否真的保存了密钥。**必须看这个字段**：为 false 时 `key` 是服务端现场生成的随机值，不是已保存的密钥。 */
+  enabled: boolean;
+  key: string;
+}
+
+/**
+ * 读取**服务端实际保存的** TOTP 密钥。
+ *
+ * 为什么需要它：设置页的「验证器」弹窗过去直接用前端 `randomBase32Secret()` 生成的随机值
+ * 当作密钥和二维码来源，与库里那把毫无关系 —— 用户会发现「密钥变成了一个全新的」，
+ * 进而误以为恢复备份改了密钥。这里改成向服务端要真实值。
+ *
+ * ⚠️ 服务端在库里没有密钥时会**现场生成一把随机值**返回（`enabled: false`），
+ * 所以调用方必须同时判断 `enabled`。
+ */
+export async function getTwoFactorAuthenticatorSecret(
+  authedFetch: AuthedFetch,
+  masterPasswordHash: string
+): Promise<TwoFactorAuthenticatorSecret> {
+  const resp = await authedFetch('/api/two-factor/get-authenticator', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ masterPasswordHash }),
+  });
+  if (!resp.ok) {
+    const body = await parseJson<TokenError>(resp);
+    throw new Error(translateServerError(body?.error_description || body?.error, t('txt_master_password_verify_failed')));
+  }
+  const raw = (await parseJson<unknown>(resp)) as
+    | { enabled?: unknown; Enabled?: unknown; key?: unknown; Key?: unknown }
+    | null;
+  return {
+    enabled: !!(raw?.enabled ?? raw?.Enabled),
+    key: String(raw?.key ?? raw?.Key ?? ''),
+  };
+}
+
 function normalizeYubiKeySettings(raw: any): YubiKeyOtpSettings {
   return {
     enabled: !!(raw?.enabled ?? raw?.Enabled),

@@ -1605,6 +1605,10 @@ export function createDemoMainRoutesProps(base: AppMainRoutesProps, notify: Noti
     onSavePasswordHint: readonly,
     onEnableTotp: readonly,
     onOpenDisableTotp: readonlyVoid,
+    // 演示模式没有后端。这个接口必须就地返回一把固定的合法密钥：
+    // 它落到真实实现时会在 await 之后拿到 undefined 而抛错，表现为「加载失败」
+    // 且 TOTP 弹窗根本打不开。用公开示例密钥，方便用真实验证器 App 扫二维码验证。
+    onGetTotpAuthenticatorSecret: async () => ({ enabled: true, key: 'JBSWY3DPEHPK3PXP' }),
     onGetTwoFactorPasskeySettings: async () => ({ enabled: false, keys: [] }),
     onCreateTwoFactorPasskey: async () => {
       await readonly();

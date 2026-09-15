@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { Clipboard, KeyRound, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { calcTotpNow } from '@/lib/crypto';
 import qrcode from 'qrcode-generator';
 import type { AccountPasskeyCredential, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
 import { AVAILABLE_LOCALES, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
@@ -20,6 +21,7 @@ interface SettingsPageProps {
   onSavePasswordHint: (masterPasswordHint: string) => Promise<void>;
   onEnableTotp: (secret: string, token: string, masterPassword: string) => Promise<void>;
   onOpenDisableTotp: () => void;
+  onGetTotpAuthenticatorSecret: (masterPassword: string) => Promise<{ enabled: boolean; key: string }>;
   onGetYubiKeySettings: (masterPassword: string) => Promise<YubiKeyOtpSettings>;
   onSaveYubiKeySettings: (keys: string[], nfc: boolean, masterPassword: string) => Promise<YubiKeyOtpSettings>;
   onSaveYubiKeyApiCredentials: (clientId: string, secretKey: string, masterPassword: string) => Promise<YubiKeyOtpSettings>;
@@ -159,6 +161,8 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [twoFactorStatusRefreshing, setTwoFactorStatusRefreshing] = useState(false);
   const [recoveryCodeDialogOpen, setRecoveryCodeDialogOpen] = useState(false);
   const [totpManagePassword, setTotpManagePassword] = useState('');
+  /** 服务端**实际保存的** TOTP 密钥；null = 尚未取到（此时弹窗里的是本次待启用的新密钥） */
+  const [totpRealSecret, setTotpRealSecret] = useState<string | null>(null);
   const [masterPasswordPrompt, setMasterPasswordPrompt] = useState<MasterPasswordPromptAction | null>(null);
   const [masterPasswordPromptValue, setMasterPasswordPromptValue] = useState('');
   const [masterPasswordPromptSubmitting, setMasterPasswordPromptSubmitting] = useState(false);
@@ -192,6 +196,9 @@ export default function SettingsPage(props: SettingsPageProps) {
   useEffect(() => {
     void refreshAccountPasskeys();
   }, [props.profile.id]);
+
+  /** 已启用、但没拿到服务端的真密钥 ⇒ 宁可不显示，也不能把随机值当真值展示 */
+  const totpSecretUnavailable = totpLocked && !totpRealSecret;
 
   const qrDataUrl = useMemo(() => {
     const qr = qrcode(0, 'M');
@@ -251,6 +258,33 @@ export default function SettingsPage(props: SettingsPageProps) {
       } else if (masterPasswordPrompt === 'manageTotp') {
         await props.onVerifyMasterPassword(props.profile.email, masterPassword);
         setTotpManagePassword(masterPassword);
+        setToken('');
+        setTotpRealSecret(null);
+        if (props.totpEnabled) {
+          // 已启用：必须显示**服务端保存的真值**。
+          // 过去这里显示的是前端新生成的随机密钥（与库里那把毫无关系），会让人误以为
+          // 「密钥被改成了一个全新的」—— 这是排查恢复/TOTP 问题时的著名陷阱。
+          //
+          // 但**无论能否取到真值，弹窗都要打开**：「停用 TOTP」是应用内停用两步验证的
+          // **唯一**入口，而按钮就在这个弹窗里。早期版本在这里直接 return，于是
+          // 「库里存着不可用密钥」的用户被彻底堵在门外 —— 提示让他「在下方先停用」，
+          // 可那个按钮他永远看不到，只能去登录页用恢复码自救。
+          try {
+            const current = await props.onGetTotpAuthenticatorSecret(masterPassword);
+            if (current.enabled && current.key) {
+              setTotpRealSecret(current.key);
+              setSecret(current.key);
+            }
+            // 否则：库里没有可用密钥（该接口此时会现场随机生成一把返回）。
+            // 绝不把它当「当前密钥」显示；也不额外弹通知 —— 弹窗会隐藏密钥与二维码，
+            // 并用 txt_totp_secret_unavailable 说清楚。
+          } catch (error) {
+            // 读取失败（网络/服务端错误）：给出具体原因，但依旧打开弹窗。
+            props.onNotify?.('error', error instanceof Error ? error.message : t('txt_totp_secret_unavailable'));
+          }
+        } else {
+          setSecret(randomBase32Secret(32));
+        }
         setTotpManageDialogOpen(true);
       } else if (masterPasswordPrompt === 'manageYubiKey') {
         const settings = await props.onGetYubiKeySettings(masterPassword);
@@ -494,9 +528,44 @@ export default function SettingsPage(props: SettingsPageProps) {
     try {
       await props.onEnableTotp(secret, token, totpManagePassword);
       setTotpLocked(true);
+      // 刚启用的这一把就是服务端现在的真值，必须同时标记为「已拿到真值」。
+      // 否则弹窗（刻意保持打开，方便用户立刻验证）会因为 totpLocked && !totpRealSecret
+      // 而误判成「状态不一致」并隐藏密钥 —— 关闭再重开反而正常，就是这个原因。
+      setTotpRealSecret(secret);
+      // 与「关闭后重开」保持一致：重开时 token 是空的，这里也清掉，
+      // 免得把刚刚被服务端消费掉的那个码留在输入框里继续点「验证 TOTP」。
+      setToken('');
     } catch (error) {
       props.onNotify?.('error', error instanceof Error ? error.message : t('txt_enable_totp_failed'));
     }
+  }
+
+  /**
+   * 验证输入的验证码是否与**服务端保存的密钥**一致。
+   *
+   * 刻意在本地计算比对（`calcTotpNow`），而不是打服务端：服务端的校验会**消费防重放计数**
+   * （同一个码在一个 30 秒窗口内只能用一次），失败还会计入登录失败次数 —— 连续 10 次会把 IP 锁 2 分钟。
+   * 这里只想帮用户确认「手机上的验证器与库里那把是否一致」，不该产生那些副作用。
+   */
+  async function verifyTotpFromManageDialog(): Promise<void> {
+    const entered = token.replace(/\s+/g, '');
+    if (!/^\d{6}$/.test(entered)) {
+      props.onNotify?.('error', t('txt_totp_verify_failed'));
+      return;
+    }
+    if (!totpRealSecret) {
+      props.onNotify?.('error', t('txt_load_failed'));
+      return;
+    }
+    // 与服务端一致：接受当前时间窗 ±1 步（允偏轻微时钟漂移）
+    for (const offsetSteps of [-1, 0, 1]) {
+      const result = await calcTotpNow(totpRealSecret, Date.now() + offsetSteps * 30_000);
+      if (result?.code === entered) {
+        props.onNotify?.('success', t('txt_totp_verify_success'));
+        return;
+      }
+    }
+    props.onNotify?.('error', t('txt_totp_verify_failed'));
   }
 
   function closeCreatePasskeyDialog(): void {
@@ -886,14 +955,18 @@ export default function SettingsPage(props: SettingsPageProps) {
       >
         <div className="totp-manage-dialog-body">
           <div className="totp-grid">
-            <div className="totp-qr">
-              <img src={qrDataUrl} alt="TOTP QR" />
-            </div>
+            {totpSecretUnavailable ? (
+              <p className="muted-inline settings-field-note">{t('txt_totp_secret_unavailable')}</p>
+            ) : (
+              <div className="totp-qr">
+                <img src={qrDataUrl} alt="TOTP QR" />
+              </div>
+            )}
             <div>
               <label className="field">
                 <span>{t('txt_authenticator_key')}</span>
                 <div className="totp-secret-input-wrap">
-                  <input className="input totp-secret-input" aria-label={t('txt_authenticator_key')} value={secret} disabled={totpLocked} onInput={(e) => setSecret((e.currentTarget as HTMLInputElement).value.toUpperCase())} />
+                  <input className="input totp-secret-input" aria-label={t('txt_authenticator_key')} value={totpSecretUnavailable ? '' : secret} disabled={totpLocked} onInput={(e) => setSecret((e.currentTarget as HTMLInputElement).value.toUpperCase())} />
                   <div className="totp-secret-actions">
                     <button
                       type="button"
@@ -908,7 +981,7 @@ export default function SettingsPage(props: SettingsPageProps) {
                     <button
                       type="button"
                       className="btn btn-secondary small totp-secret-icon-btn"
-                      disabled={totpLocked}
+                      disabled={totpLocked && !totpRealSecret}
                       title={t('txt_copy_secret')}
                       aria-label={t('txt_copy_secret')}
                       onClick={() => {
@@ -922,21 +995,38 @@ export default function SettingsPage(props: SettingsPageProps) {
               </label>
               <label className="field">
                 <span>{t('txt_verification_code')}</span>
-                <input className="input" value={token} disabled={totpLocked} onInput={(e) => setToken((e.currentTarget as HTMLInputElement).value)} />
+                <input
+                  className="input"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={token}
+                  onInput={(e) => setToken((e.currentTarget as HTMLInputElement).value)}
+                />
               </label>
               <div className="actions">
                 {totpLocked ? (
-                  <button
-                    type="button"
-                    className="btn btn-danger"
-                    onClick={() => {
-                      closeTotpManageDialog();
-                      props.onOpenDisableTotp();
-                    }}
-                  >
-                    <ShieldOff size={14} className="btn-icon" />
-                    {t('txt_disable_totp')}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      onClick={() => {
+                        closeTotpManageDialog();
+                        props.onOpenDisableTotp();
+                      }}
+                    >
+                      <ShieldOff size={14} className="btn-icon" />
+                      {t('txt_disable_totp')}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled={!token.trim() || !totpRealSecret}
+                      onClick={() => void verifyTotpFromManageDialog()}
+                    >
+                      <ShieldCheck size={14} className="btn-icon" />
+                      {t('txt_verify_totp')}
+                    </button>
+                  </>
                 ) : (
                   <button type="button" className="btn btn-primary" disabled={!totpManagePassword} onClick={() => void enableTotpFromManageDialog()}>
                     <ShieldCheck size={14} className="btn-icon" />
