@@ -364,6 +364,33 @@ test('token：邮箱大小写不敏感（客户端可能发大写）', async () 
 // 这是整个认证链上最容易被改坏、也最贵的一处。
 const TWO_FACTOR_PROVIDER_YUBIKEY = '3';
 const TWO_FACTOR_PROVIDER_REMEMBER = '5';
+const TWO_FACTOR_PROVIDER_AUTHENTICATOR = '0';
+
+test('token：TOTP 密钥字母表非法时仍必须走挑战流程（fail-closed），不得静默降级', async () => {
+  const h = await createHarness();
+  await seedUserWithPassword(h);
+  // `0` / `1` 不在 base32 字母表（A–Z2–7）内 ⇒ 这样的密钥算不出任何验证码。
+  // 此时**不能**把两步验证当成“未启用”（那就是静默降级成仅凭密码登录）；
+  // 只能继续 fail-closed，把用户引向恢复码或到设置页重新启用 TOTP。
+  h.handle.connection.prepare('UPDATE users SET totp_secret = ? WHERE id = ?').run('INVALID0', USER_ID);
+
+  const invalid = await callToken(h, { grant_type: 'password', username: USER_EMAIL, password: CLIENT_HASH });
+  assert.equal(invalid.status, 400, '存在（哪怕不可用的）TOTP 密钥时不得直接签发凭据');
+  assert.ok(invalid.body.access_token === undefined, '两步验证未完成前绝不能签发 access token');
+  assert.ok(
+    Array.isArray(invalid.body.TwoFactorProviders) &&
+      (invalid.body.TwoFactorProviders as string[]).includes(TWO_FACTOR_PROVIDER_AUTHENTICATOR),
+    `非法密钥也必须列出验证器提供方，实际：${JSON.stringify(invalid.body.TwoFactorProviders)}`
+  );
+
+  // 正向对照：合法密钥同样（且必须）进入挑战流程
+  h.handle.connection.prepare('UPDATE users SET totp_secret = ? WHERE id = ?').run('JBSWY3DPEHPK3PXP', USER_ID);
+  const valid = await callToken(h, { grant_type: 'password', username: USER_EMAIL, password: CLIENT_HASH });
+  assert.equal(valid.status, 400);
+  assert.ok((valid.body.TwoFactorProviders as string[]).includes(TWO_FACTOR_PROVIDER_AUTHENTICATOR));
+
+  h.handle.close();
+});
 
 test('token：开启 2FA 后，只有密码正确也必须走挑战流程，不得签发凭据', async () => {
   const h = await createHarness();

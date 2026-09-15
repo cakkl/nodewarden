@@ -4,7 +4,7 @@ import { AuthService } from '../services/auth';
 import { RateLimitService, getClientIdentifier } from '../services/ratelimit';
 import { jsonResponse, errorResponse, identityErrorResponse } from '../utils/response';
 import { getRefreshTokenSlidingTtlMs, LIMITS } from '../config/limits';
-import { findMatchingTotpCounter, isTotpEnabled } from '../utils/totp';
+import { findMatchingTotpCounter, isTotpEnabled, isValidTotpSecret } from '../utils/totp';
 import { createRefreshToken } from '../utils/jwt';
 import { readAuthRequestDeviceInfo } from '../utils/device';
 import { createRecoveryCode, recoveryCodeEquals } from '../utils/recovery-code';
@@ -47,6 +47,12 @@ function identityJsonResponse(data: unknown, status: number = 200): Response {
 
 function resolveTotpSecret(userSecret: string | null): string | null {
   if (userSecret && isTotpEnabled(userSecret)) {
+    if (!isValidTotpSecret(userSecret)) {
+      // 存在却**不可用**的密钥（字母表非法）⇒ base32Decode 返回 null ⇒ 任何验证码都不可能匹配。
+      // 刻意**不**在这里降级成“未启用”：那会让两步验证被静默跳过（fail-open）。
+      // 保持 fail-closed，只留下可诊断的日志；用户的出路是恢复码或重新启用 TOTP。
+      console.error('Stored TOTP secret is not a valid base32 string; every TOTP code will be rejected.');
+    }
     return userSecret;
   }
   return null;
