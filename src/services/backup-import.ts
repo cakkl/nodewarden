@@ -243,6 +243,26 @@ export interface BackupRestoreProgressEvent {
 
 export type BackupRestoreProgressReporter = (event: BackupRestoreProgressEvent) => Promise<void> | void;
 
+/**
+ * 进度上报是**尽力而为**的：它只负责给用户提示，绝不能决定恢复的成败。
+ *
+ * 为什么必须包起来（真实事故）：调用方传进来的 `progress` 会去 touch Durable Object 的作业租约，
+ * 并跨 DO 发送通知。过去这里是裸 `await progress?.(...)`，于是：
+ *   - 在 `swapShadowTablesIntoPlace()` **之后**的完成通知抛错 ⇒ 交换已提交、恢复其实成功了，
+ *     但异常被外层 catch 捕获，对外报 500（用户以为失败，实际数据已经换掉了）；
+ *   - 在 catch 分支里的失败通知抛错 ⇒ **把原始的失败原因覆盖掉**，排障时看不到真正原因。
+ */
+async function reportRestoreProgress(
+  progress: BackupRestoreProgressReporter | undefined,
+  event: BackupRestoreProgressEvent
+): Promise<void> {
+  try {
+    await progress?.(event);
+  } catch (error) {
+    console.error('Backup restore progress reporting failed:', error);
+  }
+}
+
 function attachmentRowKey(row: SqlRow): string {
   const attachmentId = String(row.id || '').trim();
   const cipherId = String(row.cipher_id || '').trim();
@@ -698,7 +718,7 @@ export async function importBackupArchiveBytes(
   await resetRestoreArtifacts(env.DB);
   const previousBlobKeys = replaceExisting ? await collectCurrentBlobKeys(env.DB) : new Set<string>();
   try {
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'local',
       step: 'local_create_shadow',
       fileName,
@@ -707,7 +727,7 @@ export async function importBackupArchiveBytes(
       replaceExisting,
     });
     await createShadowTables(env.DB);
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'local',
       step: 'local_import_data',
       fileName,
@@ -727,7 +747,7 @@ export async function importBackupArchiveBytes(
       attachments: (db.attachments || []).length,
     });
 
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'local',
       step: 'local_restore_files',
       fileName,
@@ -749,7 +769,7 @@ export async function importBackupArchiveBytes(
       ciphers: (db.ciphers || []).length,
       attachments: restored.restoredAttachments.length,
     });
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'local',
       step: 'local_finalize',
       fileName,
@@ -766,7 +786,7 @@ export async function importBackupArchiveBytes(
       }
     }
 
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'local',
       step: 'local_complete',
       fileName,
@@ -799,7 +819,7 @@ export async function importBackupArchiveBytes(
       },
     };
   } catch (error) {
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'local',
       step: 'local_failed',
       fileName,
@@ -839,7 +859,7 @@ export async function importRemoteBackupArchiveBytes(
   await resetRestoreArtifacts(env.DB);
   const previousBlobKeys = replaceExisting ? await collectCurrentBlobKeys(env.DB) : new Set<string>();
   try {
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'remote',
       step: 'remote_create_shadow',
       fileName,
@@ -848,7 +868,7 @@ export async function importRemoteBackupArchiveBytes(
       replaceExisting,
     });
     await createShadowTables(env.DB);
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'remote',
       step: 'remote_import_data',
       fileName,
@@ -868,7 +888,7 @@ export async function importRemoteBackupArchiveBytes(
       attachments: (db.attachments || []).length,
     });
 
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'remote',
       step: 'remote_restore_files',
       fileName,
@@ -890,7 +910,7 @@ export async function importRemoteBackupArchiveBytes(
       ciphers: (db.ciphers || []).length,
       attachments: restored.restoredAttachments.length,
     });
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'remote',
       step: 'remote_finalize',
       fileName,
@@ -908,7 +928,7 @@ export async function importRemoteBackupArchiveBytes(
       }
     }
 
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'remote',
       step: 'remote_complete',
       fileName,
@@ -946,7 +966,7 @@ export async function importRemoteBackupArchiveBytes(
       },
     };
   } catch (error) {
-    await progress?.({
+    await reportRestoreProgress(progress, {
       source: 'remote',
       step: 'remote_failed',
       fileName,
