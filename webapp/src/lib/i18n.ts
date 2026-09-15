@@ -257,6 +257,7 @@ export function translateServerError(message: string | null | undefined, fallbac
     'S3 endpoint is required': 'txt_backup_error_s3_endpoint_required',
     'S3 endpoint must start with http:// or https://': 'txt_backup_error_s3_endpoint_protocol',
     'S3 secret key is required': 'txt_backup_error_s3_secret_key_required',
+    'The cipher key sent by the client is not a valid encrypted string. Update the client and try again.': 'txt_server_error_cipher_key_invalid',
     'TOTP token is required': 'txt_server_error_totp_token_required',
     'Two factor required.': 'txt_server_error_two_factor_required',
     'Two-step token is invalid. Try again.': 'txt_server_error_two_factor_invalid',
