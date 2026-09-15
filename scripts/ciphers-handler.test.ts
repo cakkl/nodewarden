@@ -128,6 +128,43 @@ async function seedCipher(h: Harness, extra: Record<string, unknown> = {}): Prom
 
 // ---------------------------------------------------------------- 创建与读取
 
+test('创建：cipher.key 非法时的文案必须归因正确，且已登记 i18n（服务器其实**支持**逐项密钥）', async () => {
+  const h = createHarness();
+
+  // ① 合法 EncString ⇒ 接受并**原样入库**。这就是"服务器支持逐项密钥"的直接证据
+  //    （config-response.ts 的 'cipher-key-encryption': true 与之相符）。
+  const itemKey = enc('item-key');
+  const accepted = await callCreate(h.env, USER_A, { type: 1, name: enc('name'), key: itemKey });
+  assert.equal(accepted.status, 200, `合法 cipher.key 应被接受：${JSON.stringify(accepted.body)}`);
+  assert.equal(cipherRow(h.connection, String(accepted.body.id))?.key, itemKey, '合法 key 必须原样入库');
+
+  // ② 畸形值 ⇒ 400，且**不得**再说"服务器不支持逐项密钥"（旧文案既归错因、又给了无效建议）
+  const rejected = await callCreate(h.env, USER_A, { type: 1, name: enc('name'), key: 'not-an-encstring' });
+  assert.equal(rejected.status, 400);
+  const message = String(rejected.body.error || '');
+  assert.match(message, /not a valid encrypted string/i, `文案应指出"值不是合法加密串"，实际：${message}`);
+  assert.doesNotMatch(message, /not supported/i, '不得再声称"不支持逐项密钥"（错误归因）');
+
+  // ③ 文案必须登记到前端 i18n 映射表，且 10 个语言包都有该键
+  //    （前端靠「英文字符串 → i18n 键」查表本地化后端错误，未命中就原样显示英文）
+  const source = readFileSync(path.join(REPO_ROOT, 'src/handlers/ciphers.ts'), 'utf8');
+  const declared = source.match(/const INVALID_CIPHER_KEY_MESSAGE\s*=\s*\n?\s*'([^']+)'/)?.[1];
+  assert.ok(declared, '应能从 ciphers.ts 提取 INVALID_CIPHER_KEY_MESSAGE');
+  assert.equal(declared, message, '响应文案应与常量一致（避免两处副本漂移）');
+
+  const escaped = declared.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const i18nSource = readFileSync(path.join(REPO_ROOT, 'webapp/src/lib/i18n.ts'), 'utf8');
+  const mapped = i18nSource.match(new RegExp(`'${escaped}':\\s*'([^']+)'`))?.[1];
+  assert.ok(mapped, `i18n 映射表缺少该后端文案的条目：${declared}`);
+
+  for (const locale of ['en', 'zh-CN', 'zh-TW', 'ru', 'es', 'fi', 'de', 'fr', 'it', 'sv']) {
+    const localeSource = readFileSync(path.join(REPO_ROOT, `webapp/src/lib/i18n/locales/${locale}.ts`), 'utf8');
+    assert.ok(localeSource.includes(`"${mapped}"`), `${locale} 缺少键 ${mapped}`);
+  }
+
+  h.handle.close();
+});
+
 test('创建：服务端接管 id/userId/时间戳，且保留客户端未知字段', async () => {
   const h = createHarness();
   const created = await callCreate(h.env, USER_A, {
