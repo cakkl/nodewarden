@@ -28,7 +28,7 @@ import {
   persistRemoteBrowserState,
 } from '@/lib/backup-center';
 import { BACKUP_PROGRESS_EVENT, type BackupProgressDetail, type BackupProgressOperation } from '@/lib/backup-restore-progress';
-import { RECOMMENDED_PROVIDERS, type RecommendedProvider } from '@/lib/backup-recommendations';
+import { RECOMMENDED_PROVIDERS } from '@/lib/backup-recommendations';
 import { t } from '@/lib/i18n';
 import { BackupDestinationDetail } from './backup-center/BackupDestinationDetail';
 import { BackupDestinationSidebar } from './backup-center/BackupDestinationSidebar';
