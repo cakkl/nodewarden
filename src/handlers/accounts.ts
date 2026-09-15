@@ -7,7 +7,7 @@ import { jsonResponse, errorResponse } from '../utils/response';
 import { generateUUID } from '../utils/uuid';
 import { LIMITS } from '../config/limits';
 import { isStoredApiKeyHash } from '../utils/api-key';
-import { findMatchingTotpCounter, isTotpEnabled } from '../utils/totp';
+import { findMatchingTotpCounter, isTotpEnabled, isValidTotpSecret } from '../utils/totp';
 import { createRecoveryCode, recoveryCodeEquals } from '../utils/recovery-code';
 import { buildAccountKeys } from '../utils/user-decryption';
 import { buildProfileResponse } from '../utils/profile-response';
@@ -905,9 +905,19 @@ export async function handleGetTwoFactorAuthenticator(request: Request, env: Env
   const verified = await verifyUserSecret(auth, user, secret);
   if (!verified) return errorResponse('User verification failed.', 400);
 
-  const key = normalizeTotpSecret(user.totpSecret || '') || randomBase32Secret();
+  const storedKey = normalizeTotpSecret(user.totpSecret || '');
+  // 与官方客户端兼容：库里没有密钥时，这里要**现场生成一把**供客户端的“启用验证器”流程使用
+  // （客户端拿它当二维码显示，用户提交的 PUT 会把同一把存回去）。
+  // 因此调用方**必须**靠 `Enabled` 区分“已保存的真值”与“本次待启用的新值”。
+  //
+  // `Enabled` 与返回值保持一致也修掉了另一处隐患：过去用的是 `!!user.totpSecret`，
+  // 遇到“有值但不可用”（字母表非法）时会回 `Enabled: true` + 一把**随机**密钥，
+  // 客户端就会把随机值当“当前密钥”展示。现在这种情形会回 `Enabled: false` + 新密钥，
+  // 用户再启用一次就能自愈。
+  const hasUsableStoredKey = isValidTotpSecret(storedKey);
+  const key = hasUsableStoredKey ? storedKey : randomBase32Secret();
   const userVerificationToken = await createTotpUserVerificationToken(env, user, key);
-  return jsonResponse(twoFactorAuthenticatorResponse(!!user.totpSecret, key, userVerificationToken));
+  return jsonResponse(twoFactorAuthenticatorResponse(hasUsableStoredKey, key, userVerificationToken));
 }
 
 // POST /api/two-factor/get-yubikey
@@ -1003,7 +1013,7 @@ export async function handlePutTwoFactorAuthenticator(request: Request, env: Env
   if (!await verifyTotpUserVerificationToken(env, user, key, userVerificationToken)) {
     return errorResponse('User verification failed.', 400);
   }
-  if (!isTotpEnabled(key)) return errorResponse('Invalid TOTP secret', 400);
+  if (!isValidTotpSecret(key)) return errorResponse('Invalid TOTP secret', 400);
   const matchedCounter = await findMatchingTotpCounter(key, token);
   if (matchedCounter == null || !await storage.consumeTotpLoginCounter(user.id, matchedCounter)) {
     return errorResponse('Invalid token.', 400);
@@ -1291,7 +1301,7 @@ export async function handleSetTotpStatus(request: Request, env: Env, userId: st
     const normalizedSecret = normalizeTotpSecret(body.secret || '');
     const masterPasswordHash = readBodyString(body, ['masterPasswordHash', 'MasterPasswordHash']);
     const userVerificationToken = readBodyString(body, ['userVerificationToken', 'UserVerificationToken']);
-    if (!isTotpEnabled(normalizedSecret)) {
+    if (!isValidTotpSecret(normalizedSecret)) {
       return errorResponse('Invalid TOTP secret', 400);
     }
     if (!body.token) {

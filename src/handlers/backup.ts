@@ -43,6 +43,7 @@ import {
   pruneRemoteBackupArchives,
   uploadBackupArchive,
 } from '../services/backup-uploader';
+import { reportProgress } from '../services/backup-progress';
 import { StorageService } from '../services/storage';
 import { AuthService } from '../services/auth';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
@@ -325,6 +326,10 @@ export async function executeConfiguredBackup(
   trigger: 'manual' | 'scheduled',
   destinationId?: string | null,
   keepAlive?: (() => Promise<void>) | null,
+  /**
+   * 进度回调。**必须**自行吞掉异常，且调用方必须走 `reportProgress()`
+   * （见 `services/backup-progress.ts` 的 CONTRACT）。
+   */
   progress?: ((event: {
     operation: 'backup-remote-run';
     step: string;
@@ -356,7 +361,7 @@ export async function executeConfiguredBackup(
 
   try {
     await touchLease();
-    await progress?.({
+    await reportProgress(progress, {
       operation: 'backup-remote-run',
       step: 'remote_run_prepare',
       fileName: '',
@@ -372,7 +377,7 @@ export async function executeConfiguredBackup(
           if (event.step === 'archive_ready') {
             return;
           }
-          await progress({
+          await reportProgress(progress, {
             operation: 'backup-remote-run',
             step: `remote_run_${event.step}`,
             fileName: event.fileName || '',
@@ -382,7 +387,7 @@ export async function executeConfiguredBackup(
         }
         : undefined,
     });
-    await progress?.({
+    await reportProgress(progress, {
       operation: 'backup-remote-run',
       step: 'remote_run_sync_attachments',
       fileName: archive.fileName,
@@ -417,7 +422,7 @@ export async function executeConfiguredBackup(
     let uploadVerificationMethod: 'metadata' | 'download' | null = null;
     for (let attempt = 1; attempt <= maxArchiveUploadAttempts; attempt++) {
       await touchLease();
-      await progress?.({
+      await reportProgress(progress, {
         operation: 'backup-remote-run',
         step: 'remote_run_upload_archive',
         fileName: archive.fileName,
@@ -427,7 +432,7 @@ export async function executeConfiguredBackup(
       upload = await remoteSession.uploadArchive(archive.bytes, archive.fileName);
       try {
         await touchLease();
-        await progress?.({
+        await reportProgress(progress, {
           operation: 'backup-remote-run',
           step: 'remote_run_verify_archive',
           fileName: archive.fileName,
@@ -451,7 +456,7 @@ export async function executeConfiguredBackup(
     let pruneErrorMessage: string | null = null;
     try {
       await touchLease();
-      await progress?.({
+      await reportProgress(progress, {
         operation: 'backup-remote-run',
         step: 'remote_run_cleanup',
         fileName: archive.fileName,
@@ -488,7 +493,7 @@ export async function executeConfiguredBackup(
       ...(auditMetadata || {}),
     });
 
-    await progress?.({
+    await reportProgress(progress, {
       operation: 'backup-remote-run',
       step: 'remote_run_complete',
       fileName: archive.fileName,
@@ -519,7 +524,7 @@ export async function executeConfiguredBackup(
       error: errorMessage,
       ...(auditMetadata || {}),
     });
-    await progress?.({
+    await reportProgress(progress, {
       operation: 'backup-remote-run',
       step: 'remote_run_failed',
       fileName: '',
@@ -852,7 +857,7 @@ async function runImportAndAudit(
       targetDeviceIdentifier
     );
   };
-  await progress({
+  await reportProgress(progress, {
     source: 'local',
     step: 'local_upload_received',
     fileName,

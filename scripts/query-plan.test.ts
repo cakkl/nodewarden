@@ -46,7 +46,7 @@ const ALLOWED_BARE_SCANS: Record<string, string> = {
   // 因此这里只能写 `l`（本表集是按键名匹配的，写真实表名不会被识别）。
   'l':
     '仅「带关键词的 COUNT(*)」这一种语句裸扫，用于日志中心显示真实总条数。' +
-    '`buildAuditWhere` 的关键词分支是 6 个 `LIKE \'%q%\'`（含两个 JOIN 出来的邮箱列），' +
+    '`buildAuditWhere` 的关键词分支是 7 个 `LIKE \'%q%\'`（含 actor 的行内快照列与两个 JOIN 出来的邮箱列），' +
     '前导通配符天然无法走索引 —— 实测强制 `INDEXED BY idx_audit_logs_created_at` 反而更慢' +
     '（20,003 行：裸扫 10.1 ms → 强制索引 23.7 ms），所以裸扫才是这里的正确计划。' +
     '列表查询本身因 `ORDER BY created_at DESC LIMIT` 会走索引，不受本条豁免影响；' +

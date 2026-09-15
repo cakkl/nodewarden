@@ -20,6 +20,8 @@ function auditLogFromRow(row: any): AuditLog {
   return {
     id: row.id,
     actorUserId: row.actor_user_id ?? null,
+    // 来自 `COALESCE(l.actor_email, actor.email)`：优先用行内快照（历史事实），
+    // 快照为空（老数据未回填）时才回退到 JOIN 出来的当前邮箱。
     actorEmail: row.actor_email ?? null,
     action: row.action,
     category: row.category || 'system',
@@ -56,9 +58,11 @@ function buildAuditWhere(options: AuditLogListOptions): { where: string; params:
     const q = options.q.toLowerCase().slice(0, 48);
     const like = `%${q}%`;
     conditions.push(
-      '(LOWER(l.action) LIKE ? OR LOWER(COALESCE(l.actor_user_id, \'\')) LIKE ? OR LOWER(COALESCE(l.target_type, \'\')) LIKE ? OR LOWER(COALESCE(l.target_id, \'\')) LIKE ? OR LOWER(COALESCE(actor.email, \'\')) LIKE ? OR LOWER(COALESCE(target.email, \'\')) LIKE ?)'
+      '(LOWER(l.action) LIKE ? OR LOWER(COALESCE(l.actor_user_id, \'\')) LIKE ? OR LOWER(COALESCE(l.actor_email, \'\')) LIKE ? OR LOWER(COALESCE(l.target_type, \'\')) LIKE ? OR LOWER(COALESCE(l.target_id, \'\')) LIKE ? OR LOWER(COALESCE(actor.email, \'\')) LIKE ? OR LOWER(COALESCE(target.email, \'\')) LIKE ?)'
     );
-    params.push(like, like, like, like, like, like);
+    // 注意 `l.actor_email`（行内快照）这一项不能漏：恢复/删用户会把 actor_user_id 置空，
+    // 之后按操作者邮箱搜索只能靠快照命中，`actor.email` 那个 JOIN 已经查不到东西了。
+    params.push(like, like, like, like, like, like, like);
   }
 
   return {
@@ -176,9 +180,14 @@ export async function deleteAllInvites(db: D1Database): Promise<number> {
 export async function createAuditLog(db: D1Database, log: AuditLog): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO audit_logs(id, actor_user_id, action, category, level, target_type, target_id, metadata, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      // actor_email 用子查询**就地**抄一份操作者邮箱（原因见 storage-schema.ts 的列注释）：
+      // 同一条语句完成，不额外多一次 D1 往返 —— 审计写入几乎每个变更操作都会触发。
+      //
+      // 新列刻意放在**列尾**：前 9 个绑定参数的位置保持原样，
+      // `scripts/security-audit-api-key-semantics.mjs` 依赖 `bindings[2] === action`。
+      'INSERT INTO audit_logs(id, actor_user_id, action, category, level, target_type, target_id, metadata, created_at, actor_email) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT email FROM users WHERE id = ?))'
     )
-    .bind(log.id, log.actorUserId, log.action, log.category, log.level, log.targetType, log.targetId, log.metadata, log.createdAt)
+    .bind(log.id, log.actorUserId, log.action, log.category, log.level, log.targetType, log.targetId, log.metadata, log.createdAt, log.actorUserId)
     .run();
 }
 
@@ -217,6 +226,8 @@ export async function clearAuditLogs(db: D1Database): Promise<number> {
  */
 const AUDIT_LIST_FROM =
   'FROM audit_logs l ' +
+  // actor JOIN 现在只是**兜底**：正常情况下操作者邮箱取自 `l.actor_email` 行内快照，
+  // 只有老数据没回填到快照时才需要 JOIN 出当前邮箱。
   'LEFT JOIN users actor ON actor.id = l.actor_user_id ' +
   "LEFT JOIN users target ON l.target_type = 'user' AND target.id = l.target_id ";
 
@@ -238,7 +249,9 @@ export async function listAuditLogs(db: D1Database, options: AuditLogListOptions
   const [rows, countRow] = await Promise.all([
     db
       .prepare(
-        'SELECT l.id, l.actor_user_id, actor.email AS actor_email, l.action, l.category, l.level, l.target_type, l.target_id, target.email AS target_user_email, l.metadata, l.created_at ' +
+        // actor_email：快照优先、JOIN 兜底。快照是「写入当时」的邮箱，这才是审计日志该有的
+        // 含义；JOIN 出来的是「此刻」的邮箱，用户改过邮箱后它会把旧日志显示成新邮箱。
+        'SELECT l.id, l.actor_user_id, COALESCE(l.actor_email, actor.email) AS actor_email, l.action, l.category, l.level, l.target_type, l.target_id, target.email AS target_user_email, l.metadata, l.created_at ' +
           `${AUDIT_LIST_FROM}${where} ORDER BY l.created_at DESC LIMIT ? OFFSET ?`
       )
       .bind(...params, limit + 1, offset)

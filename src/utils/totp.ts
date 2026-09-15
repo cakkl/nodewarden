@@ -105,3 +105,24 @@ export async function verifyTotpToken(secretRaw: string, tokenRaw: string, nowMs
 export function isTotpEnabled(secretRaw: string | undefined | null): boolean {
   return Boolean(secretRaw && normalizeBase32(secretRaw).length > 0);
 }
+
+/**
+ * 密钥是否是**可用的** base32（字母表合法、真能算出验证码）。
+ *
+ * 为什么必须有它：`isTotpEnabled()` 只看“有没有值”，而 `base32Decode()` 碰到 A–Z2–7 之外的
+ * 字符（手输/粘贴常带入的 `0`/`1`/`8`/`9`、全角字符、非 ASCII 空格）会返回 null，
+ * 于是 `findMatchingTotpCounter()` 永远返回 null —— 表现为“两步验证显示已启用、客户端确实要码，
+ * 但**任何码都不对**”的隐蔽死锁。
+ *
+ * 两个函数的分工（刻意如此，改动前请先读完）：
+ *   - **写入 / 启用路径用本函数** ⇒ 非法密钥在启用的那一刻就被明确拒绝，
+ *     而不是等用户登录时才发现“输什么都不对”。
+ *   - **读取路径（登录时判断要不要收两步验证）继续用 `isTotpEnabled`** ⇒ 保持 **fail-closed**：
+ *     库里存了一把坏密钥时仍然要求两步验证，而不是静默降级成“只要密码就能登录”。
+ *     坏密钥的出路是恢复码，或在设置页用 `get-authenticator`（它会返回 Enabled:false + 一把新密钥）
+ *     重新启用一次。
+ */
+export function isValidTotpSecret(secretRaw: string | undefined | null): boolean {
+  if (!secretRaw) return false;
+  return base32Decode(secretRaw) !== null;
+}

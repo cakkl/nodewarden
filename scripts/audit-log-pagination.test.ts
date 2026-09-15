@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { listAuditLogs } from '../src/services/storage-admin-repo';
+import { listAuditLogs, createAuditLog } from '../src/services/storage-admin-repo';
 import { createSchemaDatabase, insertUser, resetProcessScopedStatics } from './lib/test-harness';
 
 const USER_A = 'user-audit-a';
@@ -143,6 +143,65 @@ test('空库与越界 offset：total 为 0 / 不报错', async () => {
   const beyond = await listAuditLogs(handle.db, { limit: PAGE, offset: 500 });
   assert.deepEqual(beyond.logs, []);
   assert.equal(beyond.total, 10, '越界时 total 仍然是真实条数');
+
+  handle.close();
+});
+
+// 「操作者」列的行内快照（audit_logs.actor_email）。
+//
+// 背景：actor_user_id 上有 `ON DELETE SET NULL` 外键，而 `DELETE FROM users` 会在
+// 「从备份恢复」和「管理端删除用户」两条路径上跑 —— 那一刻该用户所有历史日志的
+// actor_user_id 都被置成 NULL，且**不会自愈**（恢复虽把用户按同样 id 写回，
+// 但没有任何代码把值算回来）。表现就是日志中心「操作者」永久显示 `—`、
+// 按操作者邮箱搜索永久失效。
+//
+// 修法是写入时在行内抄一份邮箱。本测试断言的就是这条快照链路：
+// ① `createAuditLog` 真的写了快照；② 编号被置空后仍能显示；③ 搜索也还命中。
+test('恢复/删用户把 actor_user_id 置空后，操作者邮箱仍能显示与搜索', async () => {
+  const handle = await freshHandle();
+  const ACTOR_EMAIL = 'audit-a@example.test';
+
+  // 必须走生产写入路径，快照才会被填上（直接 INSERT 是绕过快照的）。
+  await createAuditLog(handle.db, {
+    id: 'audit-snapshot-1',
+    actorUserId: USER_A,
+    action: 'vault.cipher.create',
+    category: 'data',
+    level: 'info',
+    targetType: 'cipher',
+    targetId: 'cipher-1',
+    metadata: '{}',
+    createdAt: '2026-01-01T00:00:00.000Z',
+  });
+
+  // 前置条件：正常状态下两者都在
+  const before = await listAuditLogs(handle.db, { limit: PAGE, offset: 0 });
+  assert.equal(before.logs.length, 1);
+  assert.equal(before.logs[0].actorUserId, USER_A);
+  assert.equal(before.logs[0].actorEmail, ACTOR_EMAIL, '写入时应已把邮箱快照进这一行');
+
+  // 模拟恢复：DELETE FROM users（外键触发 SET NULL）→ 再把用户按同样的 id 写回。
+  // 这正是 backup-import.ts 的 swapShadowTablesIntoPlace 做的事。
+  handle.connection.exec('PRAGMA foreign_keys = ON');
+  handle.connection.prepare('DELETE FROM users WHERE id = ?').run(USER_A);
+  insertUser(handle.connection, USER_A, { email: ACTOR_EMAIL });
+
+  const after = await listAuditLogs(handle.db, { limit: PAGE, offset: 0 });
+  assert.equal(
+    after.logs[0].actorUserId,
+    null,
+    '前置条件：外键应已把编号置空。若这里不是 null，说明本测试没有覆盖到真实场景（外键未生效）'
+  );
+  assert.equal(
+    after.logs[0].actorEmail,
+    ACTOR_EMAIL,
+    '编号被置空后，行内快照必须仍然保留操作者邮箱 —— 否则日志中心的「操作者」会永久变成 —'
+  );
+
+  // 搜索同理：恢复后 actor.email 那个 JOIN 已经查不到东西，只能靠快照命中。
+  const searched = await listAuditLogs(handle.db, { limit: PAGE, offset: 0, q: ACTOR_EMAIL });
+  assert.equal(searched.total, 1, '恢复后仍应能按操作者邮箱搜到日志');
+  assert.equal(searched.logs[0].id, 'audit-snapshot-1');
 
   handle.close();
 });

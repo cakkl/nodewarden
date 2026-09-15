@@ -105,12 +105,32 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'CREATE INDEX IF NOT EXISTS idx_invites_created_by ON invites(created_by, created_at)',
 
   'CREATE TABLE IF NOT EXISTS audit_logs (' +
-  'id TEXT PRIMARY KEY, actor_user_id TEXT, action TEXT NOT NULL, category TEXT NOT NULL DEFAULT \'system\', level TEXT NOT NULL DEFAULT \'info\', target_type TEXT, target_id TEXT, metadata TEXT, created_at TEXT NOT NULL, ' +
+  'id TEXT PRIMARY KEY, actor_user_id TEXT, action TEXT NOT NULL, category TEXT NOT NULL DEFAULT \'system\', level TEXT NOT NULL DEFAULT \'info\', target_type TEXT, target_id TEXT, metadata TEXT, created_at TEXT NOT NULL, actor_email TEXT, ' +
   'FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL)',
   'ALTER TABLE audit_logs ADD COLUMN category TEXT NOT NULL DEFAULT \'system\'',
   'ALTER TABLE audit_logs ADD COLUMN level TEXT NOT NULL DEFAULT \'info\'',
+  // actor_email：操作者邮箱的**行内快照**（写入日志时就把邮箱抄进那一行）。
+  //
+  // 为什么必须抄一份：actor_user_id 上挂着 `ON DELETE SET NULL` 外键，而
+  // `DELETE FROM users` 不止恢复时会跑 —— 管理端删除用户
+  //（storage-user-repo.deleteUserById）同样会触发。那一刻该用户**所有历史日志**的
+  // actor_user_id 都会被置成 NULL，而且**不会自愈**：即便用户随后被重新写回
+  //（恢复流程就是这样，id 完全一样），也没有任何代码把这个值算回来。
+  // 后果是日志中心的「操作者」永久显示 `—`、按操作者邮箱搜索永久失效。
+  //
+  // 有了行内快照后，被置空的只剩「编号」这一列，邮箱仍留在同一行里；
+  // 读取端用 COALESCE(actor_email, JOIN) 因此照常显示。
+  // 这与 target 侧早就在用的做法一致（metadata.targetEmail 同样是写入时的快照）。
+  'ALTER TABLE audit_logs ADD COLUMN actor_email TEXT',
   'UPDATE audit_logs SET category = json_extract(metadata, \'$.category\') WHERE json_valid(metadata) AND json_extract(metadata, \'$.category\') IN (\'auth\', \'security\', \'device\', \'data\', \'system\')',
   'UPDATE audit_logs SET level = json_extract(metadata, \'$.level\') WHERE json_valid(metadata) AND json_extract(metadata, \'$.level\') IN (\'info\', \'warn\', \'error\', \'security\')',
+  // 回填历史行：趁 actor_user_id 还有效，把邮箱抄到快照列里。
+  //
+  // - 幂等：只处理 actor_email IS NULL 的行，重复执行安全（第二次是空转）。
+  // - 时序硬约束：**必须在任何一次恢复（或删除用户）之前跑过**。
+  //   一旦 actor_user_id 已被置空，就没有回填依据了，那批日志永久丢失。
+  // - 量大时可分批（D1 单查询 30s 上限），此处 502 行级别单条语句即可。
+  'UPDATE audit_logs SET actor_email = (SELECT users.email FROM users WHERE users.id = audit_logs.actor_user_id) WHERE actor_email IS NULL AND actor_user_id IS NOT NULL',
   'CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at)',
   'CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_created ON audit_logs(actor_user_id, created_at)',
   'CREATE INDEX IF NOT EXISTS idx_audit_logs_category_created ON audit_logs(category, created_at)',

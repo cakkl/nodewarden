@@ -2097,6 +2097,7 @@ export default function App() {
       await twoFactorStatusQuery.refetch();
     },
     onOpenDisableTotp: () => setDisableTotpOpen(true),
+    onGetTotpAuthenticatorSecret: accountSecurityActions.getTotpAuthenticatorSecret,
     onGetYubiKeySettings: accountSecurityActions.getYubiKeySettings,
     onSaveYubiKeySettings: accountSecurityActions.saveYubiKeySettings,
     onSaveYubiKeyApiCredentials: accountSecurityActions.saveYubiKeyApiCredentials,

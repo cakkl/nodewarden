@@ -115,6 +115,7 @@ export interface AppMainRoutesProps {
   onSavePasswordHint: (masterPasswordHint: string) => Promise<void>;
   onEnableTotp: (secret: string, token: string, masterPassword: string) => Promise<void>;
   onOpenDisableTotp: () => void;
+  onGetTotpAuthenticatorSecret: (masterPassword: string) => Promise<{ enabled: boolean; key: string }>;
   onGetYubiKeySettings: (masterPassword: string) => Promise<YubiKeyOtpSettings>;
   onSaveYubiKeySettings: (keys: string[], nfc: boolean, masterPassword: string) => Promise<YubiKeyOtpSettings>;
   onSaveYubiKeyApiCredentials: (clientId: string, secretKey: string, masterPassword: string) => Promise<YubiKeyOtpSettings>;
@@ -311,6 +312,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onSavePasswordHint={props.onSavePasswordHint}
                 onEnableTotp={props.onEnableTotp}
                 onOpenDisableTotp={props.onOpenDisableTotp}
+                onGetTotpAuthenticatorSecret={props.onGetTotpAuthenticatorSecret}
                 onGetYubiKeySettings={props.onGetYubiKeySettings}
                 onSaveYubiKeySettings={props.onSaveYubiKeySettings}
                 onSaveYubiKeyApiCredentials={props.onSaveYubiKeyApiCredentials}

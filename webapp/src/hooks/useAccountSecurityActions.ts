@@ -18,6 +18,7 @@ import {
   getTotpRecoveryCode,
   getTwoFactorPasskeyChallenge,
   getTwoFactorPasskeySettings as getTwoFactorPasskeySettingsApi,
+  getTwoFactorAuthenticatorSecret,
   getYubiKeyOtpSettings,
   listAccountPasskeys,
   rotateApiKey,
@@ -211,6 +212,17 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
         if (!normalized) throw new Error(t('txt_master_password_is_required'));
         const derived = await deriveLoginHash(profile.email, normalized, defaultKdfIterations);
         return getYubiKeyOtpSettings(authedFetch, derived.hash);
+      },
+
+      /** 读取服务端真实保存的 TOTP 密钥（设置页「验证器」弹窗要用真值，不能用前端随机值） */
+      async getTotpAuthenticatorSecret(
+        masterPassword: string
+      ): Promise<{ enabled: boolean; key: string }> {
+        if (!profile) throw new Error(t('txt_profile_unavailable'));
+        const normalized = String(masterPassword || '');
+        if (!normalized) throw new Error(t('txt_master_password_is_required'));
+        const derived = await deriveLoginHash(profile.email, normalized, defaultKdfIterations);
+        return getTwoFactorAuthenticatorSecret(authedFetch, derived.hash);
       },
 
       async saveYubiKeySettings(keys: string[], nfc: boolean, masterPassword: string): Promise<YubiKeyOtpSettings> {

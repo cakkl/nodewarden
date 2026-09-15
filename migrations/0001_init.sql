@@ -175,6 +175,12 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   target_id TEXT,
   metadata TEXT,
   created_at TEXT NOT NULL,
+  -- 操作者邮箱的**行内快照**（写入时抄一份）。
+  -- actor_user_id 上的外键是 ON DELETE SET NULL，而 DELETE FROM users 在
+  -- 「恢复备份」与「管理端删除用户」两条路径上都会跑 —— 那一刻该用户所有历史
+  -- 日志的 actor_user_id 被置空且不会自愈。有了这份快照，被抹掉的只剩编号，
+  -- 邮箱仍留在同一行里。详见 storage-schema.ts 中同一列的说明。
+  actor_email TEXT,
   FOREIGN KEY (actor_user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);

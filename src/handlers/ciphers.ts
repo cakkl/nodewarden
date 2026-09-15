@@ -234,6 +234,20 @@ function optionalEncStringWithin(value: unknown, maxLength: number): string | nu
   return normalized.length <= maxLength ? normalized : null;
 }
 
+/**
+ * 客户端传来的 `cipher.key` 不是合法加密串时的响应。
+ *
+ * 措辞很重要：本服务器**支持**逐项密钥（`config-response.ts` 里
+ * `'cipher-key-encryption': true`；合法的 EncString 会被原样保存，见 `normalizeCipherKeyForStorage`）。
+ * 这条 400 只是说“这次发来的值不是合法加密串” —— 与“支不支持这个特性”是两回事。
+ *
+ * 旧文案是 “Cipher key encryption is not supported by this server. Resync the client and try again.”，
+ * 两个毛病：① 把原因归错了（会让人以为服务器不支持逐项密钥）；
+ * ② 给了无效建议（重新同步不会让畸形值变成合法值）。
+ */
+const INVALID_CIPHER_KEY_MESSAGE =
+  'The cipher key sent by the client is not a valid encrypted string. Update the client and try again.';
+
 function shouldAcceptCipherKey(value: unknown): boolean {
   return value == null || value === '' || isValidEncString(value);
 }
@@ -963,7 +977,7 @@ export async function handleCreateCipher(request: Request, env: Env, userId: str
   const createPasswordHistory = readCipherProp<PasswordHistory[] | null>(cipherData, ['passwordHistory', 'PasswordHistory']);
 
   if (createKey.present && !shouldAcceptCipherKey(createKey.value)) {
-    return errorResponse('Cipher key encryption is not supported by this server. Resync the client and try again.', 400);
+    return errorResponse(INVALID_CIPHER_KEY_MESSAGE, 400);
   }
 
   const now = new Date().toISOString();
@@ -1054,7 +1068,7 @@ export async function handleUpdateCipher(request: Request, env: Env, userId: str
     && (body.preserveRevisionDate === true || cipherData.preserveRevisionDate === true);
 
   if (incomingKey.present && !shouldAcceptCipherKey(incomingKey.value)) {
-    return errorResponse('Cipher key encryption is not supported by this server. Resync the client and try again.', 400);
+    return errorResponse(INVALID_CIPHER_KEY_MESSAGE, 400);
   }
 
   // 注：带附件迁移元数据的请求会跳过上面的 stale 检查。原因是附件上传流程

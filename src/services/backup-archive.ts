@@ -2,6 +2,7 @@ import { zipSync, unzipSync, type UnzipFileInfo } from 'fflate';
 import type { Env } from '../types';
 import { APP_VERSION } from '../../shared/app-version';
 import { BACKUP_SETTINGS_CONFIG_KEY } from './backup-config';
+import { reportProgress } from './backup-progress';
 import { YUBICO_BOOTSTRAP_CLAIM_CONFIG_KEY } from './yubico-config';
 import { exportPortableBackupSettingsEnvelope } from './backup-settings-crypto';
 import {
@@ -118,6 +119,11 @@ export interface BuildBackupArchiveOptions {
    * 生产调用方必须省略 —— 真实上限来自恢复侧的 `MAX_BACKUP_DB_JSON_BYTES`。
    */
   restorableDbPayloadLimitBytes?: number;
+  /**
+   * 进度回调。**必须**自行吞掉异常，且调用方必须走 `services/backup-progress.ts` 的
+   * `reportProgress()` 上报（见该模块的 CONTRACT）—— 让「进度上报失败」有机会变成
+   * 「备份失败」是一件很容易犯、后果又不小的事。
+   */
   progress?: BackupArchiveBuildProgressReporter;
   timeZone?: string;
 }
@@ -597,7 +603,7 @@ export async function buildBackupArchive(
   options: BuildBackupArchiveOptions = {}
 ): Promise<BackupArchiveBundle> {
   const includeAttachments = options.includeAttachments !== false;
-  await options.progress?.({
+  await reportProgress(options.progress, {
     step: 'collect_data',
     fileName: '',
     stageTitle: 'txt_backup_archive_progress_collect_title',
@@ -670,7 +676,7 @@ export async function buildBackupArchive(
     }, null, BACKUP_JSON_INDENT)),
   };
 
-  await options.progress?.({
+  await reportProgress(options.progress, {
     step: 'package_archive',
     fileName: '',
     stageTitle: 'txt_backup_archive_progress_package_title',
@@ -716,7 +722,7 @@ export async function buildBackupArchive(
   const fileHashPrefix = (await sha256Hex(bytes)).slice(0, BACKUP_FILE_HASH_PREFIX_LENGTH);
   const backupTimeZone = options.timeZone || 'UTC';
   const fileName = buildBackupFileNameInTimeZone(date, fileHashPrefix, backupTimeZone);
-  await options.progress?.({
+  await reportProgress(options.progress, {
     step: 'archive_ready',
     fileName,
     stageTitle: 'txt_backup_archive_progress_ready_title',

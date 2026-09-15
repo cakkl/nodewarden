@@ -629,3 +629,94 @@ test('附件 14：恢复写入必须分批提交，而不是整表一个 db.batc
   source.close();
   target.close();
 });
+
+// ────────────────────────────────────────── 「进度上报不得决定业务成败」的守卫
+//
+// 不变式的定义与背景见 `src/services/backup-progress.ts` 的 CONTRACT（即 H3 事故）。
+// 简言之：`handlers/backup.ts` 传给恢复流程的进度回调会先 `touchLease()` 去续 Durable Object
+// 的作业租约，而那一步**会抛**；当时的调用点写的是裸 `await progress?.(...)`，于是「上报失败」
+// 被当成了「恢复失败」。下面两条分别钉住它的两个后果。
+
+test('附件 15：进度上报每次抛错，也必须导入成功且数据真的落库', async () => {
+  const source = freshDatabase();
+  seedSource(source);
+  const sourceBytes = await exportBytes(source);
+
+  const target = freshDatabase();
+  const reported: string[] = [];
+  const imported = await importBackupArchiveBytes(sourceBytes, envFor(target), 'actor-1', true, async (event) => {
+    reported.push(event.step);
+    // 用 async + throw 贴近真实：`touchLease()` 是在 await 之后失败的
+    throw new Error('progress callback exploded');
+  });
+
+  assert.ok(reported.length > 0, '前置条件：回调应确实被调用过，否则本测试没覆盖到真实场景');
+  assert.ok(
+    reported.includes('local_complete'),
+    `「完成」阶段也必须尝试上报过 —— 它正是过去会对外报 500 的那一处；实际：${JSON.stringify(reported)}`
+  );
+
+  // 导入必须报成功，且数据真的落库 —— 否则「成功」只是假象
+  assert.equal(imported.result.imported.users, 1);
+  assert.equal(
+    (target.connection.prepare('SELECT COUNT(*) AS count FROM ciphers').get() as { count: number }).count,
+    CIPHER_TYPES.length
+  );
+
+  source.close();
+  target.close();
+});
+
+test('附件 16：导入失败时，进度上报抛错不得覆盖原始的失败原因', async () => {
+  const source = freshDatabase();
+  seedSource(source);
+  const sourceBytes = await exportBytes(source);
+  const target = freshDatabase();
+  const reported: string[] = [];
+
+  // 让写库这一步在 try 内部失败（真失败），从而走到 catch 里的「失败」上报那一步。
+  // 注：缺 ATTACHMENTS 绑定不是真失败 —— 附件会被记入 `skipped` 并继续，那是设计。
+  //
+  // 触发时机刻意用「首次进度上报之后再失败」而不是数第几次 batch：清理残留的
+  // resetRestoreArtifacts() 跑在 try **之前**，若在那里就失败，永远不会走到 catch 里的
+  // 失败上报，这条测试就变成空断言了（下面那条前置断言就是为此设的）。
+  const failingDb = new Proxy(target.db, {
+    get(targetDb, property, receiver) {
+      if (property === 'batch') {
+        return async (statements: unknown[]) => {
+          if (reported.length === 0) {
+            return (targetDb.batch as (items: unknown[]) => Promise<unknown>)(statements);
+          }
+          throw new Error('database exploded');
+        };
+      }
+      const value = Reflect.get(targetDb, property, receiver);
+      return typeof value === 'function' ? value.bind(targetDb) : value;
+    },
+  });
+
+  await assert.rejects(
+    () =>
+      importBackupArchiveBytes(sourceBytes, { DB: failingDb } as unknown as Env, 'actor-1', true, async (event) => {
+        reported.push(event.step);
+        throw new Error('progress callback exploded');
+      }),
+    (error: Error) => {
+      assert.match(error.message, /database exploded/i, `抛出的应是原始的失败原因，实际：${error.message}`);
+      assert.doesNotMatch(
+        error.message,
+        /progress callback exploded/i,
+        '进度回调的错误绝不能覆盖原始失败原因（否则排障时看不到真因）'
+      );
+      return true;
+    }
+  );
+
+  assert.ok(
+    reported.includes('local_failed'),
+    `前置条件：失败阶段应尝试上报过，否则本测试没覆盖到「覆盖原始原因」这条分支；实际：${JSON.stringify(reported)}`
+  );
+
+  source.close();
+  target.close();
+});
