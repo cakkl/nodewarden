@@ -339,6 +339,7 @@ const de: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "Integritätsprüfung des Remote-Backups fehlgeschlagen.",
   "txt_backup_error_remote_listing_failed": "Auflisten des Remote-Backups fehlgeschlagen.",
   "txt_backup_error_remote_path_invalid": "Remote-Backup-Pfad ist ungültig.",
+  "txt_backup_error_remote_request_timeout": "Das entfernte Backup-Ziel hat nicht rechtzeitig geantwortet (Zeitüberschreitung nach {seconds}s). Prüfen Sie Adresse, Netzwerkverbindung und Zugangsdaten, und versuchen Sie es erneut.",
   "txt_backup_error_remote_restore_payload_invalid": "Remote-Wiederherstellungsanfrage ist ungültig.",
   "txt_backup_error_remote_zip_checksum_failed": "Überprüfung der ZIP-Prüfsumme des Remote-Backups fehlgeschlagen.",
   "txt_backup_error_remote_zip_size_failed": "Überprüfung der ZIP-Größe des Remote-Backups fehlgeschlagen.",

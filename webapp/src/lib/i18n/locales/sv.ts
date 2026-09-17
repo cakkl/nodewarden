@@ -339,6 +339,7 @@ const sv: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "Integritetsinspektion av fjärrsäkerhetskopia misslyckades.",
   "txt_backup_error_remote_listing_failed": "Listning av fjärrsäkerhetskopior misslyckades.",
   "txt_backup_error_remote_path_invalid": "Sökvägen till fjärrsäkerhetskopian är ogiltig.",
+  "txt_backup_error_remote_request_timeout": "Fjärrmålet för säkerhetskopian svarade inte i tid (timeout efter {seconds} s). Kontrollera adress, nätverksanslutning och inloggningsuppgifter och försök igen.",
   "txt_backup_error_remote_restore_payload_invalid": "Begäran om fjärråterställning är ogiltig.",
   "txt_backup_error_remote_zip_checksum_failed": "Verifiering av fjärrsäkerhetskopians ZIP-kontrollsumma misslyckades.",
   "txt_backup_error_remote_zip_size_failed": "Verifiering av fjärrsäkerhetskopians ZIP-storlek misslyckades.",

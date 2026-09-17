@@ -392,6 +392,7 @@ const en: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "Remote backup integrity inspection failed.",
   "txt_backup_error_remote_listing_failed": "Remote backup listing failed.",
   "txt_backup_error_remote_path_invalid": "Remote backup path is invalid.",
+  "txt_backup_error_remote_request_timeout": "The remote backup destination did not respond in time (timed out after {seconds}s). Check the address, network connectivity, and credentials, then try again.",
   "txt_backup_error_remote_restore_payload_invalid": "Remote restore request is invalid.",
   "txt_backup_error_remote_zip_checksum_failed": "Remote backup ZIP checksum verification failed.",
   "txt_backup_error_remote_zip_size_failed": "Remote backup ZIP size verification failed.",

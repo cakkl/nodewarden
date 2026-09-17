@@ -172,6 +172,20 @@ export function translateServerError(message: string | null | undefined, fallbac
     });
   }
 
+  // 远端请求超时：后端见 `src/services/backup-uploader.ts` 的 `RemoteRequestTimeoutError`，
+  // 消息形状为「WebDAV upload timed out after 15000 ms」。provider / action 只用于锚定正则，
+  // 不进文案（把动作名译准的收益远低于成本，而且管理员点的是哪个按钮自己清楚）；
+  // 毫秒在这里换算成秒，避免界面出现「15000 秒」这种读数。
+  const remoteTimeoutMatch = normalized.match(
+    /^(?:WebDAV|S3) (?:directory creation|upload|listing|download|delete|existence check) timed out after (\d+) ms$/i
+  );
+  if (remoteTimeoutMatch) {
+    const seconds = Number(remoteTimeoutMatch[1]) / 1000;
+    return t('txt_backup_error_remote_request_timeout', {
+      seconds: seconds >= 10 ? String(Math.round(seconds)) : String(Number(seconds.toFixed(1))),
+    });
+  }
+
   const remoteAttachmentStatusMatch = normalized.match(/^Remote attachment (download|batch download) failed: (\d+)$/i);
   if (remoteAttachmentStatusMatch) {
     return t(

@@ -106,3 +106,28 @@ test('translateServerError：前后空白会被裁掉后再查表', () => {
   const bare = translateServerError('masterPasswordHash is required', 'fallback');
   assert.equal(padded, bare, '两侧空白不应影响映射结果');
 });
+
+// ---------------------------------------------------------------- 远端备份超时
+//
+// 为什么值得测：后端把远端超时消息写成「WebDAV upload timed out after 15000 ms」这种**毫秒**形态，
+// 映射不到时管理员会直接看到这串英文（非英文界面下尤其刺眼），
+// 而“毫秒 / 秒”换算写错时界面会出现「15000 秒」这种读数 —— 两者都是静默失败。
+test('translateServerError：远端超时消息被换算成秒并落到本地化文案', () => {
+  assert.equal(
+    translateServerError('WebDAV upload timed out after 15000 ms', 'fallback'),
+    'The remote backup destination did not respond in time (timed out after 15s). '
+      + 'Check the address, network connectivity, and credentials, then try again.'
+  );
+  assert.equal(
+    translateServerError('S3 listing timed out after 500 ms', 'fallback'),
+    'The remote backup destination did not respond in time (timed out after 0.5s). '
+      + 'Check the address, network connectivity, and credentials, then try again.'
+  );
+});
+
+test('translateServerError：HTTP 状态类失败仍按「provider + 动作 + 状态码」文案渲染（不应被超时分支抢走）', () => {
+  assert.equal(
+    translateServerError('WebDAV upload failed: 403', 'fallback'),
+    'WebDAV upload failed: HTTP 403.'
+  );
+});

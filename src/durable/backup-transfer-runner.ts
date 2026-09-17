@@ -11,6 +11,8 @@ import {
   createRemoteBackupTransferSession,
   downloadRemoteBackupFile,
   ensureRemoteRestoreCandidate,
+  isRemoteRequestTimeoutError,
+  remoteRequestFailureStatus,
 } from '../services/backup-uploader';
 import { getBlobObject } from '../services/blob-store';
 import { StorageService } from '../services/storage';
@@ -213,7 +215,7 @@ export class BackupTransferRunner {
         },
       });
     } catch (error) {
-      return badRequest(error instanceof Error ? error.message : 'Backup run failed', 500);
+      return badRequest(error instanceof Error ? error.message : 'Backup run failed', remoteRequestFailureStatus(error));
     } finally {
       await this.releaseJob(token);
     }
@@ -280,7 +282,7 @@ export class BackupTransferRunner {
         },
       });
     } catch (error) {
-      return badRequest(error instanceof Error ? error.message : 'Scheduled backup failed', 500);
+      return badRequest(error instanceof Error ? error.message : 'Scheduled backup failed', remoteRequestFailureStatus(error));
     } finally {
       await this.releaseJob(token);
     }
@@ -357,13 +359,27 @@ export class BackupTransferRunner {
         },
       });
     } catch (error) {
-      return badRequest(error instanceof Error ? error.message : 'Remote backup restore failed', 500);
+      return badRequest(error instanceof Error ? error.message : 'Remote backup restore failed', remoteRequestFailureStatus(error));
     } finally {
       await this.releaseJob(token);
     }
   }
 
   async fetch(request: Request): Promise<Response> {
+    // 兜底：任何逃逸出来的错误都必须变成**可读且状态正确**的响应。
+    // 否则 DO 抛错会让平台返回通用 500（`internal error; reference = …`），管理员无法自助排查；
+    // 而 500 还会被前端 `retryableRequest` 自动重试 3 次，把一次失败放大成三倍等待。
+    try {
+      return await this.route(request);
+    } catch (error) {
+      return badRequest(
+        error instanceof Error ? error.message : 'Backup transfer request failed',
+        remoteRequestFailureStatus(error)
+      );
+    }
+  }
+
+  private async route(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (request.method !== 'POST') {
       return badRequest('Not found', 404);
@@ -392,7 +408,12 @@ export class BackupTransferRunner {
       if (!body?.destination || !isSafeBackupAttachmentBlobName(blobName)) {
         return badRequest('Remote attachment download payload is invalid');
       }
-      const file = await downloadRemoteBackupFile(body.destination, `attachments/${blobName}`).catch(() => null);
+      const file = await downloadRemoteBackupFile(body.destination, `attachments/${blobName}`).catch((error: unknown) => {
+        // 远端超时说明目标整体不可用 ⇒ 让它冒泡到 fetch() 的兜底（可读的 4xx），
+        // 而不是伪装成「附件不存在」；其余错误保持既有的「不存在」语义。
+        if (isRemoteRequestTimeoutError(error)) throw error;
+        return null;
+      });
       if (!file) {
         return badRequest('Remote attachment not found', 404);
       }
@@ -426,7 +447,12 @@ export class BackupTransferRunner {
       const files: Record<string, Uint8Array> = {};
       for (let i = 0; i < blobNames.length; i += 1) {
         const blobName = blobNames[i];
-        const file = await downloadRemoteBackupFile(body.destination, `attachments/${blobName}`).catch(() => null);
+        const file = await downloadRemoteBackupFile(body.destination, `attachments/${blobName}`).catch((error: unknown) => {
+          // 同上；而且这里一批最多 40 个：逐个等满超时等于把等待时间乘以 40，
+          // 所以第一个超时就结束整批，让错误变成一条可读的 4xx。
+          if (isRemoteRequestTimeoutError(error)) throw error;
+          return null;
+        });
         if (!file) continue;
         const path = `files/${i}.bin`;
         entries.push({ blobName, path });
@@ -461,6 +487,8 @@ export class BackupTransferRunner {
     const remoteSession = createRemoteBackupTransferSession(body.destination);
     let uploaded = 0;
 
+    // 刻意**不**在循环里 catch：每次 putFile 都有超时，而同一目标不可用时失败几乎必然重复 ——
+    // 第一个超时就该让整批立刻结束（冒泡到 fetch() 的兜底），而不是把 18 个附件逐个等满超时。
     for (const attachment of body.attachments) {
       const blobName = String(attachment?.blobName || '').trim();
       if (!isSafeBackupAttachmentBlobName(blobName)) {

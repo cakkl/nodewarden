@@ -342,6 +342,7 @@ const zhCN: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "远端备份完整性检查失败。",
   "txt_backup_error_remote_listing_failed": "远端备份列表读取失败。",
   "txt_backup_error_remote_path_invalid": "远端备份路径无效。",
+  "txt_backup_error_remote_request_timeout": "远端备份目的地未在预期时间内响应（超时 {seconds} 秒）。请检查地址、网络连通性与凭证后重试。",
   "txt_backup_error_remote_restore_payload_invalid": "远端还原请求无效。",
   "txt_backup_error_remote_zip_checksum_failed": "远端备份 ZIP 校验失败。",
   "txt_backup_error_remote_zip_size_failed": "远端备份 ZIP 大小校验失败。",

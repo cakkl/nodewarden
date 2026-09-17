@@ -45,6 +45,146 @@ export interface RemoteBackupFilePutOptions {
   contentType?: string;
 }
 
+// ---------------------------------------------------------------- 远端请求超时
+//
+// 为什么要做：远端目的地不可达时（黑洞 IP、防火墙丢包、容器被暂停、TLS 握手挂住），
+// `fetch()` 可能**永不 settle**。异常永远抛不出来 ⇒ 调用方的 catch 永不执行 ⇒ 请求一直挂着，
+// 最后由平台兜底返回通用 500（`internal error; reference = …`），管理员拿到的信息量为零。
+// 所以超时不是为了“限速”，而是为了让失败**真的成为一次失败**。
+//
+// 为什么要分档：控制类请求（MKCOL / HEAD / DELETE）只传几十字节；而单次传输可能是
+// 100 MiB 的附件（`limits.attachment.maxFileSizeBytes`）或 64 MiB 的归档
+// （`MAX_BACKUP_ARCHIVE_BYTES`），跨境上传远超几秒 ⇒ 传输类按体积估算，
+// 避免把“慢但成功”误杀成失败。
+export type RemoteRequestAction =
+  | 'directory creation'
+  | 'upload'
+  | 'listing'
+  | 'download'
+  | 'delete'
+  | 'existence check';
+
+export interface RemoteRequestTimeouts {
+  /** 控制类请求（建目录 / 存在性检查 / 删除）的整段时长上限 */
+  controlMs: number;
+  /** 列目录（WebDAV PROPFIND / S3 ListObjectsV2）的整段时长上限 */
+  listingMs: number;
+  /** 等待首包（响应头）的上限，用于 GET 下载 */
+  firstByteMs: number;
+  /** 传输类（上传 / 下载 body）的下限：小文件也要给足建连与握手时间 */
+  transferMinMs: number;
+  /** 传输类上限：再慢也总得失败一次 */
+  transferMaxMs: number;
+  /** 估算传输耗时用的**保守**带宽假设（字节/秒） */
+  transferBytesPerSecond: number;
+}
+
+export const DEFAULT_REMOTE_REQUEST_TIMEOUTS: RemoteRequestTimeouts = {
+  controlMs: 5_000,
+  listingMs: 10_000,
+  firstByteMs: 10_000,
+  transferMinMs: 30_000,
+  transferMaxMs: 10 * 60 * 1000,
+  // 256 KB/s：比任何可用链路都慢，宁可多给时间也不要误杀一次能成功的备份
+  transferBytesPerSecond: 256 * 1024,
+};
+
+/**
+ * 远端请求超时。与 HTTP 状态码类错误（`WebDAV upload failed: 403`）刻意区分开：
+ * 调用方据此把它映射成**不可重试**的 4xx（见 `remoteRequestFailureStatus`）。
+ */
+export class RemoteRequestTimeoutError extends Error {
+  constructor(
+    readonly provider: 'WebDAV' | 'S3',
+    readonly action: RemoteRequestAction,
+    readonly timeoutMs: number
+  ) {
+    super(`${provider} ${action} timed out after ${timeoutMs} ms`);
+    this.name = 'RemoteRequestTimeoutError';
+  }
+}
+
+export function isRemoteRequestTimeoutError(error: unknown): error is RemoteRequestTimeoutError {
+  return error instanceof RemoteRequestTimeoutError;
+}
+
+/**
+ * 超时消息的**形状**判定，供跨 JS 上下文使用：
+ * DO 与 handler 之间传递的是 JSON，Error 对象不会原样过界，
+ * 所以 handler 侧读回来的只有 message，只能按形状判断。
+ * 形状与前端 `translateServerError` 的正则、以及本类的 `super(...)` 三者必须一致。
+ */
+export function isRemoteRequestTimeoutMessage(message: unknown): boolean {
+  return typeof message === 'string'
+    && /^(?:WebDAV|S3) (?:directory creation|upload|listing|download|delete|existence check) timed out after \d+ ms$/.test(message);
+}
+
+/**
+ * 超时必须映射成**不可重试**的 4xx。
+ *
+ * 原因：前端 `createAuthedFetch` 的 `retryableRequest` 对 429 与 5xx 会自动重试 3 次
+ * （退避 250 / 500 ms）。若超时也回 500，一次超时会被放大成约三倍等待，
+ * 管理员要等更久才看得到那条“可读的原因”。
+ *
+ * 既接受 Error（同进程）也接受字符串消息（DO → handler 的 JSON 回传）。
+ */
+export function remoteRequestFailureStatus(error: unknown, fallbackStatus = 500): number {
+  if (isRemoteRequestTimeoutError(error)) return 400;
+  const message = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+  return isRemoteRequestTimeoutMessage(message) ? 400 : fallbackStatus;
+}
+
+/** 把部分覆盖合并成完整配置；非法值（0 / 负数 / NaN）一律回退到默认，避免计时器立即触发或永不触发。 */
+export function resolveRemoteRequestTimeouts(overrides?: Partial<RemoteRequestTimeouts>): RemoteRequestTimeouts {
+  if (!overrides) return DEFAULT_REMOTE_REQUEST_TIMEOUTS;
+  const pick = (value: number | undefined, fallback: number): number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+  return {
+    controlMs: pick(overrides.controlMs, DEFAULT_REMOTE_REQUEST_TIMEOUTS.controlMs),
+    listingMs: pick(overrides.listingMs, DEFAULT_REMOTE_REQUEST_TIMEOUTS.listingMs),
+    firstByteMs: pick(overrides.firstByteMs, DEFAULT_REMOTE_REQUEST_TIMEOUTS.firstByteMs),
+    transferMinMs: pick(overrides.transferMinMs, DEFAULT_REMOTE_REQUEST_TIMEOUTS.transferMinMs),
+    transferMaxMs: pick(overrides.transferMaxMs, DEFAULT_REMOTE_REQUEST_TIMEOUTS.transferMaxMs),
+    transferBytesPerSecond: pick(overrides.transferBytesPerSecond, DEFAULT_REMOTE_REQUEST_TIMEOUTS.transferBytesPerSecond),
+  };
+}
+
+/** 传输类预算：已知字节数时按保守带宽估算，夹在 [transferMinMs, transferMaxMs] 之间。 */
+function resolveTransferTimeoutMs(byteLength: number | undefined, timeouts: RemoteRequestTimeouts): number {
+  if (!byteLength || byteLength <= 0) return timeouts.transferMinMs;
+  const estimatedMs = Math.ceil((byteLength / timeouts.transferBytesPerSecond) * 1000);
+  return Math.min(timeouts.transferMaxMs, Math.max(timeouts.transferMinMs, estimatedMs));
+}
+
+/**
+ * 在**整段操作**（发送请求 + 读响应体）外包一层超时。
+ *
+ * 为什么不只包 `fetch()`：`fetch()` 在**收到响应头**时就 resolve 了，
+ * 下载类请求还要 `await response.arrayBuffer()` 把 body 读进来 ——
+ * 对端“发了头就不再发数据”时，卡住的正是读 body 这一步。
+ *
+ * 传入 `controller` 可复用同一个 AbortSignal：响应头已到达后再 `abort()`
+ * 仍能中断 body 读取（下载路径正是这样拆成“首包 + body”两段计时的）。
+ */
+async function withRemoteTimeout<T>(
+  provider: 'WebDAV' | 'S3',
+  action: RemoteRequestAction,
+  timeoutMs: number,
+  run: (signal: AbortSignal) => Promise<T>,
+  controller: AbortController = new AbortController()
+): Promise<T> {
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await run(controller.signal);
+  } catch (error) {
+    // 只有我们自己 abort 才会把 signal 置为 aborted；对端主动断开等情况保持原样
+    if (controller.signal.aborted) throw new RemoteRequestTimeoutError(provider, action, timeoutMs);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function isBackupArchiveName(name: string): boolean {
   return /\.zip$/i.test(String(name || '').trim());
 }
@@ -255,18 +395,26 @@ function webDavFullPath(config: WebDavBackupDestination, relativePath: string): 
   return buildJoinedPath(config.remotePath, normalizeRelativePath(relativePath));
 }
 
-async function ensureWebDavDirectory(baseUrl: string, directoryPath: string, authHeader: string): Promise<void> {
+async function ensureWebDavDirectory(
+  baseUrl: string,
+  directoryPath: string,
+  authHeader: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<void> {
   const segments = trimSlashes(directoryPath).split('/').filter(Boolean);
   let current = '';
   for (const segment of segments) {
     current = buildJoinedPath(current, segment);
     const url = buildWebDavUrl(baseUrl, current);
-    const response = await fetch(url, {
-      method: 'MKCOL',
-      headers: {
-        Authorization: authHeader,
-      },
-    });
+    const response = await withRemoteTimeout('WebDAV', 'directory creation', timeouts.controlMs, (signal) =>
+      fetch(url, {
+        method: 'MKCOL',
+        headers: {
+          Authorization: authHeader,
+        },
+        signal,
+      })
+    );
     if ([200, 201, 204, 405].includes(response.status)) continue;
     throw new Error(`WebDAV directory creation failed: ${response.status}`);
   }
@@ -276,7 +424,8 @@ async function ensureWebDavDirectoryCached(
   baseUrl: string,
   directoryPath: string,
   authHeader: string,
-  ensuredDirectories: Set<string>
+  ensuredDirectories: Set<string>,
+  timeouts: RemoteRequestTimeouts
 ): Promise<void> {
   const segments = trimSlashes(directoryPath).split('/').filter(Boolean);
   let current = '';
@@ -284,12 +433,15 @@ async function ensureWebDavDirectoryCached(
     current = buildJoinedPath(current, segment);
     if (ensuredDirectories.has(current)) continue;
     const url = buildWebDavUrl(baseUrl, current);
-    const response = await fetch(url, {
-      method: 'MKCOL',
-      headers: {
-        Authorization: authHeader,
-      },
-    });
+    const response = await withRemoteTimeout('WebDAV', 'directory creation', timeouts.controlMs, (signal) =>
+      fetch(url, {
+        method: 'MKCOL',
+        headers: {
+          Authorization: authHeader,
+        },
+        signal,
+      })
+    );
     if ([200, 201, 204, 405].includes(response.status)) {
       ensuredDirectories.add(current);
       continue;
@@ -303,7 +455,8 @@ async function putToWebDav(
   relativePath: string,
   bytes: Uint8Array,
   options: RemoteBackupFilePutOptions = {},
-  ensuredDirectories?: Set<string>
+  ensuredDirectories: Set<string> | undefined,
+  timeouts: RemoteRequestTimeouts
 ): Promise<void> {
   const authHeader = toBasicAuthHeader(config.username, config.password);
   const remoteFilePath = buildJoinedPath(config.remotePath, relativePath);
@@ -311,29 +464,41 @@ async function putToWebDav(
 
   if (remoteDir) {
     if (ensuredDirectories) {
-      await ensureWebDavDirectoryCached(config.baseUrl, remoteDir, authHeader, ensuredDirectories);
+      await ensureWebDavDirectoryCached(config.baseUrl, remoteDir, authHeader, ensuredDirectories, timeouts);
     } else {
-      await ensureWebDavDirectory(config.baseUrl, remoteDir, authHeader);
+      await ensureWebDavDirectory(config.baseUrl, remoteDir, authHeader, timeouts);
     }
   }
 
-  const response = await fetch(buildWebDavUrl(config.baseUrl, remoteFilePath), {
-    method: 'PUT',
-    headers: {
-      Authorization: authHeader,
-      'Content-Type': options.contentType || 'application/octet-stream',
-      'Content-Length': String(bytes.byteLength),
-    },
-    body: bytes,
-  });
+  const response = await withRemoteTimeout(
+    'WebDAV',
+    'upload',
+    resolveTransferTimeoutMs(bytes.byteLength, timeouts),
+    (signal) =>
+      fetch(buildWebDavUrl(config.baseUrl, remoteFilePath), {
+        method: 'PUT',
+        headers: {
+          Authorization: authHeader,
+          'Content-Type': options.contentType || 'application/octet-stream',
+          'Content-Length': String(bytes.byteLength),
+        },
+        body: bytes,
+        signal,
+      })
+  );
 
   if (!response.ok) {
     throw new Error(`WebDAV upload failed: ${response.status}`);
   }
 }
 
-async function uploadToWebDav(config: WebDavBackupDestination, archive: Uint8Array, fileName: string): Promise<BackupUploadResult> {
-  await putToWebDav(config, fileName, archive, { contentType: 'application/zip' });
+async function uploadToWebDav(
+  config: WebDavBackupDestination,
+  archive: Uint8Array,
+  fileName: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<BackupUploadResult> {
+  await putToWebDav(config, fileName, archive, { contentType: 'application/zip' }, undefined, timeouts);
   return {
     provider: 'webdav',
     remotePath: buildJoinedPath(config.remotePath, fileName),
@@ -350,20 +515,35 @@ function parseWebDavResponsePath(baseUrl: string, href: string): string {
   return entryPath.startsWith(`${basePath}/`) ? entryPath.slice(basePath.length + 1) : entryPath;
 }
 
-async function listWebDavEntries(config: WebDavBackupDestination, relativePath: string): Promise<RemoteBackupListResult> {
+async function listWebDavEntries(
+  config: WebDavBackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<RemoteBackupListResult> {
   const currentPath = normalizeRelativePath(relativePath);
   const targetFullPath = webDavFullPath(config, currentPath);
   const authHeader = toBasicAuthHeader(config.username, config.password);
-  const response = await fetch(buildWebDavUrl(config.baseUrl, targetFullPath), {
-    method: 'PROPFIND',
-    headers: {
-      Authorization: authHeader,
-      Depth: '1',
-      'Content-Type': 'application/xml; charset=utf-8',
-    },
-    body: `<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><resourcetype/><getcontentlength/><getlastmodified/></prop></propfind>`,
+  // 列目录的响应体很小，把「请求 + 读 body」放在同一段预算里即可
+  const listing = await withRemoteTimeout('WebDAV', 'listing', timeouts.listingMs, async (signal) => {
+    const response = await fetch(buildWebDavUrl(config.baseUrl, targetFullPath), {
+      method: 'PROPFIND',
+      headers: {
+        Authorization: authHeader,
+        Depth: '1',
+        'Content-Type': 'application/xml; charset=utf-8',
+      },
+      body: `<?xml version="1.0" encoding="utf-8"?><propfind xmlns="DAV:"><prop><resourcetype/><getcontentlength/><getlastmodified/></prop></propfind>`,
+      signal,
+    });
+    if (response.status === 404) {
+      return { missing: true as const, xml: '' };
+    }
+    if (!response.ok) {
+      throw new Error(`WebDAV listing failed: ${response.status}`);
+    }
+    return { missing: false as const, xml: await response.text() };
   });
-  if (response.status === 404) {
+  if (listing.missing) {
     return {
       provider: 'webdav',
       currentPath,
@@ -371,11 +551,8 @@ async function listWebDavEntries(config: WebDavBackupDestination, relativePath: 
       items: [],
     };
   }
-  if (!response.ok) {
-    throw new Error(`WebDAV listing failed: ${response.status}`);
-  }
 
-  const xml = await response.text();
+  const xml = listing.xml;
   const rootFullPath = trimSlashes(config.remotePath);
   const items: RemoteBackupItem[] = [];
   for (const block of extractXmlBlocks(xml, 'response')) {
@@ -415,58 +592,99 @@ async function listWebDavEntries(config: WebDavBackupDestination, relativePath: 
   };
 }
 
-async function downloadFromWebDav(config: WebDavBackupDestination, relativePath: string): Promise<RemoteBackupFile> {
+async function downloadFromWebDav(
+  config: WebDavBackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<RemoteBackupFile> {
   const normalized = normalizeRelativePath(relativePath);
   if (!normalized || normalized.endsWith('/')) {
     throw new Error('Please select a backup file');
   }
   const authHeader = toBasicAuthHeader(config.username, config.password);
   const remotePath = webDavFullPath(config, normalized);
-  const response = await fetch(buildWebDavUrl(config.baseUrl, remotePath), {
-    method: 'GET',
-    headers: {
-      Authorization: authHeader,
-    },
-  });
+  // 两段计时：先给“首包”，再按 Content-Length 给 body 预算。
+  // 复用同一个 controller ⇒ 响应头已到达后 abort 仍能中断后面的 body 读取。
+  const controller = new AbortController();
+  const response = await withRemoteTimeout(
+    'WebDAV',
+    'download',
+    timeouts.firstByteMs,
+    (signal) =>
+      fetch(buildWebDavUrl(config.baseUrl, remotePath), {
+        method: 'GET',
+        headers: {
+          Authorization: authHeader,
+        },
+        signal,
+      }),
+    controller
+  );
   if (!response.ok) {
     throw new Error(`WebDAV download failed: ${response.status}`);
   }
+  const declaredLength = Number(response.headers.get('Content-Length') || '');
+  const bytes = await withRemoteTimeout(
+    'WebDAV',
+    'download',
+    resolveTransferTimeoutMs(Number.isFinite(declaredLength) ? declaredLength : undefined, timeouts),
+    () => response.arrayBuffer(),
+    controller
+  );
   return {
     provider: 'webdav',
     remotePath: normalized,
     fileName: basename(normalized) || 'backup.zip',
     contentType: String(response.headers.get('Content-Type') || 'application/zip').trim() || 'application/zip',
-    bytes: new Uint8Array(await response.arrayBuffer()),
+    bytes: new Uint8Array(bytes),
   };
 }
 
-async function deleteFromWebDav(config: WebDavBackupDestination, relativePath: string): Promise<void> {
+async function deleteFromWebDav(
+  config: WebDavBackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<void> {
   const authHeader = toBasicAuthHeader(config.username, config.password);
   const remotePath = webDavFullPath(config, relativePath);
-  const response = await fetch(buildWebDavUrl(config.baseUrl, remotePath), {
-    method: 'DELETE',
-    headers: {
-      Authorization: authHeader,
-    },
-  });
+  const response = await withRemoteTimeout('WebDAV', 'delete', timeouts.controlMs, (signal) =>
+    fetch(buildWebDavUrl(config.baseUrl, remotePath), {
+      method: 'DELETE',
+      headers: {
+        Authorization: authHeader,
+      },
+      signal,
+    })
+  );
   if (!response.ok && response.status !== 404) {
     throw new Error(`WebDAV delete failed: ${response.status}`);
   }
 }
 
-async function existsInWebDav(config: WebDavBackupDestination, relativePath: string): Promise<boolean> {
-  return (await statWebDavFile(config, relativePath)) !== null;
+async function existsInWebDav(
+  config: WebDavBackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<boolean> {
+  return (await statWebDavFile(config, relativePath, timeouts)) !== null;
 }
 
-async function statWebDavFile(config: WebDavBackupDestination, relativePath: string): Promise<RemoteBackupFileStat | null> {
+async function statWebDavFile(
+  config: WebDavBackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<RemoteBackupFileStat | null> {
   const authHeader = toBasicAuthHeader(config.username, config.password);
   const remotePath = webDavFullPath(config, relativePath);
-  const response = await fetch(buildWebDavUrl(config.baseUrl, remotePath), {
-    method: 'HEAD',
-    headers: {
-      Authorization: authHeader,
-    },
-  });
+  const response = await withRemoteTimeout('WebDAV', 'existence check', timeouts.controlMs, (signal) =>
+    fetch(buildWebDavUrl(config.baseUrl, remotePath), {
+      method: 'HEAD',
+      headers: {
+        Authorization: authHeader,
+      },
+      signal,
+    })
+  );
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error(`WebDAV existence check failed: ${response.status}`);
@@ -511,6 +729,7 @@ async function signedS3Request(
   config: S3BackupDestination,
   method: 'GET' | 'PUT' | 'DELETE' | 'HEAD',
   url: URL,
+  signal: AbortSignal,
   body?: Uint8Array,
   contentType?: string
 ): Promise<Response> {
@@ -542,6 +761,7 @@ async function signedS3Request(
       ...(method === 'PUT' ? { 'Content-Type': headers['content-type'] } : {}),
     },
     body,
+    signal,
   });
 }
 
@@ -549,26 +769,41 @@ async function putToS3(
   config: S3BackupDestination,
   relativePath: string,
   bytes: Uint8Array,
-  options: RemoteBackupFilePutOptions = {}
+  options: RemoteBackupFilePutOptions,
+  timeouts: RemoteRequestTimeouts
 ): Promise<void> {
   const objectKey = normalizeS3ObjectKey(config, relativePath);
   const url = s3ObjectUrl(config, objectKey);
-  const response = await signedS3Request(config, 'PUT', url, bytes, options.contentType);
+  const response = await withRemoteTimeout(
+    'S3',
+    'upload',
+    resolveTransferTimeoutMs(bytes.byteLength, timeouts),
+    (signal) => signedS3Request(config, 'PUT', url, signal, bytes, options.contentType)
+  );
 
   if (!response.ok) {
     throw new Error(`S3 upload failed: ${response.status}`);
   }
 }
 
-async function uploadToS3(config: S3BackupDestination, archive: Uint8Array, fileName: string): Promise<BackupUploadResult> {
-  await putToS3(config, fileName, archive, { contentType: 'application/zip' });
+async function uploadToS3(
+  config: S3BackupDestination,
+  archive: Uint8Array,
+  fileName: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<BackupUploadResult> {
+  await putToS3(config, fileName, archive, { contentType: 'application/zip' }, timeouts);
   return {
     provider: 's3',
     remotePath: normalizeS3ObjectKey(config, fileName),
   };
 }
 
-async function listS3Entries(config: S3BackupDestination, relativePath: string): Promise<RemoteBackupListResult> {
+async function listS3Entries(
+  config: S3BackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<RemoteBackupListResult> {
   const currentPath = normalizeRelativePath(relativePath);
   const targetPrefixBase = normalizeS3ObjectKey(config, currentPath);
   const targetPrefix = trimSlashes(targetPrefixBase) ? `${trimSlashes(targetPrefixBase)}/` : '';
@@ -583,12 +818,13 @@ async function listS3Entries(config: S3BackupDestination, relativePath: string):
     if (targetPrefix) url.searchParams.set('prefix', targetPrefix);
     if (continuationToken) url.searchParams.set('continuation-token', continuationToken);
 
-    const response = await signedS3Request(config, 'GET', url);
-    if (!response.ok) {
-      throw new Error(`S3 listing failed: ${response.status}`);
-    }
-
-    const xml = await response.text();
+    const xml = await withRemoteTimeout('S3', 'listing', timeouts.listingMs, async (signal) => {
+      const response = await signedS3Request(config, 'GET', url, signal);
+      if (!response.ok) {
+        throw new Error(`S3 listing failed: ${response.status}`);
+      }
+      return response.text();
+    });
 
     for (const prefix of extractXmlBlocks(xml, 'CommonPrefixes')) {
       const fullPrefix = trimSlashes(extractXmlFirst(prefix, 'Prefix') || '');
@@ -646,43 +882,79 @@ async function listS3Entries(config: S3BackupDestination, relativePath: string):
   };
 }
 
-async function downloadFromS3(config: S3BackupDestination, relativePath: string): Promise<RemoteBackupFile> {
+async function downloadFromS3(
+  config: S3BackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<RemoteBackupFile> {
   const normalized = normalizeRelativePath(relativePath);
   if (!normalized || normalized.endsWith('/')) {
     throw new Error('Please select a backup file');
   }
   const objectKey = normalizeS3ObjectKey(config, normalized);
   const url = s3ObjectUrl(config, objectKey);
-  const response = await signedS3Request(config, 'GET', url);
+  // 与 WebDAV 下载同构：先给“首包”，再按 Content-Length 给 body 预算，复用同一 controller
+  const controller = new AbortController();
+  const response = await withRemoteTimeout(
+    'S3',
+    'download',
+    timeouts.firstByteMs,
+    (signal) => signedS3Request(config, 'GET', url, signal),
+    controller
+  );
   if (!response.ok) {
     throw new Error(`S3 download failed: ${response.status}`);
   }
+  const declaredLength = Number(response.headers.get('Content-Length') || '');
+  const bytes = await withRemoteTimeout(
+    'S3',
+    'download',
+    resolveTransferTimeoutMs(Number.isFinite(declaredLength) ? declaredLength : undefined, timeouts),
+    () => response.arrayBuffer(),
+    controller
+  );
   return {
     provider: 's3',
     remotePath: normalized,
     fileName: basename(normalized) || 'backup.zip',
     contentType: String(response.headers.get('Content-Type') || 'application/zip').trim() || 'application/zip',
-    bytes: new Uint8Array(await response.arrayBuffer()),
+    bytes: new Uint8Array(bytes),
   };
 }
 
-async function deleteFromS3(config: S3BackupDestination, relativePath: string): Promise<void> {
+async function deleteFromS3(
+  config: S3BackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<void> {
   const objectKey = normalizeS3ObjectKey(config, relativePath);
   const url = s3ObjectUrl(config, objectKey);
-  const response = await signedS3Request(config, 'DELETE', url);
+  const response = await withRemoteTimeout('S3', 'delete', timeouts.controlMs, (signal) =>
+    signedS3Request(config, 'DELETE', url, signal)
+  );
   if (!response.ok && response.status !== 404) {
     throw new Error(`S3 delete failed: ${response.status}`);
   }
 }
 
-async function existsInS3(config: S3BackupDestination, relativePath: string): Promise<boolean> {
-  return (await statS3File(config, relativePath)) !== null;
+async function existsInS3(
+  config: S3BackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<boolean> {
+  return (await statS3File(config, relativePath, timeouts)) !== null;
 }
 
-async function statS3File(config: S3BackupDestination, relativePath: string): Promise<RemoteBackupFileStat | null> {
+async function statS3File(
+  config: S3BackupDestination,
+  relativePath: string,
+  timeouts: RemoteRequestTimeouts
+): Promise<RemoteBackupFileStat | null> {
   const objectKey = normalizeS3ObjectKey(config, relativePath);
   const url = s3ObjectUrl(config, objectKey);
-  const response = await signedS3Request(config, 'HEAD', url);
+  const response = await withRemoteTimeout('S3', 'existence check', timeouts.controlMs, (signal) =>
+    signedS3Request(config, 'HEAD', url, signal)
+  );
   if (response.status === 404) return null;
   if (!response.ok) {
     throw new Error(`S3 existence check failed: ${response.status}`);
@@ -720,7 +992,8 @@ export interface RemoteBackupTransferSession {
 }
 
 function resolveConfiguredDestinationAdapter(
-  destination: BackupDestinationRecord
+  destination: BackupDestinationRecord,
+  timeouts: RemoteRequestTimeouts
 ): ConfiguredDestinationAdapter {
   ensureDestinationConfigReady(destination);
 
@@ -728,40 +1001,54 @@ function resolveConfiguredDestinationAdapter(
     return {
       provider: 'webdav',
       config: destination.destination as WebDavBackupDestination,
-      upload: (config, archive, fileName) => uploadToWebDav(config as WebDavBackupDestination, archive, fileName),
-      putFile: (config, relativePath, bytes, options) => putToWebDav(config as WebDavBackupDestination, relativePath, bytes, options),
-      list: (config, relativePath) => listWebDavEntries(config as WebDavBackupDestination, relativePath),
-      download: (config, relativePath) => downloadFromWebDav(config as WebDavBackupDestination, relativePath),
-      deleteFile: (config, relativePath) => deleteFromWebDav(config as WebDavBackupDestination, relativePath),
-      exists: (config, relativePath) => existsInWebDav(config as WebDavBackupDestination, relativePath),
-      stat: (config, relativePath) => statWebDavFile(config as WebDavBackupDestination, relativePath),
+      upload: (config, archive, fileName) => uploadToWebDav(config as WebDavBackupDestination, archive, fileName, timeouts),
+      putFile: (config, relativePath, bytes, options) => putToWebDav(config as WebDavBackupDestination, relativePath, bytes, options ?? {}, undefined, timeouts),
+      list: (config, relativePath) => listWebDavEntries(config as WebDavBackupDestination, relativePath, timeouts),
+      download: (config, relativePath) => downloadFromWebDav(config as WebDavBackupDestination, relativePath, timeouts),
+      deleteFile: (config, relativePath) => deleteFromWebDav(config as WebDavBackupDestination, relativePath, timeouts),
+      exists: (config, relativePath) => existsInWebDav(config as WebDavBackupDestination, relativePath, timeouts),
+      stat: (config, relativePath) => statWebDavFile(config as WebDavBackupDestination, relativePath, timeouts),
     };
   }
   if (destination.type === 's3') {
     return {
       provider: 's3',
       config: destination.destination as S3BackupDestination,
-      upload: (config, archive, fileName) => uploadToS3(config as S3BackupDestination, archive, fileName),
-      putFile: (config, relativePath, bytes, options) => putToS3(config as S3BackupDestination, relativePath, bytes, options),
-      list: (config, relativePath) => listS3Entries(config as S3BackupDestination, relativePath),
-      download: (config, relativePath) => downloadFromS3(config as S3BackupDestination, relativePath),
-      deleteFile: (config, relativePath) => deleteFromS3(config as S3BackupDestination, relativePath),
-      exists: (config, relativePath) => existsInS3(config as S3BackupDestination, relativePath),
-      stat: (config, relativePath) => statS3File(config as S3BackupDestination, relativePath),
+      upload: (config, archive, fileName) => uploadToS3(config as S3BackupDestination, archive, fileName, timeouts),
+      putFile: (config, relativePath, bytes, options) => putToS3(config as S3BackupDestination, relativePath, bytes, options ?? {}, timeouts),
+      list: (config, relativePath) => listS3Entries(config as S3BackupDestination, relativePath, timeouts),
+      download: (config, relativePath) => downloadFromS3(config as S3BackupDestination, relativePath, timeouts),
+      deleteFile: (config, relativePath) => deleteFromS3(config as S3BackupDestination, relativePath, timeouts),
+      exists: (config, relativePath) => existsInS3(config as S3BackupDestination, relativePath, timeouts),
+      stat: (config, relativePath) => statS3File(config as S3BackupDestination, relativePath, timeouts),
     };
   }
 
   throw new Error('Unsupported backup destination type');
 }
 
-export function createRemoteBackupTransferSession(destination: BackupDestinationRecord): RemoteBackupTransferSession {
-  const adapter = resolveConfiguredDestinationAdapter(destination);
+/**
+ * @param timeouts 仅供测试注入更小的值，避免单测真的等 5–30 秒；生产代码不要传。
+ */
+export function createRemoteBackupTransferSession(
+  destination: BackupDestinationRecord,
+  timeouts?: Partial<RemoteRequestTimeouts>
+): RemoteBackupTransferSession {
+  const resolvedTimeouts = resolveRemoteRequestTimeouts(timeouts);
+  const adapter = resolveConfiguredDestinationAdapter(destination, resolvedTimeouts);
   const ensuredDirectories = adapter.provider === 'webdav' ? new Set<string>() : null;
 
   const putFile = async (relativePath: string, bytes: Uint8Array, options: RemoteBackupFilePutOptions = {}): Promise<void> => {
     const normalized = normalizeRelativePath(relativePath);
     if (adapter.provider === 'webdav' && ensuredDirectories) {
-      await putToWebDav(adapter.config as WebDavBackupDestination, normalized, bytes, options, ensuredDirectories);
+      await putToWebDav(
+        adapter.config as WebDavBackupDestination,
+        normalized,
+        bytes,
+        options,
+        ensuredDirectories,
+        resolvedTimeouts
+      );
       return;
     }
     await adapter.putFile(adapter.config, normalized, bytes, options);
@@ -790,37 +1077,55 @@ export function createRemoteBackupTransferSession(destination: BackupDestination
 export async function uploadBackupArchive(
   destination: BackupDestinationRecord,
   archive: Uint8Array,
-  fileName: string
+  fileName: string,
+  timeouts?: Partial<RemoteRequestTimeouts>
 ): Promise<BackupUploadResult> {
-  return createRemoteBackupTransferSession(destination).uploadArchive(archive, fileName);
+  return createRemoteBackupTransferSession(destination, timeouts).uploadArchive(archive, fileName);
 }
 
-export async function listRemoteBackupEntries(destination: BackupDestinationRecord, relativePath: string): Promise<RemoteBackupListResult> {
-  return createRemoteBackupTransferSession(destination).list(relativePath);
+export async function listRemoteBackupEntries(
+  destination: BackupDestinationRecord,
+  relativePath: string,
+  timeouts?: Partial<RemoteRequestTimeouts>
+): Promise<RemoteBackupListResult> {
+  return createRemoteBackupTransferSession(destination, timeouts).list(relativePath);
 }
 
-export async function downloadRemoteBackupFile(destination: BackupDestinationRecord, relativePath: string): Promise<RemoteBackupFile> {
-  return createRemoteBackupTransferSession(destination).download(relativePath);
+export async function downloadRemoteBackupFile(
+  destination: BackupDestinationRecord,
+  relativePath: string,
+  timeouts?: Partial<RemoteRequestTimeouts>
+): Promise<RemoteBackupFile> {
+  return createRemoteBackupTransferSession(destination, timeouts).download(relativePath);
 }
 
-export async function deleteRemoteBackupFile(destination: BackupDestinationRecord, relativePath: string): Promise<void> {
+export async function deleteRemoteBackupFile(
+  destination: BackupDestinationRecord,
+  relativePath: string,
+  timeouts?: Partial<RemoteRequestTimeouts>
+): Promise<void> {
   const normalized = ensureRemoteRestoreCandidate(relativePath);
-  await createRemoteBackupTransferSession(destination).deleteFile(normalized);
+  await createRemoteBackupTransferSession(destination, timeouts).deleteFile(normalized);
 }
 
-export async function remoteBackupFileExists(destination: BackupDestinationRecord, relativePath: string): Promise<boolean> {
+export async function remoteBackupFileExists(
+  destination: BackupDestinationRecord,
+  relativePath: string,
+  timeouts?: Partial<RemoteRequestTimeouts>
+): Promise<boolean> {
   const normalized = normalizeRelativePath(relativePath);
-  return createRemoteBackupTransferSession(destination).exists(normalized);
+  return createRemoteBackupTransferSession(destination, timeouts).exists(normalized);
 }
 
 export async function uploadRemoteBackupFile(
   destination: BackupDestinationRecord,
   relativePath: string,
   bytes: Uint8Array,
-  options: RemoteBackupFilePutOptions = {}
+  options: RemoteBackupFilePutOptions = {},
+  timeouts?: Partial<RemoteRequestTimeouts>
 ): Promise<void> {
   const normalized = normalizeRelativePath(relativePath);
-  await createRemoteBackupTransferSession(destination).putFile(normalized, bytes, options);
+  await createRemoteBackupTransferSession(destination, timeouts).putFile(normalized, bytes, options);
 }
 
 function compareBackupItemsByRecency(a: RemoteBackupItem, b: RemoteBackupItem, preferredFileName?: string): number {
@@ -838,10 +1143,11 @@ function compareBackupItemsByRecency(a: RemoteBackupItem, b: RemoteBackupItem, p
 export async function pruneRemoteBackupArchives(
   destination: BackupDestinationRecord,
   retentionCount: number | null,
-  preferredFileName?: string
+  preferredFileName?: string,
+  timeouts?: Partial<RemoteRequestTimeouts>
 ): Promise<number> {
   if (retentionCount === null) return 0;
-  const adapter = resolveConfiguredDestinationAdapter(destination);
+  const adapter = resolveConfiguredDestinationAdapter(destination, resolveRemoteRequestTimeouts(timeouts));
   const listing = await adapter.list(adapter.config, '');
   const backupFiles = listing.items
     .filter((item) => !item.isDirectory && isBackupArchiveName(item.name))

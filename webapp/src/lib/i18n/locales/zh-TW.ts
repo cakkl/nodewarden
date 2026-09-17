@@ -342,6 +342,7 @@ const zhTW: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "遠端備份完整性檢查失敗。",
   "txt_backup_error_remote_listing_failed": "遠端備份列表讀取失敗。",
   "txt_backup_error_remote_path_invalid": "遠端備份路徑無效。",
+  "txt_backup_error_remote_request_timeout": "遠端備份目的地未在預期時間內回應（逾時 {seconds} 秒）。請檢查位址、網路連線與認證資訊後重試。",
   "txt_backup_error_remote_restore_payload_invalid": "遠端還原請求無效。",
   "txt_backup_error_remote_zip_checksum_failed": "遠端備份 ZIP 校驗失敗。",
   "txt_backup_error_remote_zip_size_failed": "遠端備份 ZIP 大小校驗失敗。",

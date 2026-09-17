@@ -339,6 +339,7 @@ const ru: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "Не удалось проверить целостность удаленной резервной копии.",
   "txt_backup_error_remote_listing_failed": "Не удалось получить список удаленных резервных копий.",
   "txt_backup_error_remote_path_invalid": "Путь удаленной резервной копии недействителен.",
+  "txt_backup_error_remote_request_timeout": "Удаленное хранилище резервных копий не ответило вовремя (тайм-аут после {seconds} с). Проверьте адрес, сеть и учетные данные и повторите попытку.",
   "txt_backup_error_remote_restore_payload_invalid": "Запрос удаленного восстановления недействителен.",
   "txt_backup_error_remote_zip_checksum_failed": "Проверка контрольной суммы удаленного ZIP не прошла.",
   "txt_backup_error_remote_zip_size_failed": "Проверка размера удаленного ZIP не прошла.",

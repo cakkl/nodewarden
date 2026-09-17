@@ -339,6 +339,7 @@ const it: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "Ispezione dell'integrità del backup remoto fallita.",
   "txt_backup_error_remote_listing_failed": "Recupero elenco dei backup remoti fallito.",
   "txt_backup_error_remote_path_invalid": "Il percorso del backup remoto non è valido.",
+  "txt_backup_error_remote_request_timeout": "La destinazione del backup remoto non ha risposto in tempo (timeout dopo {seconds}s). Controlla indirizzo, connettività di rete e credenziali, poi riprova.",
   "txt_backup_error_remote_restore_payload_invalid": "La richiesta di ripristino remoto non è valida.",
   "txt_backup_error_remote_zip_checksum_failed": "Verifica della somma di controllo del file ZIP di backup remoto fallita.",
   "txt_backup_error_remote_zip_size_failed": "Verifica della dimensione del file ZIP di backup remoto fallita.",

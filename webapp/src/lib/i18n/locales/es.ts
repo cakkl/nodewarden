@@ -339,6 +339,7 @@ const es: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "No se pudo inspeccionar la integridad de la copia remota.",
   "txt_backup_error_remote_listing_failed": "No se pudo leer la lista de copias remotas.",
   "txt_backup_error_remote_path_invalid": "La ruta de copia remota no es válida.",
+  "txt_backup_error_remote_request_timeout": "El destino de copia remota no respondió a tiempo (tiempo de espera agotado tras {seconds}s). Comprueba la dirección, la conectividad de red y las credenciales, y vuelve a intentarlo.",
   "txt_backup_error_remote_restore_payload_invalid": "La solicitud de restauración remota no es válida.",
   "txt_backup_error_remote_zip_checksum_failed": "Falló la verificación de suma del ZIP remoto.",
   "txt_backup_error_remote_zip_size_failed": "Falló la verificación de tamaño del ZIP remoto.",

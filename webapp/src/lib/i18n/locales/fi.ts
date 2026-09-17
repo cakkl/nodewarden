@@ -339,6 +339,7 @@ const fi: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "Etävarmuuskopion eheyden tarkistus epäonnistui.",
   "txt_backup_error_remote_listing_failed": "Etävarmuuskopioiden listaus epäonnistui.",
   "txt_backup_error_remote_path_invalid": "Etävarmuuskopion polku on virheellinen.",
+  "txt_backup_error_remote_request_timeout": "Etävarmuuskopion kohde ei vastannut ajoissa (aikakatkaisu {seconds} s jälkeen). Tarkista osoite, verkkoyhteys ja tunnistetiedot ja yritä uudelleen.",
   "txt_backup_error_remote_restore_payload_invalid": "Etäpalautuspyyntö on virheellinen.",
   "txt_backup_error_remote_zip_checksum_failed": "Etävarmuuskopion ZIP-tarkistussumman vahvistus epäonnistui.",
   "txt_backup_error_remote_zip_size_failed": "Etävarmuuskopion ZIP-koon vahvistus epäonnistui.",

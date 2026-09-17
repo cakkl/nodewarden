@@ -41,6 +41,7 @@ import {
   ensureRemoteRestoreCandidate,
   listRemoteBackupEntries,
   pruneRemoteBackupArchives,
+  remoteRequestFailureStatus,
   uploadBackupArchive,
 } from '../services/backup-uploader';
 import { reportProgress } from '../services/backup-progress';
@@ -1021,7 +1022,11 @@ export async function handleRunAdminConfiguredBackup(request: Request, env: Env,
       settings: redactBackupSettingsSecrets(outcome.settings),
     });
   } catch (error) {
-    return errorResponse(error instanceof Error ? error.message : 'Backup run failed', 500);
+    // DO 已经把握时映射成 400（不可重试）；这里不能无条件落回 500，否则会被前端自动重试 3 次
+    return errorResponse(
+      error instanceof Error ? error.message : 'Backup run failed',
+      remoteRequestFailureStatus(error, 500)
+    );
   }
 }
 
@@ -1176,7 +1181,8 @@ export async function handleRestoreAdminRemoteBackup(request: Request, env: Env,
     return jsonResponse(imported);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Remote backup restore failed';
-    return errorResponse(message, toImportStatusCode(message));
+    // 同上：远端超时要保持不可重试的 4xx，不能被 toImportStatusCode 的默认值当成服务端错误
+    return errorResponse(message, remoteRequestFailureStatus(message, toImportStatusCode(message)));
   }
 }
 

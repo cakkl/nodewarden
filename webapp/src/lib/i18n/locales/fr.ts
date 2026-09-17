@@ -339,6 +339,7 @@ const fr: Record<string, string> = {
   "txt_backup_error_remote_integrity_failed": "L'inspection de l'intégrité de la sauvegarde distante a échoué.",
   "txt_backup_error_remote_listing_failed": "Le listage de la sauvegarde distante a échoué.",
   "txt_backup_error_remote_path_invalid": "Le chemin de sauvegarde distant est invalide.",
+  "txt_backup_error_remote_request_timeout": "La destination de sauvegarde distante n'a pas répondu à temps (délai d'attente dépassé après {seconds} s). Vérifiez l'adresse, la connectivité réseau et les identifiants, puis réessayez.",
   "txt_backup_error_remote_restore_payload_invalid": "La demande de restauration distante est invalide.",
   "txt_backup_error_remote_zip_checksum_failed": "La vérification de la somme de contrôle du ZIP de sauvegarde distante a échoué.",
   "txt_backup_error_remote_zip_size_failed": "La vérification de la taille du ZIP de sauvegarde distante a échoué.",
