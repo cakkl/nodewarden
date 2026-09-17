@@ -1,4 +1,5 @@
 import type { Env, User } from '../types';
+import { isRequestTimeoutError, withRequestTimeout } from './request-timeout';
 
 const YUBIKEY_PUBLIC_ID_LENGTH = 12;
 const YUBIKEY_MIN_OTP_LENGTH = 32;
@@ -6,6 +7,36 @@ const YUBIKEY_MAX_OTP_LENGTH = 48;
 const YUBICO_DEFAULT_VALIDATION_URL = 'https://api.yubico.com/wsapi/2.0/verify';
 const YUBICO_GET_API_KEY_URL = 'https://upgrade.yubico.com/getapikey/';
 const MODHEX_RE = /^[cbdefghijklnrtuv]+$/;
+
+/**
+ * 外发请求超时预算。
+ *
+ * Yubico 的两个端点都在交互路径上：一个是登录的二步验证，一个是管理员启用 YubiKey 时
+ * 取 API 凭据。两处原先都没有超时 —— 对端「连上但不回包」时请求会一直挂着，
+ * 最后由平台兜底返回通用 500：用户既登不进去，也看不到原因。
+ */
+const YUBICO_API_KEY_REQUEST_TIMEOUT_MS = 5_000;
+const YUBICO_VALIDATION_REQUEST_TIMEOUT_MS = 5_000;
+
+/** 仅供测试注入更小的超时，避免单测真的等 5 秒；生产代码不要传。 */
+export interface YubicoRequestOptions {
+  requestTimeoutMs?: number;
+}
+
+function resolveRequestTimeoutMs(override: number | undefined, fallback: number): number {
+  return typeof override === 'number' && Number.isFinite(override) && override > 0
+    ? Math.floor(override)
+    : fallback;
+}
+
+/** 只取主机名：校验地址的查询串里含一次性口令，绝不能进日志。 */
+function safeHostname(value: string): string {
+  try {
+    return new URL(value).host;
+  } catch {
+    return 'unknown-host';
+  }
+}
 
 export interface YubicoApiCredentials {
   clientId: string;
@@ -112,7 +143,11 @@ function validationUrls(env: Env): string[] {
   return configured.length > 0 ? configured : [YUBICO_DEFAULT_VALIDATION_URL];
 }
 
-export async function requestYubicoApiCredentials(email: string, otpInput: string): Promise<YubicoApiCredentials | null> {
+export async function requestYubicoApiCredentials(
+  email: string,
+  otpInput: string,
+  options: YubicoRequestOptions = {}
+): Promise<YubicoApiCredentials | null> {
   const otp = normalizeYubiKeyOtp(otpInput);
   if (!isYubiKeyOtp(otp)) return null;
 
@@ -121,23 +156,41 @@ export async function requestYubicoApiCredentials(email: string, otpInput: strin
   body.set('otp', otp);
   body.set('terms_conditions', 'consented');
 
-  const response = await fetch(YUBICO_GET_API_KEY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-  if (!response.ok) return null;
+  const timeoutMs = resolveRequestTimeoutMs(options.requestTimeoutMs, YUBICO_API_KEY_REQUEST_TIMEOUT_MS);
+  try {
+    const response = await withRequestTimeout(timeoutMs, (signal) =>
+      fetch(YUBICO_GET_API_KEY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        signal,
+      })
+    );
+    if (!response.ok) return null;
 
-  const html = await response.text();
-  const clientId = /Client ID:<\/th>\s*<td><b>(\d+)<\/b>/i.exec(html)?.[1] || '';
-  const secretKey = /Secret key:<\/th>\s*<td><code>([^<]+)<\/code>/i.exec(html)?.[1] || '';
-  return clientId ? { clientId, secretKey } : null;
+    const html = await response.text();
+    const clientId = /Client ID:<\/th>\s*<td><b>(\d+)<\/b>/i.exec(html)?.[1] || '';
+    const secretKey = /Secret key:<\/th>\s*<td><code>([^<]+)<\/code>/i.exec(html)?.[1] || '';
+    return clientId ? { clientId, secretKey } : null;
+  } catch (error) {
+    // 本函数的失败通道就是 `null`（调用方据此回 400「无法初始化 Yubico 校验凭据」）。
+    // 不往外抛：抛出会让管理员看到平台兜底的通用 500，而不是那条可操作的提示。
+    // 日志只记主机名与原因 —— 请求体里含一次性口令。
+    console.error(
+      isRequestTimeoutError(error)
+        ? `Yubico getapikey request timed out after ${timeoutMs} ms`
+        : 'Yubico getapikey request failed',
+      { host: safeHostname(YUBICO_GET_API_KEY_URL), reason: error instanceof Error ? error.message : String(error) }
+    );
+    return null;
+  }
 }
 
 export async function verifyYubicoOtp(
   env: Env,
   otpInput: string,
-  credentials: YubicoApiCredentials | null
+  credentials: YubicoApiCredentials | null,
+  options: YubicoRequestOptions = {}
 ): Promise<boolean> {
   const otp = normalizeYubiKeyOtp(otpInput);
   if (!isYubiKeyOtp(otp)) return false;
@@ -158,9 +211,12 @@ export async function verifyYubicoOtp(
     return false;
   }
 
+  const timeoutMs = resolveRequestTimeoutMs(options.requestTimeoutMs, YUBICO_VALIDATION_REQUEST_TIMEOUT_MS);
   for (const baseUrl of validationUrls(env)) {
     try {
-      const response = await fetch(`${baseUrl}?${params.toString()}`, { method: 'GET' });
+      const response = await withRequestTimeout(timeoutMs, (signal) =>
+        fetch(`${baseUrl}?${params.toString()}`, { method: 'GET', signal })
+      );
       if (!response.ok) continue;
       const parsed = parseYubicoResponse(await response.text());
       if (parsed.otp !== otp || parsed.nonce !== nonce || parsed.status !== 'OK') continue;
@@ -171,7 +227,13 @@ export async function verifyYubicoOtp(
       }
       if (!constantTimeStringEquals(await hmacSha1Base64(secretKey, canonicalQuery(signedParams)), parsed.h)) continue;
       return true;
-    } catch {
+    } catch (error) {
+      // 超时与网络错误都落在这里：**保持 fail-closed**（继续试下一个校验地址，最终返回 false），
+      // 并把原因记进日志 —— 只记主机名，URL 的查询串里含一次性口令。
+      console.error('Yubico validation request failed', {
+        host: safeHostname(baseUrl),
+        timedOut: isRequestTimeoutError(error),
+      });
       continue;
     }
   }

@@ -5,6 +5,7 @@ import {
   WebDavBackupDestination,
   normalizeBackupEndpointUrl,
 } from './backup-config';
+import { isRequestTimeoutError, withRequestTimeout } from '../utils/request-timeout';
 
 export interface BackupUploadResult {
   provider: BackupDestinationType;
@@ -173,15 +174,14 @@ async function withRemoteTimeout<T>(
   run: (signal: AbortSignal) => Promise<T>,
   controller: AbortController = new AbortController()
 ): Promise<T> {
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await run(controller.signal);
+    // 计时/中断的实现在 utils/request-timeout.ts（与 Yubico 等其它外发路径共用同一份）
+    return await withRequestTimeout(timeoutMs, run, controller);
   } catch (error) {
-    // 只有我们自己 abort 才会把 signal 置为 aborted；对端主动断开等情况保持原样
-    if (controller.signal.aborted) throw new RemoteRequestTimeoutError(provider, action, timeoutMs);
+    // 换成带上「哪家 / 哪一步」的错误：前端按这个消息形状映射本地化文案
+    // （见 webapp/src/lib/i18n.ts 里 `timed out after (\d+) ms` 的分支）
+    if (isRequestTimeoutError(error)) throw new RemoteRequestTimeoutError(provider, action, timeoutMs);
     throw error;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
