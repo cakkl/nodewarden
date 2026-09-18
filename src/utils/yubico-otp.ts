@@ -176,11 +176,14 @@ export async function requestYubicoApiCredentials(
     // 本函数的失败通道就是 `null`（调用方据此回 400「无法初始化 Yubico 校验凭据」）。
     // 不往外抛：抛出会让管理员看到平台兜底的通用 500，而不是那条可操作的提示。
     // 日志只记主机名与原因 —— 请求体里含一次性口令。
+    // 不用模板串作 console 的首参（Semgrep unsafe-formatstring），动态值走结构化字段。
     console.error(
-      isRequestTimeoutError(error)
-        ? `Yubico getapikey request timed out after ${timeoutMs} ms`
-        : 'Yubico getapikey request failed',
-      { host: safeHostname(YUBICO_GET_API_KEY_URL), reason: error instanceof Error ? error.message : String(error) }
+      isRequestTimeoutError(error) ? 'Yubico getapikey request timed out' : 'Yubico getapikey request failed',
+      {
+        host: safeHostname(YUBICO_GET_API_KEY_URL),
+        timeoutMs,
+        reason: error instanceof Error ? error.message : String(error),
+      }
     );
     return null;
   }

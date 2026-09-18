@@ -33,10 +33,34 @@ const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const wrangler = (args) =>
   execFileSync(NPX, ['wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
 
+/**
+ * 解析 TOML 片段里的 `key = "value"` 赋值（忽略注释与段头）。
+ * 手工解析而不 `new RegExp(…)` 动态拼接：避开 Semgrep detect-non-literal-regexp，
+ * 也省掉「binding 名里带正则元字符」的转义负担。
+ */
+function assignmentsIn(block) {
+  const found = [];
+  for (const rawLine of String(block).split('\n')) {
+    const line = rawLine.replace(/#.*$/, '').trim();
+    if (!line || line.startsWith('[')) continue;
+    const eq = line.indexOf('=');
+    if (eq === -1) continue;
+    const key = line.slice(0, eq).trim();
+    if (!key) continue;
+    found.push({ key, value: line.slice(eq + 1).trim().replace(/^"|"$/g, '') });
+  }
+  return found;
+}
+
 /** 取出 `[[kv_namespaces]]` 里属于该 binding 的那一段（找不到返回 null）。 */
 function bindingBlock(toml, binding = BINDING) {
-  const blocks = toml.match(/\[\[kv_namespaces\]\][^[]*/g) || [];
-  return blocks.find((entry) => new RegExp(`binding\\s*=\\s*"${binding}"`).test(entry)) || null;
+  const target = String(binding);
+  const blocks = String(toml).match(/\[\[kv_namespaces\]\][^[]*/g) || [];
+  return (
+    blocks.find((entry) =>
+      assignmentsIn(entry).some((item) => item.key === 'binding' && item.value === target)
+    ) || null
+  );
 }
 
 function bindingBlockHasId(toml, binding = BINDING) {
@@ -83,14 +107,36 @@ function insertIdIntoBindingBlock(toml, id, binding = BINDING) {
   if (bindingBlockHasId(toml, binding)) {
     throw new Error(`[ensure-kv] binding = "${binding}" already has an id`);
   }
-  const next = toml.replace(
-    new RegExp(`(\\[\\[kv_namespaces\\]\\][^[]*?binding\\s*=\\s*"${binding}")`),
-    `$1\nid = "${id}"`
-  );
-  if (next === toml || !bindingBlockHasId(next, binding)) {
+  const target = String(binding);
+  const lines = String(toml).split('\n');
+  const out = [];
+  let inNamespaceBlock = false;
+  let inserted = false;
+  for (const line of lines) {
+    out.push(line);
+    if (/^\s*\[\[kv_namespaces\]\]\s*$/.test(line)) {
+      inNamespaceBlock = true;
+      continue;
+    }
+    if (/^\s*\[/.test(line)) {
+      inNamespaceBlock = false;
+      continue;
+    }
+    if (!inNamespaceBlock || inserted) continue;
+    const assignment = assignmentsIn(line)[0];
+    if (assignment && assignment.key === 'binding' && assignment.value === target) {
+      out.push(`id = "${id}"`);
+      inserted = true;
+    }
+  }
+  if (!inserted) {
     throw new Error(
       `[ensure-kv] 未能在 wrangler.kv.toml 里为 binding = "${binding}" 写入 id（段缺失或格式不匹配）`
     );
+  }
+  const next = out.join('\n');
+  if (!bindingBlockHasId(next, binding)) {
+    throw new Error(`[ensure-kv] 写入后校验失败：binding = "${binding}" 所在的段里仍找不到 id`);
   }
   return next;
 }
