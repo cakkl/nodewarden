@@ -1,9 +1,10 @@
 name: "Extra Security Scan"
 
 on:
+  # 同 codeql.yml：收窄为「main 的 push + 所有 PR」，避免推分支时重复整轮扫描。
   push:
-    branches:
-      - "**"
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
