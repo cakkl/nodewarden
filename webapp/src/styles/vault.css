@@ -1,3 +1,5 @@
+@reference './tailwind.css';
+
 .vault-grid {
   @apply grid h-full min-h-0 gap-3 p-0.5;
   grid-template-columns: 270px minmax(400px, 36%) minmax(400px, 1fr);
