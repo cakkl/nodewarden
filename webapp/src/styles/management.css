@@ -269,9 +269,14 @@
 }
 
 /* 「上次失败」：用 --danger-text（tokens 里为「作前景」校准过对比度）。
-   ⚠️ 同一元素上还有 dark.css 的 `:root[data-theme='dark'] .backup-destination-meta`（(0,2,0)），
-   特异性比本规则高 ⇒ 暗色下必须在 dark.css 里也补一条同特异性规则，否则颜色会被 muted 反压。 */
-.backup-destination-failed {
+   ⚠️ 这个元素同时挂着 .backup-destination-meta，而它的 color 有两处声明会来抢：
+     ① styles.css 的 `.backup-destination-meta { color: var(--muted-mid) }` —— 也是 (0,1,0)，
+        但 styles.css 在**本文件之后**加载 ⇒ 同特异性下靠顺序胜出，浅色模式会把红色压成灰
+        （实测失败色变成 --muted-mid 的 #475569，看起来就是普通文字）；
+     ② dark.css 的 `:root[data-theme='dark'] .backup-destination-meta` —— (0,2,0)，只影响暗色。
+   所以这里写成双类选择器 (0,2,0)：浅色下稳定压过 ①，不再依赖"谁先加载"这种脆弱前提；
+   暗色下与 ② 同特异性，由 dark.css 后加载取胜（取值相同，结果一致）。 */
+.backup-destination-meta.backup-destination-failed {
   color: var(--danger-text);
 }
 
