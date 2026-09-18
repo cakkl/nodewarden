@@ -1,6 +1,6 @@
 import { Plus } from 'lucide-preact';
 import type { BackupDestinationRecord, BackupDestinationType } from '@/lib/api/backup';
-import { formatDateTime, getDestinationTypeLabel } from '@/lib/backup-center';
+import { formatDateTime, getDestinationRuntimeSummary, getDestinationTypeLabel } from '@/lib/backup-center';
 import { t } from '@/lib/i18n';
 
 interface BackupDestinationSidebarProps {
@@ -24,6 +24,8 @@ export function BackupDestinationSidebar(props: BackupDestinationSidebarProps) {
         {props.destinations.map((destination) => {
           const isSelected = destination.id === props.selectedDestinationId;
           const isScheduled = destination.schedule.enabled;
+          // 与详情页共用同一套判断：「只有最后一次尝试是失败的」才显示（见 backup-center.ts）
+          const failureLabel = getDestinationRuntimeSummary(destination.runtime).failedAt;
           return (
             <button
               key={destination.id}
@@ -45,10 +47,8 @@ export function BackupDestinationSidebar(props: BackupDestinationSidebarProps) {
               </span>
               {/* 只显示时间不显示原因：侧栏很窄，而原因可能很长且会挤掉其它信息，
                   完整原因在右侧详情页的「最近运行」里（见 BackupDestinationDetail）。 */}
-              {destination.runtime.lastErrorMessage ? (
-                <span className="backup-destination-meta backup-destination-failed">
-                  {t('txt_backup_destination_failed_at', { time: formatDateTime(destination.runtime.lastErrorAt) })}
-                </span>
+              {failureLabel ? (
+                <span className="backup-destination-meta backup-destination-failed">{failureLabel}</span>
               ) : null}
             </button>
           );

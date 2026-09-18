@@ -703,8 +703,11 @@ export const DEMO_BACKUP_SETTINGS: AdminBackupSettings = {
         lastAttemptAt: '2026-05-04T03:00:00.000Z',
         lastAttemptLocalDate: '2026-05-04',
         lastSuccessAt: '2026-05-04T03:01:12.000Z',
-        lastErrorAt: null,
-        lastErrorMessage: null,
+        // 这个目标演示「失败过、但最后一次是成功的」⇒ 界面上**不应该**再显示上次失败
+        // （后端成功时会清空错误，这里刻意留一份旧的失败记录，
+        //   用来验证前端的「成功晚于失败就不显示」判断，见 backup-center.ts）
+        lastErrorAt: '2026-05-03T03:00:30.000Z',
+        lastErrorMessage: 'WebDAV upload timed out after 30000 ms',
         lastUploadedFileName: 'nodewarden_backup_20260504_030112_a1b2c.zip',
         lastUploadedSizeBytes: 1048576,
         lastUploadedDestination: 'Demo WebDAV',

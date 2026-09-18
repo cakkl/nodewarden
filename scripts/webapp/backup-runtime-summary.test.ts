@@ -37,6 +37,43 @@ test('成功过且没失败：仍然不产生「上次失败」（详情页不�
   assert.equal(summary.failureReason, null);
 });
 
+test('成功晚于失败：不再显示上次失败（最新一次是成功）', () => {
+  const summary = getDestinationRuntimeSummary({
+    ...createDefaultBackupRuntimeState(),
+    lastErrorAt: '2026-09-18T02:00:30.000Z',
+    lastErrorMessage: 'WebDAV upload timed out after 30000 ms',
+    // 后端成功时本会清空 lastError*，但归档恢复 / 手工改配置可能带进这种旧状态
+    lastSuccessAt: '2026-09-18T03:00:12.000Z',
+  });
+
+  assert.equal(summary.failedAt, null, '成功之后不能让过时的失败信息继续占着列表与详情页');
+  assert.equal(summary.failureReason, null);
+});
+
+test('失败晚于成功：仍然显示（这就是「一直在重试、一直失败」）', () => {
+  const summary = getDestinationRuntimeSummary({
+    ...createDefaultBackupRuntimeState(),
+    lastSuccessAt: '2026-09-18T02:00:12.000Z',
+    lastErrorAt: '2026-09-18T03:00:30.000Z',
+    lastErrorMessage: 'WebDAV upload timed out after 30000 ms',
+  });
+
+  assert.match(summary.failedAt ?? '', /^Last failure: /);
+  assert.match(summary.failureReason ?? '', /30s/);
+});
+
+test('时间无法解析时保持显示（宁可多提示一次，也不把真实失败藏起来）', () => {
+  const summary = getDestinationRuntimeSummary({
+    ...createDefaultBackupRuntimeState(),
+    lastErrorAt: 'not-a-date',
+    lastErrorMessage: 'S3 upload timed out after 5000 ms',
+    lastSuccessAt: '2026-09-18T03:00:12.000Z',
+  });
+
+  assert.match(summary.failedAt ?? '', /^Last failure: /);
+  assert.match(summary.failureReason ?? '', /5s/);
+});
+
 test('失败过：同时给出失败时间与原因（命中映射的超时文案会被本地化）', () => {
   const summary = getDestinationRuntimeSummary({
     ...createDefaultBackupRuntimeState(),
