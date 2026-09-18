@@ -5,6 +5,11 @@
 //
 // Do not call t() at module scope for exported arrays/constants; async init can
 // otherwise leave raw txt_* keys in the rendered UI.
+// 这里用**相对路径**而不是 webapp 惯用的 `@shared` 别名：本模块会被几个后端测试
+// （`scripts/web-crypto-availability.test.ts` 等）在 Node 下间接加载，而那条链用的是
+// 根 tsconfig —— 它没有 `@shared` 别名，运行时（tsx）会报 ERR_MODULE_NOT_FOUND。
+import { REMOTE_TIMEOUT_MESSAGE_PATTERN } from '../../../shared/backup-timeout-message';
+
 export type Locale =
   | 'en'
   | 'zh-CN'
@@ -172,13 +177,12 @@ export function translateServerError(message: string | null | undefined, fallbac
     });
   }
 
-  // 远端请求超时：后端见 `src/services/backup-uploader.ts` 的 `RemoteRequestTimeoutError`，
-  // 消息形状为「WebDAV upload timed out after 15000 ms」。provider / action 只用于锚定正则，
-  // 不进文案（把动作名译准的收益远低于成本，而且管理员点的是哪个按钮自己清楚）；
-  // 毫秒在这里换算成秒，避免界面出现「15000 秒」这种读数。
-  const remoteTimeoutMatch = normalized.match(
-    /^(?:WebDAV|S3) (?:directory creation|upload|listing|download|delete|existence check) timed out after (\d+) ms$/i
-  );
+  // 远端请求超时：消息形状的唯一定义在 `shared/backup-timeout-message.ts`
+  //（后端 `RemoteRequestTimeoutError` 与 `isRemoteRequestTimeoutMessage()` 同源）。
+  // 那里还负责“这算不算超时”的判定，两边共用一份 ⇒ 改措辞会同时反映到两边。
+  // provider / action 只用于锚定正则，不进文案（把动作名译准的收益远低于成本，
+  // 而且管理员点的是哪个按钮自己清楚）；毫秒在这里换算成秒，避免界面出现「15000 秒」。
+  const remoteTimeoutMatch = normalized.match(REMOTE_TIMEOUT_MESSAGE_PATTERN);
   if (remoteTimeoutMatch) {
     const seconds = Number(remoteTimeoutMatch[1]) / 1000;
     return t('txt_backup_error_remote_request_timeout', {

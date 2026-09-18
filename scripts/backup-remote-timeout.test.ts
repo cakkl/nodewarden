@@ -18,6 +18,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import type { BackupDestinationRecord } from '../src/services/backup-config';
+import { REMOTE_REQUEST_ACTIONS, buildRemoteTimeoutMessage } from '../shared/backup-timeout-message';
 import {
   DEFAULT_REMOTE_REQUEST_TIMEOUTS,
   downloadRemoteBackupFile,
@@ -201,14 +202,28 @@ test('对端主动失败（连接被拒）不当成超时：错误原样冒泡�
 });
 
 test('DO → handler 只传消息：超时按消息形状识别为 400，HTTP 状态类消息不受影响', () => {
-  assert.equal(isRemoteRequestTimeoutMessage('WebDAV upload timed out after 15000 ms'), true);
-  assert.equal(remoteRequestFailureStatus('WebDAV upload timed out after 15000 ms'), 400);
-  assert.equal(remoteRequestFailureStatus('S3 download timed out after 30 ms'), 400);
+  assert.equal(isRemoteRequestTimeoutMessage(buildRemoteTimeoutMessage('WebDAV', 'upload', 15000)), true);
+  assert.equal(remoteRequestFailureStatus(buildRemoteTimeoutMessage('WebDAV', 'upload', 15000)), 400);
+  assert.equal(remoteRequestFailureStatus(buildRemoteTimeoutMessage('S3', 'download', 30)), 400);
   // 与本项目消息形状不同的串（例如秒而不是毫秒）不应被误判
   assert.equal(isRemoteRequestTimeoutMessage('WebDAV upload timed out after 15 seconds'), false);
   // 带状态码的失败仍按调用方的回退值处理
   assert.equal(remoteRequestFailureStatus('WebDAV upload failed: 403', 500), 500);
   assert.equal(isRemoteRequestTimeoutMessage('Backup run failed'), false);
+});
+
+test('消息形状来自共享定义：所有 provider × action 组合都能被识别（防止有人绕过 shared 手写消息）', () => {
+  for (const action of REMOTE_REQUEST_ACTIONS) {
+    for (const provider of ['WebDAV', 'S3'] as const) {
+      const message = buildRemoteTimeoutMessage(provider, action, 12345);
+      assert.equal(
+        isRemoteRequestTimeoutMessage(message),
+        true,
+        `${provider} ${action} 的消息形状未被识别 —— 前端会看到英文原文、且超时会被当成 500 而重试 3 次`
+      );
+      assert.equal(isRemoteRequestTimeoutMessage(`${message} `), false, '尾随空格不应被匹配');
+    }
+  }
 });
 
 test('注入的非法预算被忽略（0 / 负数 / NaN / Infinity 会让计时器立即触发或永不触发）', () => {

@@ -57,13 +57,15 @@ export interface RemoteBackupFilePutOptions {
 // 100 MiB 的附件（`limits.attachment.maxFileSizeBytes`）或 64 MiB 的归档
 // （`MAX_BACKUP_ARCHIVE_BYTES`），跨境上传远超几秒 ⇒ 传输类按体积估算，
 // 避免把“慢但成功”误杀成失败。
-export type RemoteRequestAction =
-  | 'directory creation'
-  | 'upload'
-  | 'listing'
-  | 'download'
-  | 'delete'
-  | 'existence check';
+// 超时消息的形状（构造 + 判定）来自 `shared/backup-timeout-message.ts`：
+// 那句文本同时被前端 `translateServerError()` 解析，两边必须逐字一致。
+import {
+  REMOTE_TIMEOUT_MESSAGE_PATTERN,
+  buildRemoteTimeoutMessage,
+  type RemoteRequestAction,
+} from '../../shared/backup-timeout-message';
+
+export type { RemoteRequestAction };
 
 export interface RemoteRequestTimeouts {
   /** 控制类请求（建目录 / 存在性检查 / 删除）的整段时长上限 */
@@ -100,7 +102,7 @@ export class RemoteRequestTimeoutError extends Error {
     readonly action: RemoteRequestAction,
     readonly timeoutMs: number
   ) {
-    super(`${provider} ${action} timed out after ${timeoutMs} ms`);
+    super(buildRemoteTimeoutMessage(provider, action, timeoutMs));
     this.name = 'RemoteRequestTimeoutError';
   }
 }
@@ -116,8 +118,7 @@ export function isRemoteRequestTimeoutError(error: unknown): error is RemoteRequ
  * 形状与前端 `translateServerError` 的正则、以及本类的 `super(...)` 三者必须一致。
  */
 export function isRemoteRequestTimeoutMessage(message: unknown): boolean {
-  return typeof message === 'string'
-    && /^(?:WebDAV|S3) (?:directory creation|upload|listing|download|delete|existence check) timed out after \d+ ms$/.test(message);
+  return typeof message === 'string' && REMOTE_TIMEOUT_MESSAGE_PATTERN.test(message);
 }
 
 /**
