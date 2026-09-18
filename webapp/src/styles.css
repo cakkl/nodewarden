@@ -13,6 +13,8 @@
 @import './styles/responsive.css';
 @import './styles/dark.css';
 
+
+@reference './tailwind.css';
 /* Unified product polish: refined, smooth, comfortable surfaces across desktop, mobile, and dark mode. */
 
 /* ── surface consistency ── */

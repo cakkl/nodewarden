@@ -1,3 +1,5 @@
+@reference './tailwind.css';
+
 .dialog-mask {
   @apply fixed inset-0 grid h-dvh w-screen place-items-center p-5 opacity-0;
   background: rgba(15, 23, 42, 0.5);

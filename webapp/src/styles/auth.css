@@ -1,3 +1,5 @@
+@reference './tailwind.css';
+
 .loading-screen {
   @apply grid h-full place-items-center text-lg text-muted;
 }

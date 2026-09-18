@@ -1,3 +1,10 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+
+/* v4 用 `@config` 显式加载 v3 风格的配置文件：extend 出来的 colors
+   （canvas / panel / ink / line / brand / danger … 全部映射到 CSS 变量）、
+   boxShadow、fontFamily 因此原样保留，`@apply text-ink` 这类自定义类不受影响。 */
+@config '../../tailwind.config.js';
+
+/* v4 不再接受 `darkMode: ['class', '[data-theme="dark"]']` 这种数组写法，
+   改由 CSS 自定义变体表达；语义与原先一致：按 data-theme 属性切换。 */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
