@@ -710,6 +710,43 @@ export const DEMO_BACKUP_SETTINGS: AdminBackupSettings = {
         lastUploadedDestination: 'Demo WebDAV',
       },
     },
+    // 第二个目标刻意处于「上次成功过、之后一直失败」的状态：
+    // 后端的 `lastErrorMessage` 只在**成功**时清空（docs/TODO 第 18 条），
+    // 所以这两个字段可以同时存在 —— 演示站要能展示这种真实形态，
+    // 否则「上次失败」那一行在演示里永远看不到（失败的原文走 translateServerError
+    // 映射成可读文案，这里用的是超时那种）。
+    {
+      id: 'demo-s3',
+      name: 'Demo S3',
+      type: 's3',
+      includeAttachments: false,
+      destination: {
+        endpoint: 'https://s3.example.com',
+        bucket: 'nodewarden-demo',
+        addressingStyle: 'path-style',
+        region: 'auto',
+        accessKeyId: 'demo-access-key',
+        secretAccessKey: 'demo-secret-key',
+        rootPath: 'backups',
+      },
+      schedule: {
+        enabled: true,
+        intervalHours: 12,
+        startTime: '00:00',
+        timezone: 'UTC',
+        retentionCount: 7,
+      },
+      runtime: {
+        lastAttemptAt: '2026-05-04T09:00:00.000Z',
+        lastAttemptLocalDate: '2026-05-04',
+        lastSuccessAt: '2026-05-03T21:00:08.000Z',
+        lastErrorAt: '2026-05-04T09:00:30.000Z',
+        lastErrorMessage: 'S3 upload timed out after 30000 ms',
+        lastUploadedFileName: 'nodewarden_backup_20260503_210008_d4e5f.zip',
+        lastUploadedSizeBytes: 987136,
+        lastUploadedDestination: 'Demo S3',
+      },
+    },
   ],
 };
 
