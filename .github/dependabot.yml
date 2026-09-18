@@ -18,10 +18,8 @@ updates:
         update-types:
           - "minor"
           - "patch"
-    ignore:
-      - dependency-name: "tailwindcss"
-        update-types:
-          - "version-update:semver-major"
+    # 原先这里 ignore 了 tailwindcss 的 major 更新；2026-09-18 已完成 v3 → v4 迁移，
+    # 该条已过期 ⇒ 删除，让 Dependabot 正常提 v5 的 major PR。
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -30,11 +28,14 @@ updates:
       day: "monday"
       time: "05:10"
       timezone: "Asia/Shanghai"
-    # 同上。本生态的 open-pull-requests-limit 是 0，即不会开出版本更新 PR，
-    # 所以这条 cooldown 目前不影响实际行为，加它只为两个生态配置保持一致。
+    # ⚠️ 这里原来是 0（完全关闭 Actions 的版本更新 PR）⇒ 后果是 8 个 action 长期停在旧
+    # SHA，只能靠人工逐条核对（2026-09-18 一次性补了 17 处引用）。
+    # 本仓用 commit SHA 固定 action（tag 可被移动，固定 SHA 是安全实践），
+    # 代价就是不会自动更新 ⇒ 必须打开这个开关才能跟上上游。
+    # 各 workflow 的 `uses:` 行尾都带 `# vX.Y.Z` 注释，便于比对 SHA 落在哪个版本。
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 0
+    open-pull-requests-limit: 5
     groups:
       github-actions:
         patterns:

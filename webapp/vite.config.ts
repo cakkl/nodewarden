@@ -236,6 +236,32 @@ function pwaServiceWorkerPlugin(isDemo: boolean): Plugin {
   };
 }
 
+/**
+ * demo 模式没有 wrangler 后端（8787），但前端仍会发探活请求
+ * （`/api/web-bootstrap?statusProbe=…`）。既不挂代理、SPA fallback 又不覆盖
+ * `Accept: application/json` 的请求，于是浏览器控制台会刷 404 —— 纯噪音，
+ * 却极易被误读成业务代码出错（这就是本插件存在的理由）。
+ *
+ * 这里给 demo 装一个最小应答器：`/api/**` 一律返回 200 + 空 JSON。
+ * 探针只要拿到任何同源响应就判定“服务可达”，语义也是对的：
+ * demo 的“服务端”本来就是前端自己。
+ */
+function demoApiStubPlugin(): Plugin {
+  return {
+    name: 'nodewarden:demo-api-stub',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+        if (!req.url || !req.url.startsWith('/api/')) return next();
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.end('{}');
+      });
+    },
+  };
+}
+
 function searchIndexPolicyPlugin(isDemo: boolean): Plugin {
   return {
     name: 'nodewarden-search-index-policy',
@@ -263,7 +289,13 @@ export default defineConfig(({ mode }) => {
 
   return {
     root: rootDir,
-    plugins: [preact(), searchIndexPolicyPlugin(isDemo), pwaServiceWorkerPlugin(isDemo)],
+    plugins: [
+      preact(),
+      searchIndexPolicyPlugin(isDemo),
+      pwaServiceWorkerPlugin(isDemo),
+      // demo 没有后端，但仍会被探针请求 /api/** ⇒ 给一个最小应答，避免控制台噪音
+      ...(isDemo ? [demoApiStubPlugin()] : []),
+    ],
     define: {
       __NODEWARDEN_DEMO__: JSON.stringify(isDemo),
     },
@@ -316,15 +348,24 @@ export default defineConfig(({ mode }) => {
       fs: {
         allow: [path.resolve(rootDir, '..')],
       },
-      proxy: {
-        '/api': 'http://127.0.0.1:8787',
-        '/identity': 'http://127.0.0.1:8787',
-        '/setup': 'http://127.0.0.1:8787',
-        '/icons': 'http://127.0.0.1:8787',
-        '/config': 'http://127.0.0.1:8787',
-        '/notifications': 'http://127.0.0.1:8787',
-        '/.well-known': 'http://127.0.0.1:8787',
-      },
+      // demo 模式只跑前端（5174），并没有 wrangler 后端（8787）。
+      // 以前这里固定挂代理，于是网络状态探针 `/api/web-bootstrap` 会持续 ECONNREFUSED，
+      // vite 每次失败都打印 `http proxy error` —— 纯噪音，却极易被误读成业务代码出错。
+      // 不挂代理时请求落到 vite 自身、被 SPA fallback 成 200，探针据此判定“服务可达”，
+      // 语义也是对的：demo 的“服务端”就是前端自己。
+      ...(isDemo
+        ? {}
+        : {
+            proxy: {
+              '/api': 'http://127.0.0.1:8787',
+              '/identity': 'http://127.0.0.1:8787',
+              '/setup': 'http://127.0.0.1:8787',
+              '/icons': 'http://127.0.0.1:8787',
+              '/config': 'http://127.0.0.1:8787',
+              '/notifications': 'http://127.0.0.1:8787',
+              '/.well-known': 'http://127.0.0.1:8787',
+            },
+          }),
     },
   };
 });
