@@ -235,7 +235,6 @@ const en: Record<string, string> = {
   "txt_backup_destination_idle_badge": "Auto Off",
   "txt_backup_destination_last_success": "Last success: {time}",
   "txt_backup_destination_failed_at": "Last failure: {time}",
-  "txt_backup_runtime_last_attempt": "Last attempt: {time}",
   "txt_backup_destination_never_run": "No successful run yet",
   "txt_backup_destination_detail_title": "Destination Details",
   "txt_backup_destination_detail_note": "",

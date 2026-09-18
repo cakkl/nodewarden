@@ -182,7 +182,6 @@ const it: Record<string, string> = {
   "txt_backup_destination_idle_badge": "Auto Off",
   "txt_backup_destination_last_success": "Ultimo successo: {time}",
   "txt_backup_destination_failed_at": "Ultimo errore: {time}",
-  "txt_backup_runtime_last_attempt": "Ultimo tentativo: {time}",
   "txt_backup_destination_never_run": "Ancora nessuna esecuzione riuscita",
   "txt_backup_destination_detail_title": "Dettagli della destinazione",
   "txt_backup_destination_detail_note": "",

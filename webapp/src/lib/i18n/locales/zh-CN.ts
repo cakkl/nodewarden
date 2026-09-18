@@ -185,7 +185,6 @@ const zhCN: Record<string, string> = {
   "txt_backup_destination_idle_badge": "未启用计划",
   "txt_backup_destination_last_success": "上次成功：{time}",
   "txt_backup_destination_failed_at": "上次失败：{time}",
-  "txt_backup_runtime_last_attempt": "上次尝试：{time}",
   "txt_backup_destination_never_run": "还没有成功执行过",
   "txt_backup_destination_detail_title": "地点详情",
   "txt_backup_destination_detail_note": "",

@@ -185,7 +185,6 @@ const zhTW: Record<string, string> = {
   "txt_backup_destination_idle_badge": "未啟用計劃",
   "txt_backup_destination_last_success": "上次成功：{time}",
   "txt_backup_destination_failed_at": "上次失敗：{time}",
-  "txt_backup_runtime_last_attempt": "上次嘗試：{time}",
   "txt_backup_destination_never_run": "還沒有成功執行過",
   "txt_backup_destination_detail_title": "地點詳情",
   "txt_backup_destination_detail_note": "",

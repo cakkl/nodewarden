@@ -183,7 +183,6 @@ const ru: Record<string, string> = {
   "txt_backup_destination_idle_badge": "Автовыключение",
   "txt_backup_destination_last_success": "Последний успех: {time}",
   "txt_backup_destination_failed_at": "Последняя ошибка: {time}",
-  "txt_backup_runtime_last_attempt": "Последняя попытка: {time}",
   "txt_backup_destination_never_run": "Пока ни одного успешного запуска",
   "txt_backup_destination_detail_title": "Детали пункта назначения",
   "txt_backup_destination_name": "Имя места назначения",

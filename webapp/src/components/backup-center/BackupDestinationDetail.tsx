@@ -15,24 +15,21 @@ import { BackupIncludeAttachmentsField } from './BackupIncludeAttachmentsField';
 const INTERVAL_HOUR_PRESETS = [1, 6, 12, 24];
 
 /**
- * 「最近运行」：上次尝试 / 上次成功 / 上次失败（原因 + 时间）。
+ * 「上次失败」摘要 —— **只**在失败过时渲染，且只显示失败时间与原因。
  *
- * 为什么要把失败单独列出来：后端**只在成功时清空**错误（docs/TODO 第 18 条）
- * ⇒ 「上次成功」与「上次失败」可以同时存在，那正是「一直在重试、一直失败」的样子。
- * 以前界面完全没有这个信息（只有 API 与审计日志能看到）。
+ * 刻意不显示「上次尝试」与「上次成功」：前者对排障没帮助（本轮的尝试已经在跑或刚跑完），
+ * 后者在左侧地点列表里已经有一份，在详情页再重复一遍只是占位置。
+ * 真正需要被看见的是「失败了、原因是什么」。
  */
 function renderRuntimeSummary(destination: BackupDestinationRecord) {
   const summary = getDestinationRuntimeSummary(destination.runtime);
+  if (!summary.failedAt) return null;
   return (
     <div className="backup-runtime-summary">
-      <div className="backup-runtime-row">{summary.lastAttempt}</div>
-      <div className="backup-runtime-row">{summary.lastSuccess}</div>
-      {summary.failedAt ? (
-        <div className="backup-runtime-row backup-runtime-error">
-          <span>{summary.failedAt}</span>
-          <span className="backup-runtime-reason">{summary.failureReason}</span>
-        </div>
-      ) : null}
+      <div className="backup-runtime-error">
+        <span>{summary.failedAt}</span>
+        <span className="backup-runtime-reason">{summary.failureReason}</span>
+      </div>
     </div>
   );
 }

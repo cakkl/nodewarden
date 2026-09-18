@@ -273,9 +273,11 @@
   color: var(--danger-text);
 }
 
-/* 详情页的「最近运行」摘要块 */
+/* 详情页的「上次失败」摘要块。
+   `mb-2` 与相邻的 `.backup-name-row` 保持一致 —— 详情面板不是 gap 布局，
+   各块靠自身 margin 分隔，不给这一块加下边距就会与下面的「地点名称」贴在一起。 */
 .backup-runtime-summary {
-  @apply grid gap-1 rounded-xl p-3 text-[13px] leading-[1.45];
+  @apply mb-2 grid gap-1 rounded-xl p-3 text-[13px] leading-[1.45];
   background: var(--panel-muted);
   border: 1px solid var(--line-soft);
   color: var(--muted-strong);

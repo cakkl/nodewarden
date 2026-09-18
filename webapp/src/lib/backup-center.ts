@@ -90,10 +90,6 @@ export function formatBytes(value: number | null | undefined): string {
 }
 
 export interface DestinationRuntimeSummary {
-  /** 「上次尝试：<时间>」（含「从未」，取自 `formatDateTime(null)`） */
-  lastAttempt: string;
-  /** 「上次成功：<时间>」 */
-  lastSuccess: string;
   /** 「上次失败：<时间>」；没失败过则为 null */
   failedAt: string | null;
   /** 失败原因；没失败过则为 null */
@@ -101,11 +97,12 @@ export interface DestinationRuntimeSummary {
 }
 
 /**
- * 备份目标的「最近运行」摘要。
+ * 备份目标的「上次失败」摘要（详情页用）。
  *
- * 后端在 `runtime` 里**同时**保留 `lastSuccessAt` 与 `lastErrorAt` / `lastErrorMessage`，
- * 而且只在**成功**时清空错误（docs/TODO 第 18 条修掉的就是「每次尝试开始就清空」）
- * ⇒ 界面现在能同时表达「最近一次成功是什么时候」与「之后那次失败是因为什么」。
+ * 只关心失败：后端在 `runtime` 里**同时**保留 `lastSuccessAt` 与 `lastErrorAt` /
+ * `lastErrorMessage`，而且只在**成功**时清空错误（docs/TODO 第 18 条）
+ * ⇒ 「上次成功」与「上次失败」可以同时存在，那正是「一直在重试、一直失败」的样子。
+ * 「上次成功」由地点列表展示（`.backup-destination-sidebar`），详情页不重复。
  *
  * 失败原因走 `translateServerError()`：后端文案是英文
  * （如 `WebDAV upload timed out after 30000 ms`），命中映射表就本地化，
@@ -113,11 +110,10 @@ export interface DestinationRuntimeSummary {
  */
 export function getDestinationRuntimeSummary(runtime: BackupRuntimeState): DestinationRuntimeSummary {
   const reason = String(runtime.lastErrorMessage || '').trim();
+  if (!reason) return { failedAt: null, failureReason: null };
   return {
-    lastAttempt: t('txt_backup_runtime_last_attempt', { time: formatDateTime(runtime.lastAttemptAt) }),
-    lastSuccess: t('txt_backup_destination_last_success', { time: formatDateTime(runtime.lastSuccessAt) }),
-    failedAt: reason ? t('txt_backup_destination_failed_at', { time: formatDateTime(runtime.lastErrorAt) }) : null,
-    failureReason: reason ? translateServerError(reason, reason) : null,
+    failedAt: t('txt_backup_destination_failed_at', { time: formatDateTime(runtime.lastErrorAt) }),
+    failureReason: translateServerError(reason, reason),
   };
 }
 
