@@ -20,7 +20,7 @@ import type {
 } from '../types';
 import type { AccountPasskeyAssertion, AccountPasskeyPrfKeySet } from '../account-passkeys';
 import { recordNodeWardenReachable, recordNodeWardenUnreachable } from '../network-status';
-import { parseJson, type AuthedFetch, type SessionSetter } from './shared';
+import { parseErrorMessage, parseJson, type AuthedFetch, type SessionSetter } from './shared';
 
 const SESSION_KEY = 'nodewarden.web.session.v4';
 const PROFILE_SNAPSHOT_KEY = 'nodewarden.web.profile-snapshot.v1';
@@ -220,7 +220,7 @@ export async function deriveLoginHash(email: string, password: string, fallbackI
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: email.toLowerCase() }),
   });
-  if (!pre.ok) throw new Error('prelogin failed');
+  if (!pre.ok) throw new Error(await parseErrorMessage(pre, t('txt_login_failed')));
   const data = (await parseJson<{ kdfIterations?: number }>(pre)) || {};
   const iterations = Number(data.kdfIterations || fallbackIterations);
   const masterKey = await pbkdf2(password, email.toLowerCase(), iterations, 32);
@@ -248,7 +248,7 @@ export async function getPreloginKdfConfig(email: string, fallbackIterations: nu
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: normalized }),
   });
-  if (!pre.ok) throw new Error('prelogin failed');
+  if (!pre.ok) throw new Error(await parseErrorMessage(pre, t('txt_login_failed')));
   const data = (await parseJson<{ kdf?: number; kdfIterations?: number; kdfMemory?: number | null; kdfParallelism?: number | null }>(pre)) || {};
   return {
     kdfType: Number(data.kdf ?? 0) || 0,
@@ -553,10 +553,13 @@ export function createAuthedFetch(getSession: () => SessionState | null, setSess
     const refreshed = await refreshAccessTokenOnce(refreshSource);
     if (!refreshed.ok) {
       if (refreshed.transient) {
-        throw new Error(refreshed.error || t('txt_session_refresh_failed'));
+        throw new Error(translateServerError(refreshed.error, t('txt_session_refresh_failed')));
       }
       setSession(null);
-      throw new Error(t('txt_session_refresh_failed'));
+      // 非瞬时失败（refresh token 已失效等）：同样把服务端说法接过来 ——
+      // `Invalid refresh token` 在映射表里有对应文案（"Session expired. Please sign in again."），
+      // 丢掉的话用户只会看到一句笼统的「刷新会话失败」。
+      throw new Error(translateServerError(refreshed.error, t('txt_session_refresh_failed')));
     }
 
     const nextSession: SessionState = {
@@ -577,7 +580,7 @@ export function createAuthedFetch(getSession: () => SessionState | null, setSess
 
 export async function getProfile(authedFetch: AuthedFetch): Promise<Profile> {
   const resp = await authedFetch('/api/accounts/profile');
-  if (!resp.ok) throw new Error('Failed to load profile');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
   const body = await parseJson<Profile>(resp);
   if (!body) throw new Error('Invalid profile');
   return body;
@@ -665,7 +668,7 @@ export async function changeMasterPassword(
       },
     }),
   });
-  if (!resp.ok) throw new Error('Change master password failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_change_password_failed')));
 }
 
 export async function setTotp(
@@ -948,7 +951,7 @@ function normalizeAccountPasskeyCredential(raw: any): AccountPasskeyCredential {
 
 export async function listAccountPasskeys(authedFetch: AuthedFetch): Promise<AccountPasskeyCredential[]> {
   const resp = await authedFetch('/api/webauthn');
-  if (!resp.ok) throw new Error('Failed to load account passkeys');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_account_passkeys_load_failed')));
   const body = (await parseJson<{ data?: unknown[]; Data?: unknown[] }>(resp)) || {};
   const rows = Array.isArray(body.data) ? body.data : Array.isArray(body.Data) ? body.Data : [];
   return rows.map(normalizeAccountPasskeyCredential).filter((item) => item.id);
@@ -1066,7 +1069,7 @@ export async function deleteAccountPasskey(
 export async function getVaultRevisionDate(authedFetch: AuthedFetch): Promise<number> {
   const resp = await authedFetch('/api/accounts/revision-date');
   if (!resp.ok) {
-    throw new Error('Failed to load revision date');
+    throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
   }
   const body = await parseJson<number>(resp);
   const stamp = Number(body);
@@ -1078,7 +1081,7 @@ export async function getVaultRevisionDate(authedFetch: AuthedFetch): Promise<nu
 
 export async function getTwoFactorProviderStatus(authedFetch: AuthedFetch): Promise<{ totpEnabled: boolean; yubikeyEnabled: boolean; passkeyEnabled: boolean }> {
   const resp = await authedFetch('/api/two-factor');
-  if (!resp.ok) throw new Error('Failed to load two-factor status');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
   const body = (await parseJson<{ data?: unknown[]; Data?: unknown[] }>(resp)) || {};
   const providers = Array.isArray(body.data) ? body.data : Array.isArray(body.Data) ? body.Data : [];
   const enabledTypes = new Set(
@@ -1133,7 +1136,7 @@ export async function recoverTwoFactor(
 
 export async function getAuthorizedDevices(authedFetch: AuthedFetch): Promise<AuthorizedDevice[]> {
   const resp = await authedFetch('/api/devices/authorized');
-  if (!resp.ok) throw new Error(t('txt_load_devices_failed'));
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_devices_failed')));
   const body = await parseJson<{ object: 'list'; data: AuthorizedDevice[] }>(resp);
   return body?.data || [];
 }
@@ -1143,7 +1146,7 @@ export async function revokeAuthorizedDeviceTrust(
   deviceIdentifier: string
 ): Promise<void> {
   const resp = await authedFetch(`/api/devices/authorized/${encodeURIComponent(deviceIdentifier)}`, { method: 'DELETE' });
-  if (!resp.ok) throw new Error(t('txt_revoke_device_trust_failed'));
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_revoke_device_trust_failed')));
 }
 
 export async function trustAuthorizedDevicePermanently(
@@ -1151,12 +1154,12 @@ export async function trustAuthorizedDevicePermanently(
   deviceIdentifier: string
 ): Promise<void> {
   const resp = await authedFetch(`/api/devices/authorized/${encodeURIComponent(deviceIdentifier)}/permanent`, { method: 'POST' });
-  if (!resp.ok) throw new Error(t('txt_trust_device_permanently_failed'));
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_trust_device_permanently_failed')));
 }
 
 export async function revokeAllAuthorizedDeviceTrust(authedFetch: AuthedFetch): Promise<void> {
   const resp = await authedFetch('/api/devices/authorized', { method: 'DELETE' });
-  if (!resp.ok) throw new Error(t('txt_revoke_all_device_trust_failed'));
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_revoke_all_device_trust_failed')));
 }
 
 export async function deleteAuthorizedDevice(
@@ -1164,7 +1167,7 @@ export async function deleteAuthorizedDevice(
   deviceIdentifier: string
 ): Promise<void> {
   const resp = await authedFetch(`/api/devices/${encodeURIComponent(deviceIdentifier)}`, { method: 'DELETE' });
-  if (!resp.ok) throw new Error(t('txt_remove_device_failed'));
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_remove_device_failed')));
 }
 
 export async function deleteAuthorizedDevices(
@@ -1193,7 +1196,7 @@ export async function updateAuthorizedDeviceName(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: normalized }),
   });
-  if (!resp.ok) throw new Error(t('txt_update_device_note_failed'));
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_update_device_note_failed')));
 }
 
 export async function deleteAllAuthorizedDevices(authedFetch: AuthedFetch, masterPasswordHash: string): Promise<void> {
@@ -1202,7 +1205,7 @@ export async function deleteAllAuthorizedDevices(authedFetch: AuthedFetch, maste
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ masterPasswordHash }),
   });
-  if (!resp.ok) throw new Error(t('txt_remove_all_devices_failed'));
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_remove_all_devices_failed')));
 }
 
 export async function getApiKey(authedFetch: AuthedFetch, masterPasswordHash: string): Promise<string> {

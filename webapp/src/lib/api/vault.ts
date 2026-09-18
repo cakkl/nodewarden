@@ -18,6 +18,7 @@ import {
   type AuthedFetch,
 } from './shared';
 import { readResponseBytesWithProgress } from '../download';
+import { t } from '../i18n';
 import { loadVaultCoreSyncSnapshot } from './vault-sync';
 
 type CipherLoginData = NonNullable<Cipher['login']>;
@@ -53,7 +54,7 @@ export async function createFolder(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: encryptedName }),
   });
-  if (!resp.ok) throw new Error('Create folder failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_create_folder_failed')));
   const body = await parseJson<Folder>(resp);
   if (!body?.id) throw new Error('Create folder failed');
   return body;
@@ -72,7 +73,7 @@ export async function deleteFolder(authedFetch: AuthedFetch, folderId: string): 
   const resp = await authedFetch(`/api/folders/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
-  if (!resp.ok) throw new Error('Delete folder failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_delete_folder_failed')));
 }
 
 export async function updateFolder(
@@ -92,7 +93,7 @@ export async function updateFolder(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: encryptedName }),
   });
-  if (!resp.ok) throw new Error('Update folder failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_update_folder_failed')));
   const body = await parseJson<Folder>(resp);
   if (!body?.id) throw new Error('Update folder failed');
   return body;
@@ -397,7 +398,7 @@ export async function downloadCipherAttachmentDecrypted(
 
   const info = await getAttachmentDownloadInfo(authedFetch, cid, aid);
   const rawResp = await fetch(info.url, { cache: 'no-store' });
-  if (!rawResp.ok) throw new Error('Download attachment failed');
+  if (!rawResp.ok) throw new Error(await parseErrorMessage(rawResp, t('txt_download_failed')));
   const encryptedBytes = await readResponseBytesWithProgress(rawResp, (progress) => onProgress?.(progress.percent));
 
   const userEnc = base64ToBytes(session.symEncKey);
@@ -1436,7 +1437,7 @@ export async function createCipher(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error('Create item failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_create_item_failed')));
   const body = await parseJson<Cipher>(resp);
   if (!body?.id) throw new Error('Create item failed');
   return body;
@@ -1463,13 +1464,13 @@ export async function updateCipher(
     },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error('Update item failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_update_item_failed')));
   return (await parseJson<Cipher>(resp))!;
 }
 
 export async function deleteCipher(authedFetch: AuthedFetch, cipherId: string): Promise<Cipher> {
   const resp = await authedFetch(`/api/ciphers/${encodeURIComponent(cipherId)}`, { method: 'DELETE' });
-  if (!resp.ok) throw new Error('Delete item failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_delete_item_failed')));
   return (await parseJson<Cipher>(resp))!;
 }
 
@@ -1477,14 +1478,14 @@ export async function permanentDeleteCipher(authedFetch: AuthedFetch, cipherId: 
   const id = String(cipherId || '').trim();
   if (!id) throw new Error('Cipher id is required');
   const resp = await authedFetch(`/api/ciphers/${encodeURIComponent(id)}/delete`, { method: 'DELETE' });
-  if (!resp.ok) throw new Error('Permanent delete item failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_permanent_delete_item_failed')));
 }
 
 export async function archiveCipher(authedFetch: AuthedFetch, cipherId: string): Promise<Cipher> {
   const id = String(cipherId || '').trim();
   if (!id) throw new Error('Cipher id is required');
   const resp = await authedFetch(`/api/ciphers/${encodeURIComponent(id)}/archive`, { method: 'PUT' });
-  if (!resp.ok) throw new Error('Archive item failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_archive_item_failed')));
   return (await parseJson<Cipher>(resp))!;
 }
 
@@ -1492,7 +1493,7 @@ export async function unarchiveCipher(authedFetch: AuthedFetch, cipherId: string
   const id = String(cipherId || '').trim();
   if (!id) throw new Error('Cipher id is required');
   const resp = await authedFetch(`/api/ciphers/${encodeURIComponent(id)}/unarchive`, { method: 'PUT' });
-  if (!resp.ok) throw new Error('Unarchive item failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_unarchive_item_failed')));
   return (await parseJson<Cipher>(resp))!;
 }
 
@@ -1504,7 +1505,7 @@ export async function bulkDeleteCiphers(authedFetch: AuthedFetch, ids: string[])
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: chunk }),
     });
-    if (!resp.ok) throw new Error('Bulk delete failed');
+    if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_delete_failed')));
   }
 }
 
@@ -1516,7 +1517,7 @@ export async function bulkArchiveCiphers(authedFetch: AuthedFetch, ids: string[]
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: chunk }),
     });
-    if (!resp.ok) throw new Error('Bulk archive failed');
+    if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_archive_failed')));
   }
 }
 
@@ -1528,7 +1529,7 @@ export async function bulkPermanentDeleteCiphers(authedFetch: AuthedFetch, ids: 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: chunk }),
     });
-    if (!resp.ok) throw new Error('Bulk permanent delete failed');
+    if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_permanent_delete_failed')));
   }
 }
 
@@ -1540,7 +1541,7 @@ export async function bulkRestoreCiphers(authedFetch: AuthedFetch, ids: string[]
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: chunk }),
     });
-    if (!resp.ok) throw new Error('Bulk restore failed');
+    if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_restore_failed')));
   }
 }
 
@@ -1552,7 +1553,7 @@ export async function bulkUnarchiveCiphers(authedFetch: AuthedFetch, ids: string
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: chunk }),
     });
-    if (!resp.ok) throw new Error('Bulk unarchive failed');
+    if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_unarchive_failed')));
   }
 }
 
@@ -1568,6 +1569,6 @@ export async function bulkMoveCiphers(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: chunk, folderId }),
     });
-    if (!resp.ok) throw new Error('Bulk move failed');
+    if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_move_failed')));
   }
 }

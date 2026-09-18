@@ -4,14 +4,14 @@ import { parseErrorMessage, parseJson, type AuthedFetch } from './shared';
 
 export async function listAdminUsers(authedFetch: AuthedFetch): Promise<AdminUser[]> {
   const resp = await authedFetch('/api/admin/users');
-  if (!resp.ok) throw new Error('Failed to load users');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_admin_data_failed')));
   const body = await parseJson<ListResponse<AdminUser>>(resp);
   return body?.data || [];
 }
 
 export async function listAdminInvites(authedFetch: AuthedFetch): Promise<AdminInvite[]> {
   const resp = await authedFetch('/api/admin/invites?includeInactive=true');
-  if (!resp.ok) throw new Error('Failed to load invites');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_admin_data_failed')));
   const body = await parseJson<ListResponse<AdminInvite>>(resp);
   return body?.data || [];
 }
@@ -98,7 +98,7 @@ export async function listAuditLogs(authedFetch: AuthedFetch, filters: AuditLogF
   if (filters.to) params.set('to', filters.to);
 
   const resp = await authedFetch(`/api/admin/logs?${params.toString()}`);
-  if (!resp.ok) throw new Error('Failed to load audit logs');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_logs_failed')));
   const body = await parseJson<ListResponse<AuditLogEntry>>(resp);
   return {
     logs: body?.data || [],
@@ -111,7 +111,7 @@ export async function listAuditLogs(authedFetch: AuthedFetch, filters: AuditLogF
 
 export async function getAuditLogSettings(authedFetch: AuthedFetch): Promise<AuditLogSettings> {
   const resp = await authedFetch('/api/admin/logs/settings');
-  if (!resp.ok) throw new Error('Failed to load audit log settings');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_log_settings_failed')));
   const body = await parseJson<AuditLogSettings & { object?: string }>(resp);
   return {
     retentionDays: body?.retentionDays ?? null,
@@ -125,7 +125,7 @@ export async function saveAuditLogSettings(authedFetch: AuthedFetch, settings: A
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
   });
-  if (!resp.ok) throw new Error('Failed to save audit log settings');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_log_settings_save_failed')));
   const body = await parseJson<AuditLogSettings & { object?: string }>(resp);
   return {
     retentionDays: body?.retentionDays ?? null,
@@ -135,7 +135,7 @@ export async function saveAuditLogSettings(authedFetch: AuthedFetch, settings: A
 
 export async function clearAuditLogs(authedFetch: AuthedFetch): Promise<number> {
   const resp = await authedFetch('/api/admin/logs', { method: 'DELETE' });
-  if (!resp.ok) throw new Error('Failed to clear audit logs');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_clear_logs_failed')));
   const body = await parseJson<{ deleted?: number }>(resp);
   return Number(body?.deleted || 0);
 }

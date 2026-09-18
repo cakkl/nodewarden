@@ -1,7 +1,8 @@
 import type { Cipher, Folder, Send } from '../types';
 import { getVaultRevisionDate } from './auth';
 import { clearCachedVaultCoreSnapshot, loadCachedVaultCoreSnapshot, saveCachedVaultCoreSnapshot, type VaultCoreSnapshot } from '../vault-cache';
-import { parseJson, type AuthedFetch } from './shared';
+import { parseErrorMessage, parseJson, type AuthedFetch } from './shared';
+import { t } from '../i18n';
 
 interface VaultSyncResponse {
   ciphers?: Cipher[];
@@ -118,7 +119,7 @@ export async function loadVaultCoreSyncSnapshot(authedFetch: AuthedFetch, cacheK
           Pragma: 'no-cache',
         },
       });
-      if (!resp.ok) throw new Error('Failed to load vault');
+      if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_vault_failed')));
       const body = await parseJson<VaultSyncResponse>(resp);
       const snapshot = normalizeSnapshot(body);
       memoryVaultCoreCache.set(normalizedKey, { revisionStamp, snapshot });
