@@ -66,6 +66,12 @@
   color: var(--muted);
 }
 
+/* 「上次失败」行：上面那组把 .backup-destination-meta 在暗色下压成了 muted，
+   而本规则与它同特异性 (0,2,0) —— 靠 dark.css 后加载取胜（见第 3 条的教训）。 */
+:root[data-theme='dark'] .backup-destination-failed {
+  color: var(--danger-text);
+}
+
 :root[data-theme='dark'] .input,
 :root[data-theme='dark'] .textarea,
 :root[data-theme='dark'] select.input,

@@ -43,6 +43,13 @@ export function BackupDestinationSidebar(props: BackupDestinationSidebarProps) {
                   ? t('txt_backup_destination_last_success', { time: formatDateTime(destination.runtime.lastSuccessAt) })
                   : t('txt_backup_destination_never_run')}
               </span>
+              {/* 只显示时间不显示原因：侧栏很窄，而原因可能很长且会挤掉其它信息，
+                  完整原因在右侧详情页的「最近运行」里（见 BackupDestinationDetail）。 */}
+              {destination.runtime.lastErrorMessage ? (
+                <span className="backup-destination-meta backup-destination-failed">
+                  {t('txt_backup_destination_failed_at', { time: formatDateTime(destination.runtime.lastErrorAt) })}
+                </span>
+              ) : null}
             </button>
           );
         })}

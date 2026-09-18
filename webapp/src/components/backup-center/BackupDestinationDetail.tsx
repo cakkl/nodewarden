@@ -6,13 +6,36 @@ import type {
   S3BackupDestination,
   WebDavBackupDestination,
 } from '@/lib/api/backup';
-import { COMMON_TIME_ZONES, getDestinationTypeLabel } from '@/lib/backup-center';
+import { COMMON_TIME_ZONES, getDestinationRuntimeSummary, getDestinationTypeLabel } from '@/lib/backup-center';
 import type { RecommendedProvider } from '@/lib/backup-recommendations';
 import { RemoteBackupBrowser } from './RemoteBackupBrowser';
 import { t } from '@/lib/i18n';
 import { BackupIncludeAttachmentsField } from './BackupIncludeAttachmentsField';
 
 const INTERVAL_HOUR_PRESETS = [1, 6, 12, 24];
+
+/**
+ * 「最近运行」：上次尝试 / 上次成功 / 上次失败（原因 + 时间）。
+ *
+ * 为什么要把失败单独列出来：后端**只在成功时清空**错误（docs/TODO 第 18 条）
+ * ⇒ 「上次成功」与「上次失败」可以同时存在，那正是「一直在重试、一直失败」的样子。
+ * 以前界面完全没有这个信息（只有 API 与审计日志能看到）。
+ */
+function renderRuntimeSummary(destination: BackupDestinationRecord) {
+  const summary = getDestinationRuntimeSummary(destination.runtime);
+  return (
+    <div className="backup-runtime-summary">
+      <div className="backup-runtime-row">{summary.lastAttempt}</div>
+      <div className="backup-runtime-row">{summary.lastSuccess}</div>
+      {summary.failedAt ? (
+        <div className="backup-runtime-row backup-runtime-error">
+          <span>{summary.failedAt}</span>
+          <span className="backup-runtime-reason">{summary.failureReason}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 interface BackupDestinationDetailProps {
   selectedRecommendedProvider: RecommendedProvider | null;
@@ -258,6 +281,7 @@ export function BackupDestinationDetail(props: BackupDestinationDetailProps) {
         <div className="backup-browser-empty">{t('txt_backup_select_destination')}</div>
       ) : (
         <>
+          {renderRuntimeSummary(props.selectedDestination)}
           <div className="backup-name-row">
             <label className="field backup-name-field">
               <span>{t('txt_backup_destination_name')}</span>

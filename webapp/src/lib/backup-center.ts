@@ -1,6 +1,7 @@
 import {
   type BackupDestinationRecord,
   type BackupDestinationType,
+  type BackupRuntimeState,
   type BackupSettings,
   createBackupDestinationRecord,
   createDefaultBackupSettings,
@@ -9,7 +10,7 @@ import {
 import type { RemoteBackupBrowserResponse, RemoteBackupItem } from './api/backup';
 
 export { isBackupDestinationConfigured };
-import { t } from './i18n';
+import { t, translateServerError } from './i18n';
 
 export interface PersistedRemoteBrowserState {
   cache: Record<string, RemoteBackupBrowserResponse>;
@@ -86,6 +87,38 @@ export function formatBytes(value: number | null | undefined): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+export interface DestinationRuntimeSummary {
+  /** 「上次尝试：<时间>」（含「从未」，取自 `formatDateTime(null)`） */
+  lastAttempt: string;
+  /** 「上次成功：<时间>」 */
+  lastSuccess: string;
+  /** 「上次失败：<时间>」；没失败过则为 null */
+  failedAt: string | null;
+  /** 失败原因；没失败过则为 null */
+  failureReason: string | null;
+}
+
+/**
+ * 备份目标的「最近运行」摘要。
+ *
+ * 后端在 `runtime` 里**同时**保留 `lastSuccessAt` 与 `lastErrorAt` / `lastErrorMessage`，
+ * 而且只在**成功**时清空错误（docs/TODO 第 18 条修掉的就是「每次尝试开始就清空」）
+ * ⇒ 界面现在能同时表达「最近一次成功是什么时候」与「之后那次失败是因为什么」。
+ *
+ * 失败原因走 `translateServerError()`：后端文案是英文
+ * （如 `WebDAV upload timed out after 30000 ms`），命中映射表就本地化，
+ * 未命中则**保留英文原文** —— 刻意不回落到通用文案，因为具体原因才是排障线索。
+ */
+export function getDestinationRuntimeSummary(runtime: BackupRuntimeState): DestinationRuntimeSummary {
+  const reason = String(runtime.lastErrorMessage || '').trim();
+  return {
+    lastAttempt: t('txt_backup_runtime_last_attempt', { time: formatDateTime(runtime.lastAttemptAt) }),
+    lastSuccess: t('txt_backup_destination_last_success', { time: formatDateTime(runtime.lastSuccessAt) }),
+    failedAt: reason ? t('txt_backup_destination_failed_at', { time: formatDateTime(runtime.lastErrorAt) }) : null,
+    failureReason: reason ? translateServerError(reason, reason) : null,
+  };
 }
 
 export function isReplaceRequiredError(error: unknown): boolean {

@@ -181,6 +181,8 @@ const fi: Record<string, string> = {
   "txt_backup_destination_active_badge": "Auto Päällä",
   "txt_backup_destination_idle_badge": "Auto Pois",
   "txt_backup_destination_last_success": "Viimeisin onnistuminen: {time}",
+  "txt_backup_destination_failed_at": "Viimeisin virhe: {time}",
+  "txt_backup_runtime_last_attempt": "Viimeisin yritys: {time}",
   "txt_backup_destination_never_run": "Ei vielä onnistuneita ajoja",
   "txt_backup_destination_detail_title": "Kohteen tiedot",
   "txt_backup_destination_detail_note": "",

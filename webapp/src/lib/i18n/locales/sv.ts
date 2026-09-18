@@ -181,6 +181,8 @@ const sv: Record<string, string> = {
   "txt_backup_destination_active_badge": "Auto På",
   "txt_backup_destination_idle_badge": "Auto Av",
   "txt_backup_destination_last_success": "Senaste framgång: {time}",
+  "txt_backup_destination_failed_at": "Senaste felet: {time}",
+  "txt_backup_runtime_last_attempt": "Senaste försöket: {time}",
   "txt_backup_destination_never_run": "Ingen framgångsrik körning ännu",
   "txt_backup_destination_detail_title": "Måldetaljer",
   "txt_backup_destination_detail_note": "",
