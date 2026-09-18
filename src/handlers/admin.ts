@@ -9,6 +9,43 @@ function isAdmin(user: User): boolean {
   return user.role === 'admin' && user.status === 'active';
 }
 
+/** 英文原文同时也是 `webapp/src/lib/i18n.ts` 映射表的键（改动必须两边同步） */
+const LAST_ACTIVE_ADMIN_MESSAGE = 'This is the last active administrator. Promote another user first.';
+
+/**
+ * 管理端**写**操作前用库里的最新状态复核操作者。
+ *
+ * 为什么需要：`actorUser` 来自 `AuthService` 的 isolate 级缓存（TTL 15 s，见
+ * `AUTH_CONTEXT_CACHE_TTL_MS`），而 ban / 删除只清**当前 isolate** 的缓存 ——
+ * 其余 isolate 上「刚被别的管理员 ban 掉的人」还能按 active 管理员继续操作最多 15 s。
+ * 管理端写操作本来极低频，多一次主键查询换掉这个窗口很划算。
+ */
+async function resolveFreshAdmin(storage: StorageService, actorUser: User): Promise<User | null> {
+  const fresh = await storage.getUserById(actorUser.id);
+  return fresh && isAdmin(fresh) ? fresh : null;
+}
+
+/**
+ * 「最后一个还能用的管理员」保护。
+ *
+ * 为什么不变量不显然：能走到这里的操作者本身必须是 active 管理员，而各 handler 都有
+ * 「不能对自己动手」的检查 ⇒ 单看代码似乎永远归不到零。但有两个漏口：
+ *   ① 上面的 15 s 缓存窗口（A 被 B ban 后，A 仍可能以管理员身份删/封 B）；
+ *   ② 将来新增的批量操作 / 恢复流程。
+ * 一旦归零，`ensureAdminUserExists()` 要等下次 schema 重建才兜底，而恢复归档会立刻触发 ——
+ * 也就是「把别人的备份恢复进来」会静默决定谁成为管理员。所以把不变量写成显式断言。
+ *
+ * 导出**仅为可测试性**：handler 路径上它当前不可达（操作者自己就是 active 管理员 ⇒
+ * 计数至少为 2，或者命中「不能对自己动手」），所以只能直接对它做单测。
+ */
+export async function guardLastActiveAdmin(storage: StorageService, target: User): Promise<Response | null> {
+  // 只有「移除一个还能用的管理员」才有风险：把 user 改成 banned、把 banned 恢复成 active 都安全。
+  if (target.role !== 'admin' || target.status !== 'active') return null;
+  const activeAdmins = await storage.countActiveAdmins();
+  if (activeAdmins > 1) return null;
+  return errorResponse(LAST_ACTIVE_ADMIN_MESSAGE, 400);
+}
+
 async function requireMasterPasswordHash(
   env: Env,
   actorUser: User,
@@ -353,22 +390,32 @@ export async function handleAdminSetUserStatus(
     return errorResponse('Forbidden', 403);
   }
 
+  const storage = new StorageService(env.DB);
+  const freshActor = await resolveFreshAdmin(storage, actorUser);
+  if (!freshActor) {
+    return errorResponse('Forbidden', 403);
+  }
+
   const body = await readJsonBody(request);
-  const passwordError = await requireMasterPasswordHash(env, actorUser, body.masterPasswordHash);
+  const passwordError = await requireMasterPasswordHash(env, freshActor, body.masterPasswordHash);
   if (passwordError) return passwordError;
 
   const nextStatus = body.status === 'banned' ? 'banned' : body.status === 'active' ? 'active' : null;
   if (!nextStatus) {
     return errorResponse('status must be active or banned', 400);
   }
-  if (targetUserId === actorUser.id && nextStatus !== 'active') {
+  if (targetUserId === freshActor.id && nextStatus !== 'active') {
     return errorResponse('You cannot ban yourself', 400);
   }
 
-  const storage = new StorageService(env.DB);
   const target = await storage.getUserById(targetUserId);
   if (!target) {
     return errorResponse('User not found', 404);
+  }
+
+  if (nextStatus === 'banned') {
+    const lastAdminError = await guardLastActiveAdmin(storage, target);
+    if (lastAdminError) return lastAdminError;
   }
 
   target.status = nextStatus;
@@ -378,7 +425,7 @@ export async function handleAdminSetUserStatus(
     await storage.deleteRefreshTokensByUserId(target.id);
   }
   AuthService.invalidateUserCache(target.id);
-  await writeAuditLog(storage, actorUser.id, 'admin.user.status', 'user', target.id, {
+  await writeAuditLog(storage, freshActor.id, 'admin.user.status', 'user', target.id, {
     status: nextStatus,
   }, request);
 
@@ -401,19 +448,27 @@ export async function handleAdminDeleteUser(
   if (!isAdmin(actorUser)) {
     return errorResponse('Forbidden', 403);
   }
-  if (targetUserId === actorUser.id) {
+
+  const storage = new StorageService(env.DB);
+  const freshActor = await resolveFreshAdmin(storage, actorUser);
+  if (!freshActor) {
+    return errorResponse('Forbidden', 403);
+  }
+  if (targetUserId === freshActor.id) {
     return errorResponse('You cannot delete yourself', 400);
   }
 
   const body = await readJsonBody(request);
-  const passwordError = await requireMasterPasswordHash(env, actorUser, body.masterPasswordHash);
+  const passwordError = await requireMasterPasswordHash(env, freshActor, body.masterPasswordHash);
   if (passwordError) return passwordError;
 
-  const storage = new StorageService(env.DB);
   const target = await storage.getUserById(targetUserId);
   if (!target) {
     return errorResponse('User not found', 404);
   }
+
+  const lastAdminError = await guardLastActiveAdmin(storage, target);
+  if (lastAdminError) return lastAdminError;
 
   // Clean up R2 files before DB cascade deletes the metadata rows.
   // 1. Attachment files (keyed by cipherId/attachmentId)
@@ -440,7 +495,7 @@ export async function handleAdminDeleteUser(
   await storage.deleteRefreshTokensByUserId(target.id);
   await storage.deleteUserById(target.id);
   AuthService.invalidateUserCache(target.id);
-  await writeAuditLog(storage, actorUser.id, 'admin.user.delete', 'user', target.id, {
+  await writeAuditLog(storage, freshActor.id, 'admin.user.delete', 'user', target.id, {
     targetEmail: target.email,
   }, request);
 

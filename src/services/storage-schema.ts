@@ -255,11 +255,20 @@ async function writeBootstrapAdminAuditEvent(db: D1Database, userId: string): Pr
 }
 
 async function ensureAdminUserExists(db: D1Database): Promise<void> {
-  const admin = await db.prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1").first<{ id: string }>();
+  // 口径必须与 handlers/admin.ts 的 isAdmin() 一致：role='admin' **且** status='active'。
+  // 只查 role 会漏掉两种状态，而且后果都是**永久**的（只能手工改库）：
+  //   ① 唯一的管理员被 ban 了 ⇒ 这里以为"已经有管理员"而直接返回；
+  //   ② 只查 role 还会把 banned 用户当成提权对象 ⇒ 提权后 isAdmin() 仍为 false，
+  //      于是下一次运行又走到 ① 分支。
+  const admin = await db
+    .prepare("SELECT id FROM users WHERE role = 'admin' AND status = 'active' LIMIT 1")
+    .first<{ id: string }>();
   if (admin?.id) return;
 
+  // 同样只在**可登录**的用户里挑候选人：把一个 banned 用户提权成管理员毫无意义
+  // （isAdmin() 要求 status='active'），只会制造 ② 那个状态。
   const firstUser = await db
-    .prepare('SELECT id FROM users ORDER BY created_at ASC LIMIT 1')
+    .prepare("SELECT id FROM users WHERE status = 'active' ORDER BY created_at ASC LIMIT 1")
     .first<{ id: string }>();
   if (!firstUser?.id) return;
 

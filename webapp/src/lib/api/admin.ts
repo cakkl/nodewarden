@@ -1,5 +1,6 @@
 import type { AdminInvite, AdminUser, AuditLogCategory, AuditLogEntry, AuditLogLevel, AuditLogListResult, AuditLogSettings, ListResponse } from '../types';
-import { parseJson, type AuthedFetch } from './shared';
+import { t } from '../i18n';
+import { parseErrorMessage, parseJson, type AuthedFetch } from './shared';
 
 export async function listAdminUsers(authedFetch: AuthedFetch): Promise<AdminUser[]> {
   const resp = await authedFetch('/api/admin/users');
@@ -62,7 +63,9 @@ export async function setUserStatus(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status, masterPasswordHash }),
   });
-  if (!resp.ok) throw new Error('Update user status failed');
+  // 这两条路径都要求主密码，且服务端有 if-not-self / 最后一个管理员的校验：
+  // 丢掉服务端文案的话，用户输错密码也只会看到「更新失败」，无法自救。
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_update_user_status_failed')));
 }
 
 export async function deleteUser(authedFetch: AuthedFetch, userId: string, masterPasswordHash: string): Promise<void> {
@@ -71,7 +74,7 @@ export async function deleteUser(authedFetch: AuthedFetch, userId: string, maste
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ masterPasswordHash }),
   });
-  if (!resp.ok) throw new Error('Delete user failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_delete_user_failed')));
 }
 
 export interface AuditLogFilters {

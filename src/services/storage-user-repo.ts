@@ -61,6 +61,21 @@ export async function getUserCount(db: D1Database): Promise<number> {
   return Number(row?.count || 0);
 }
 
+/**
+ * 「还能用的管理员」数量。
+ *
+ * 口径必须与 `handlers/admin.ts` 的 `isAdmin()` 一致：`role = 'admin'` **且** `status = 'active'`。
+ * 只数 `role` 会把**被 ban 的管理员**也算进去 —— 那种行占着“有管理员”的名额，
+ * 却登不进管理端，于是“最后一个可用管理员已被移除”成了一个隐形状态
+ * （`ensureAdminUserExists` 历史上就踩过：它只看 role，于是直接返回、不再兜底）。
+ */
+export async function countActiveAdmins(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare("SELECT COUNT(*) AS count FROM users WHERE role = 'admin' AND status = 'active'")
+    .first<{ count: number }>();
+  return Number(row?.count || 0);
+}
+
 export async function getAllUsers(db: D1Database): Promise<User[]> {
   const res = await db
     .prepare(`SELECT ${USER_SELECT_COLUMNS} FROM users ORDER BY created_at ASC`)
