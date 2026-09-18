@@ -47,7 +47,7 @@ import {
 import { reportProgress } from '../services/backup-progress';
 import { StorageService } from '../services/storage';
 import { AuthService } from '../services/auth';
-import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
+import { auditRequestMetadata, safeWriteAuditEvent, writeAuditEvent } from '../services/audit-events';
 import { getBlobObject } from '../services/blob-store';
 import { notifyUserBackupProgress, notifyUserBackupRestoreProgress } from '../durable/notifications-hub';
 import { getMultipartRequestMaxBytes } from '../utils/direct-upload';
@@ -598,6 +598,29 @@ async function runScheduledBackupsInDurableObject(env: Env): Promise<void> {
     method: 'POST',
   });
   if (response.status === 409) {
+    // 租约还在上一次运行手里（最长 10 分钟，`BACKUP_JOB_LEASE_MS`）。
+    // 这里过去是**直接 return** ⇒ 「这一轮计划任务被跳过」没有任何留痕
+    // （不报错、日志里全 200），排查时极易误判成「超时没生效 / 计划任务没跑」
+    // （docs/TODO 第 19 条）。cron 是每 5 分钟一次、只在真有重叠时才会走到这里，
+    // 所以不会刷屏；审计事件让它能在日志中心里被看到。
+    let message = 'Another backup run is already in progress';
+    try {
+      const body = await response.json<{ error?: string }>();
+      if (body?.error) message = body.error;
+    } catch {
+      // Preserve the default message when the DO returns a non-JSON error.
+    }
+    console.warn(`scheduled backup skipped: ${message}`);
+    await safeWriteAuditEvent(env, {
+      actorUserId: null,
+      action: 'backup.scheduled.skipped',
+      category: 'system',
+      level: 'warn',
+      targetType: 'backup',
+      // ⚠️ 键名必须在 audit-events.ts 的 ALLOWED_METADATA_KEYS 里，
+      // 否则 sanitizeMetadata 会**静默丢弃**（日志中心里只剩动作名，等于没留痕）。
+      metadata: { reason: 'lease_held', error: message },
+    });
     return;
   }
   if (!response.ok) {
