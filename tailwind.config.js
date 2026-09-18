@@ -1,7 +1,8 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./webapp/index.html', './webapp/src/**/*.{ts,tsx}'],
-  darkMode: ['class', '[data-theme="dark"]'],
+  // darkMode 已迁到 `webapp/src/tailwind.css` 的 `@custom-variant dark`
+  // —— v4 不再接受 `['class', '[data-theme="dark"]']` 这种数组写法。
   theme: {
     extend: {
       colors: {
