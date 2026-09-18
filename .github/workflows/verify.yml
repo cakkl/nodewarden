@@ -25,14 +25,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           # 本 job 不需要 git push，因此不把 GITHUB_TOKEN 写进 .git/config。
           # 否则 npm ci 期间任何依赖包的 postinstall 脚本都能读到该令牌。
           # 与 codeql.yml / security-extra.yml 保持一致。
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
         with:
           # 版本来源单一化：.nvmrc 同时被本 workflow 与 Cloudflare Workers Builds
           # 的构建镜像读取（官方文档：NODE_VERSION / .nvmrc / .node-version）。
