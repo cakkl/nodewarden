@@ -51,14 +51,22 @@ function findMessageArguments(source: string, callees: string[]): Array<{ line: 
   const lineAt = (index: number) => source.slice(0, index).split('\n').length;
 
   for (const callee of callees) {
-    const pattern = new RegExp(`(^|[^\\w$.])${callee}\\s*\\(`, 'g');
-    let match: RegExpExecArray | null;
-    while ((match = pattern.exec(source))) {
+    // 手工定位，不用 `new RegExp(…)` 动态拼接：既避开 Semgrep
+    // detect-non-literal-regexp，也免去「callee 含正则元字符」的转义负担。
+    for (let at = source.indexOf(callee); at !== -1; at = source.indexOf(callee, at + callee.length)) {
+      // 前一字符是标识符字符 / `$` / `.` ⇒ 属于更长的名字（如 `myErrorResponse`）
+      const before = at > 0 ? source[at - 1] : '';
+      if (before !== '' && /[\w$.]/.test(before)) continue;
+
+      // callee 之后允许空白，然后必须是 `(`
+      let openIndex = at + callee.length;
+      while (openIndex < source.length && /\s/.test(source[openIndex])) openIndex += 1;
+      if (source[openIndex] !== '(') continue;
+
       // 跳过函数**声明**：`function badRequest(message: string, …)` 里的 `(` 不是调用。
       // 不跳的话会多出一条 "message" 假阳性，还会逼着登记表去登记一个并不存在的调用点。
-      const nameStart = match.index + match[1].length;
+      const nameStart = at;
       if (/function\s+$/.test(source.slice(Math.max(0, nameStart - 16), nameStart))) continue;
-      const openIndex = match.index + match[0].length - 1;
       let depth = 0;
       let quote: string | null = null;
       let argument = '';

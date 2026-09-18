@@ -139,7 +139,9 @@ test('取 API 凭据：对端永不回包时返回 null（走调用方的 400 �
 
 test('取 API 凭据：正常响应仍能解析出 clientId / secretKey（回归）', async () => {
   const stub: FetchStub = async (input) => {
-    assert.ok(String(input).includes(GET_API_KEY_URL_HOST), '应请求 Yubico 的 getapikey 端点');
+    // 先解析出 host 再比对：`includes()` 对 URL 属**不完整**的校验
+    // （CodeQL js/incomplete-url-substring-sanitization），任意主机名里都能塞进这段子串。
+    assert.equal(new URL(String(input)).hostname, GET_API_KEY_URL_HOST, '应请求 Yubico 的 getapikey 端点');
     return new Response(
       '<table><tr><th>Client ID:</th><td><b>98765</b></td></tr><tr><th>Secret key:</th><td><code>c2VjcmV0</code></td></tr></table>',
       { status: 200, headers: { 'Content-Type': 'text/html' } }
