@@ -352,12 +352,15 @@ export async function executeConfiguredBackup(
 
   const now = new Date();
   await touchLease();
+  // ⚠️ 这里刻意**不**清空 `lastErrorAt` / `lastErrorMessage`（docs/TODO 第 18 条）：
+  // 失败不会更新 `lastSuccessAt` ⇒ 计划任务会在容差窗口内**立刻重试**，
+  // 若在尝试开始时就清空，错误就会在「清空 → 30 s 后写回 → 立刻又清空」的循环里
+  // 几乎永远看不到（真机验收时 `backup.runtime` 读到 None，而同一时刻审计日志
+  // 每 30 s 一条失败记录）。清空只发生在**成功**分支（下面写 `lastSuccessAt` 那处）。
   destination.runtime = await updateBackupDestinationRuntime(storage, destination.id, (runtime) => ({
     ...runtime,
     lastAttemptAt: now.toISOString(),
     lastAttemptLocalDate: getBackupLocalDateKey(now, destination.schedule.timezone),
-    lastErrorAt: null,
-    lastErrorMessage: null,
   }));
 
   try {
