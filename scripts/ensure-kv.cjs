@@ -6,6 +6,16 @@
  * by name. The template ships without an id so fresh accounts can provision one
  * on first deploy. In non-interactive builds, wrangler may try to create the
  * same namespace again on later builds and fail with code 10014.
+ *
+ * 加固（2026-09-18 代码审计）：本脚本会**改写受版本控制的 `wrangler.kv.toml`**，而写进去的
+ * id 决定「附件写进哪个 KV 库」。因此：
+ *   1. 只复用**标题完全一致**的命名空间；发现"标题相近"的会**停下来报错并列出候选**，
+ *      而不是猜一个 —— 猜错会让附件静默写进别的库。
+ *   2. 显式指定：`--id <32 位 hex>` 复用指定命名空间，`--force-new` 确认要新建。
+ *   3. 回写后**校验** id 确实进了目标段，否则报错退出 —— 原来的实现遇到格式不匹配会
+ *      "打印成功但其实没写"，下一次构建又会去新建（正是本脚本要防的 10014）。
+ *   4. 纯函数在文件末尾导出，`main()` 只在作为主模块运行时执行
+ *      （便于单测，见 `scripts/ensure-kv.test.ts`）。
  */
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
@@ -13,6 +23,7 @@ const path = require('node:path');
 
 const CONFIG = path.resolve(__dirname, '..', 'wrangler.kv.toml');
 const BINDING = 'ATTACHMENTS_KV';
+const NAMESPACE_ID_RE = /^[0-9a-fA-F]{32}$/;
 
 // Windows 下 npm 的可执行文件带 .cmd 后缀，execFileSync 不经 shell 解析。
 const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx';
@@ -22,9 +33,14 @@ const NPX = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const wrangler = (args) =>
   execFileSync(NPX, ['wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
 
-function bindingBlockHasId(toml) {
+/** 取出 `[[kv_namespaces]]` 里属于该 binding 的那一段（找不到返回 null）。 */
+function bindingBlock(toml, binding = BINDING) {
   const blocks = toml.match(/\[\[kv_namespaces\]\][^[]*/g) || [];
-  const block = blocks.find((entry) => new RegExp(`binding\\s*=\\s*"${BINDING}"`).test(entry));
+  return blocks.find((entry) => new RegExp(`binding\\s*=\\s*"${binding}"`).test(entry)) || null;
+}
+
+function bindingBlockHasId(toml, binding = BINDING) {
+  const block = bindingBlock(toml, binding);
   return block ? /^\s*id\s*=/m.test(block) : false;
 }
 
@@ -33,37 +49,138 @@ function expectedTitle(toml) {
   return `${name}-${BINDING.toLowerCase().replace(/_/g, '-')}`;
 }
 
-function resolveId(title) {
-  const list = JSON.parse(wrangler(['kv', 'namespace', 'list']));
-  const hit =
-    list.find((namespace) => namespace.title === title) ||
-    list.find((namespace) => typeof namespace.title === 'string' && namespace.title.endsWith('attachments-kv'));
-  if (hit) {
-    console.log(`[ensure-kv] reusing existing namespace "${hit.title}" (${hit.id})`);
-    return hit.id;
-  }
+/**
+ * 「标题相近」只用于**报警**，不再用于自动复用。
+ * 之所以还要它：若将来把 Worker 改了名，推导出的标题就不再等于旧命名空间的标题 ——
+ * 这时静默新建会让已有附件“凭空消失”，所以要先停下来让人确认。
+ */
+function findSimilarNamespaces(namespaces, title) {
+  const suffix = `-${BINDING.toLowerCase().replace(/_/g, '-')}`;
+  return (Array.isArray(namespaces) ? namespaces : []).filter(
+    (namespace) =>
+      typeof namespace?.title === 'string'
+      && namespace.title !== title
+      && namespace.title.endsWith(suffix)
+  );
+}
 
-  const out = wrangler(['kv', 'namespace', 'create', title]);
-  const id = (out.match(/id\s*=\s*"([0-9a-fA-F]{32})"/) || [])[1];
-  if (!id) throw new Error(`[ensure-kv] could not parse new namespace id from:\n${out}`);
-  console.log(`[ensure-kv] created namespace "${title}" (${id})`);
+function parseCreatedNamespaceId(output) {
+  const id = (String(output || '').match(/id\s*=\s*"([0-9a-fA-F]{32})"/) || [])[1];
+  if (!id) {
+    throw new Error(`[ensure-kv] could not parse new namespace id from:\n${output}`);
+  }
   return id;
 }
 
-function main() {
-  let toml = fs.readFileSync(CONFIG, 'utf8');
+/**
+ * 把 id 插进属于本 binding 的那一段。
+ * 段缺失 / 格式不匹配 / 已有 id 都**抛错** —— 绝不“静默成功”（否则下次构建又会新建）。
+ */
+function insertIdIntoBindingBlock(toml, id, binding = BINDING) {
+  if (!NAMESPACE_ID_RE.test(String(id || ''))) {
+    throw new Error(`[ensure-kv] invalid namespace id: ${id}`);
+  }
+  if (bindingBlockHasId(toml, binding)) {
+    throw new Error(`[ensure-kv] binding = "${binding}" already has an id`);
+  }
+  const next = toml.replace(
+    new RegExp(`(\\[\\[kv_namespaces\\]\\][^[]*?binding\\s*=\\s*"${binding}")`),
+    `$1\nid = "${id}"`
+  );
+  if (next === toml || !bindingBlockHasId(next, binding)) {
+    throw new Error(
+      `[ensure-kv] 未能在 wrangler.kv.toml 里为 binding = "${binding}" 写入 id（段缺失或格式不匹配）`
+    );
+  }
+  return next;
+}
+
+function parseArgs(argv) {
+  const args = { id: null, forceNew: false, help: false };
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === '--help' || token === '-h') {
+      args.help = true;
+    } else if (token === '--force-new') {
+      args.forceNew = true;
+    } else if (token === '--id') {
+      args.id = String(argv[index + 1] || '').trim();
+      index += 1;
+    } else if (token.startsWith('--id=')) {
+      args.id = token.slice('--id='.length).trim();
+    } else {
+      throw new Error(`[ensure-kv] unknown argument: ${token}`);
+    }
+  }
+  if (args.id && !NAMESPACE_ID_RE.test(args.id)) {
+    throw new Error(`[ensure-kv] --id must be a 32-character hex KV namespace id, got: ${args.id}`);
+  }
+  return args;
+}
+
+const USAGE = [
+  '用法：node scripts/ensure-kv.cjs [--id <32 位 hex>] [--force-new]',
+  '  （无参数）      标题完全匹配则复用，否则新建',
+  '  --id <hex>      显式复用指定命名空间（标题不一致、或账号里存在相近标题时使用）',
+  '  --force-new     确认要新建（存在“标题相近”的命名空间时会要求显式选择）',
+].join('\n');
+
+function main(argv = process.argv.slice(2)) {
+  const args = parseArgs(argv);
+  if (args.help) {
+    console.log(USAGE);
+    return;
+  }
+
+  const toml = fs.readFileSync(CONFIG, 'utf8');
   if (bindingBlockHasId(toml)) {
     console.log(`[ensure-kv] ${BINDING} already pinned in wrangler.kv.toml; nothing to do`);
     return;
   }
 
-  const id = resolveId(expectedTitle(toml));
-  toml = toml.replace(
-    new RegExp(`(\\[\\[kv_namespaces\\]\\]\\s*\\n\\s*binding\\s*=\\s*"${BINDING}")`),
-    `$1\nid = "${id}"`
-  );
-  fs.writeFileSync(CONFIG, toml);
-  console.log('[ensure-kv] pinned id into wrangler.kv.toml for this build');
+  const title = expectedTitle(toml);
+  let id = args.id;
+
+  if (id) {
+    console.log(`[ensure-kv] 使用显式指定的命名空间 id（${id}）`);
+  } else {
+    const namespaces = JSON.parse(wrangler(['kv', 'namespace', 'list']));
+    const exact = (Array.isArray(namespaces) ? namespaces : []).find((ns) => ns?.title === title);
+    if (exact) {
+      id = exact.id;
+      console.log(`[ensure-kv] reusing existing namespace "${exact.title}" (${exact.id})`);
+    } else {
+      const similar = findSimilarNamespaces(namespaces, title);
+      if (similar.length && !args.forceNew) {
+        throw new Error([
+          `[ensure-kv] 账号里没有标题为 "${title}" 的 KV 命名空间，但存在标题相近的：`,
+          ...similar.map((ns) => `  · ${ns.title} (${ns.id})`),
+          '请显式二选一后重跑（不替你猜 —— 猜错会把附件写进别的库）：',
+          '  · 复用其中一个： node scripts/ensure-kv.cjs --id <上面的 id>',
+          '  · 确实要新建：   node scripts/ensure-kv.cjs --force-new',
+        ].join('\n'));
+      }
+      id = parseCreatedNamespaceId(wrangler(['kv', 'namespace', 'create', title]));
+      console.log(`[ensure-kv] created namespace "${title}" (${id})`);
+    }
+  }
+
+  fs.writeFileSync(CONFIG, insertIdIntoBindingBlock(toml, id));
+  console.log(`[ensure-kv] 已写入 wrangler.kv.toml：binding = "${BINDING}" 段新增 id = "${id}"`);
+  console.log('[ensure-kv] wrangler.kv.toml 受版本控制，记得把这次改动一并提交');
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  BINDING,
+  bindingBlock,
+  bindingBlockHasId,
+  expectedTitle,
+  findSimilarNamespaces,
+  insertIdIntoBindingBlock,
+  parseArgs,
+  parseCreatedNamespaceId,
+};

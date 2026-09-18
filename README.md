@@ -112,6 +112,11 @@ npm run deploy
 
 # Optional: KV mode
 npm run deploy:kv
+#  The first deploy pins the KV namespace id into wrangler.kv.toml (commit that change).
+#  If the account already has a namespace with a *similar* title, the script stops and asks
+#  you to choose explicitly instead of guessing (a wrong guess sends attachments elsewhere):
+#    node scripts/ensure-kv.cjs --id <32-hex>   # reuse one of the candidates
+#    node scripts/ensure-kv.cjs --force-new     # create a new namespace anyway
 
 # Local development
 npm run dev
