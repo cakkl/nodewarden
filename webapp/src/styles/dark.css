@@ -431,6 +431,13 @@
 :root[data-theme='dark'] .eye-btn:hover {
   color: var(--primary);
 }
+/* 禁用态必须单独补：上面的基色规则是 (0,3,0)，会压过浅色层 `.input-icon-btn:disabled` 的 (0,2,0)
+   ⇒ 暗色下禁用态与可用态**同色**，丢掉「不可点」的线索。
+   触发场景真实存在：`VaultEditor` 的「扫描 TOTP 二维码」按钮就是 `disabled={busy}`。
+   取值与上方 `.input:disabled` / `.btn:disabled` 保持一致。 */
+:root[data-theme='dark'] .input-icon-btn:disabled {
+  color: color-mix(in srgb, var(--muted) 62%, transparent);
+}
 
 /* #14 Toast 自动关闭进度条：原 rgba(15,23,42,.2) 叠在暗色上合成 ≈1.0:1，不可见 */
 :root[data-theme='dark'] .toast-progress {
