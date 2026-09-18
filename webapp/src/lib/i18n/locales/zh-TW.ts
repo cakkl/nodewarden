@@ -695,6 +695,7 @@ const zhTW: Record<string, string> = {
   "txt_server_error_invalid_user_status": "狀態必須是 active 或 banned",
   "txt_server_error_last_active_admin": "這是最後一名可用管理員，請先將其他使用者提升為管理員",
   "txt_server_error_user_not_found": "找不到該使用者",
+  "txt_server_error_invite_not_found": "找不到該邀請碼",
   "txt_ios": "iOS",
   "txt_item": "項目",
   "txt_item_created": "項目已創建",

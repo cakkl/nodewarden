@@ -692,6 +692,7 @@ const es: Record<string, string> = {
   "txt_server_error_invalid_user_status": "El estado debe ser 'active' o 'banned'.",
   "txt_server_error_last_active_admin": "Este es el último administrador activo. Promueve primero a otro usuario como administrador.",
   "txt_server_error_user_not_found": "Usuario no encontrado.",
+  "txt_server_error_invite_not_found": "Invitación no encontrada.",
   "txt_ios": "iOS",
   "txt_item": "Elemento",
   "txt_item_created": "Elemento creado",

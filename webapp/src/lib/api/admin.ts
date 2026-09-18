@@ -22,7 +22,7 @@ export async function createInvite(authedFetch: AuthedFetch, hours: number, mast
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ expiresInHours: hours, masterPasswordHash }),
   });
-  if (!resp.ok) throw new Error('Create invite failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_create_invite_failed')));
 }
 
 export async function deleteInvite(authedFetch: AuthedFetch, code: string, masterPasswordHash: string): Promise<void> {
@@ -31,7 +31,7 @@ export async function deleteInvite(authedFetch: AuthedFetch, code: string, maste
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ masterPasswordHash }),
   });
-  if (!resp.ok) throw new Error('Delete invite failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_delete_invite_failed')));
 }
 
 export async function deleteInvalidInvites(authedFetch: AuthedFetch, masterPasswordHash: string): Promise<void> {
@@ -40,7 +40,7 @@ export async function deleteInvalidInvites(authedFetch: AuthedFetch, masterPassw
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ masterPasswordHash }),
   });
-  if (!resp.ok) throw new Error('Delete invalid invites failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_delete_invalid_invites_failed')));
 }
 
 export async function deleteAllInvites(authedFetch: AuthedFetch, masterPasswordHash: string): Promise<void> {
@@ -49,7 +49,7 @@ export async function deleteAllInvites(authedFetch: AuthedFetch, masterPasswordH
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ masterPasswordHash }),
   });
-  if (!resp.ok) throw new Error('Delete all invites failed');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_delete_all_invites_failed')));
 }
 
 export async function setUserStatus(

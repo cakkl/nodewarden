@@ -692,6 +692,7 @@ const fi: Record<string, string> = {
   "txt_server_error_invalid_user_status": "Tilan on oltava 'active' tai 'banned'.",
   "txt_server_error_last_active_admin": "Tämä on viimeinen aktiivinen ylläpitäjä. Ylennä ensin toinen käyttäjä ylläpitäjäksi.",
   "txt_server_error_user_not_found": "Käyttäjää ei löytynyt.",
+  "txt_server_error_invite_not_found": "Kutsua ei löytynyt.",
   "txt_ios": "iOS",
   "txt_item": "Nimike",
   "txt_item_created": "Nimike luotu",

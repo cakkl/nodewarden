@@ -692,6 +692,7 @@ const ru: Record<string, string> = {
   "txt_server_error_invalid_user_status": "Статус должен быть 'active' или 'banned'.",
   "txt_server_error_last_active_admin": "Это последний активный администратор. Сначала назначьте другого пользователя администратором.",
   "txt_server_error_user_not_found": "Пользователь не найден.",
+  "txt_server_error_invite_not_found": "Приглашение не найдено.",
   "txt_ios": "iOS",
   "txt_item": "Товар",
   "txt_item_created": "Объект создан",

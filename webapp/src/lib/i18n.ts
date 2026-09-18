@@ -244,6 +244,7 @@ export function translateServerError(message: string | null | undefined, fallbac
     'Forbidden': 'txt_server_error_forbidden',
     'Invite code is invalid or expired': 'txt_server_error_invite_invalid_or_expired',
     'Invite code is required': 'txt_server_error_invite_required',
+    'Invite not found': 'txt_server_error_invite_not_found',
     'Invalid backup timezone': 'txt_backup_error_timezone_invalid',
     'Invalid password': 'txt_server_error_invalid_password',
     'Invalid refresh token': 'txt_server_error_invalid_refresh_token',

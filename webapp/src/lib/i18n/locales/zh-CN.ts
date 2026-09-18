@@ -695,6 +695,7 @@ const zhCN: Record<string, string> = {
   "txt_server_error_invalid_user_status": "状态必须是 active 或 banned",
   "txt_server_error_last_active_admin": "这是最后一名可用管理员，请先把其他用户提升为管理员",
   "txt_server_error_user_not_found": "未找到该用户",
+  "txt_server_error_invite_not_found": "未找到该邀请码",
   "txt_ios": "iOS",
   "txt_item": "项目",
   "txt_item_created": "项目已创建",

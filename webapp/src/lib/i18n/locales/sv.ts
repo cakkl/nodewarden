@@ -692,6 +692,7 @@ const sv: Record<string, string> = {
   "txt_server_error_invalid_user_status": "Statusen måste vara 'active' eller 'banned'.",
   "txt_server_error_last_active_admin": "Detta är den sista aktiva administratören. Befordra först en annan användare till administratör.",
   "txt_server_error_user_not_found": "Användaren hittades inte.",
+  "txt_server_error_invite_not_found": "Inbjudan hittades inte.",
   "txt_ios": "iOS",
   "txt_item": "Objekt",
   "txt_item_created": "Objekt skapat",
