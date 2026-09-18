@@ -266,6 +266,32 @@
   color: #64748b;
 }
 
+/* 「上次失败」：用 --danger-text（tokens 里为「作前景」校准过对比度）。
+   ⚠️ 同一元素上还有 dark.css 的 `:root[data-theme='dark'] .backup-destination-meta`（(0,2,0)），
+   特异性比本规则高 ⇒ 暗色下必须在 dark.css 里也补一条同特异性规则，否则颜色会被 muted 反压。 */
+.backup-destination-failed {
+  color: var(--danger-text);
+}
+
+/* 详情页的「上次失败」摘要块。
+   `mb-2` 与相邻的 `.backup-name-row` 保持一致 —— 详情面板不是 gap 布局，
+   各块靠自身 margin 分隔，不给这一块加下边距就会与下面的「地点名称」贴在一起。 */
+.backup-runtime-summary {
+  @apply mb-2 grid gap-1 rounded-xl p-3 text-[13px] leading-[1.45];
+  background: var(--panel-muted);
+  border: 1px solid var(--line-soft);
+  color: var(--muted-strong);
+}
+
+.backup-runtime-error {
+  @apply grid gap-0.5;
+  color: var(--danger-text);
+}
+
+.backup-runtime-reason {
+  overflow-wrap: anywhere;
+}
+
 .backup-destination-addbar {
   @apply mt-2.5;
 }

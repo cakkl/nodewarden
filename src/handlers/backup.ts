@@ -41,12 +41,13 @@ import {
   ensureRemoteRestoreCandidate,
   listRemoteBackupEntries,
   pruneRemoteBackupArchives,
+  remoteRequestFailureStatus,
   uploadBackupArchive,
 } from '../services/backup-uploader';
 import { reportProgress } from '../services/backup-progress';
 import { StorageService } from '../services/storage';
 import { AuthService } from '../services/auth';
-import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
+import { auditRequestMetadata, safeWriteAuditEvent, writeAuditEvent } from '../services/audit-events';
 import { getBlobObject } from '../services/blob-store';
 import { notifyUserBackupProgress, notifyUserBackupRestoreProgress } from '../durable/notifications-hub';
 import { getMultipartRequestMaxBytes } from '../utils/direct-upload';
@@ -351,12 +352,15 @@ export async function executeConfiguredBackup(
 
   const now = new Date();
   await touchLease();
+  // ⚠️ 这里刻意**不**清空 `lastErrorAt` / `lastErrorMessage`（docs/TODO 第 18 条）：
+  // 失败不会更新 `lastSuccessAt` ⇒ 计划任务会在容差窗口内**立刻重试**，
+  // 若在尝试开始时就清空，错误就会在「清空 → 30 s 后写回 → 立刻又清空」的循环里
+  // 几乎永远看不到（真机验收时 `backup.runtime` 读到 None，而同一时刻审计日志
+  // 每 30 s 一条失败记录）。清空只发生在**成功**分支（下面写 `lastSuccessAt` 那处）。
   destination.runtime = await updateBackupDestinationRuntime(storage, destination.id, (runtime) => ({
     ...runtime,
     lastAttemptAt: now.toISOString(),
     lastAttemptLocalDate: getBackupLocalDateKey(now, destination.schedule.timezone),
-    lastErrorAt: null,
-    lastErrorMessage: null,
   }));
 
   try {
@@ -594,6 +598,29 @@ async function runScheduledBackupsInDurableObject(env: Env): Promise<void> {
     method: 'POST',
   });
   if (response.status === 409) {
+    // 租约还在上一次运行手里（最长 10 分钟，`BACKUP_JOB_LEASE_MS`）。
+    // 这里过去是**直接 return** ⇒ 「这一轮计划任务被跳过」没有任何留痕
+    // （不报错、日志里全 200），排查时极易误判成「超时没生效 / 计划任务没跑」
+    // （docs/TODO 第 19 条）。cron 是每 5 分钟一次、只在真有重叠时才会走到这里，
+    // 所以不会刷屏；审计事件让它能在日志中心里被看到。
+    let message = 'Another backup run is already in progress';
+    try {
+      const body = await response.json<{ error?: string }>();
+      if (body?.error) message = body.error;
+    } catch {
+      // Preserve the default message when the DO returns a non-JSON error.
+    }
+    console.warn(`scheduled backup skipped: ${message}`);
+    await safeWriteAuditEvent(env, {
+      actorUserId: null,
+      action: 'backup.scheduled.skipped',
+      category: 'system',
+      level: 'warn',
+      targetType: 'backup',
+      // ⚠️ 键名必须在 audit-events.ts 的 ALLOWED_METADATA_KEYS 里，
+      // 否则 sanitizeMetadata 会**静默丢弃**（日志中心里只剩动作名，等于没留痕）。
+      metadata: { reason: 'lease_held', error: message },
+    });
     return;
   }
   if (!response.ok) {
@@ -1021,7 +1048,11 @@ export async function handleRunAdminConfiguredBackup(request: Request, env: Env,
       settings: redactBackupSettingsSecrets(outcome.settings),
     });
   } catch (error) {
-    return errorResponse(error instanceof Error ? error.message : 'Backup run failed', 500);
+    // DO 已经把握时映射成 400（不可重试）；这里不能无条件落回 500，否则会被前端自动重试 3 次
+    return errorResponse(
+      error instanceof Error ? error.message : 'Backup run failed',
+      remoteRequestFailureStatus(error, 500)
+    );
   }
 }
 
@@ -1176,7 +1207,8 @@ export async function handleRestoreAdminRemoteBackup(request: Request, env: Env,
     return jsonResponse(imported);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Remote backup restore failed';
-    return errorResponse(message, toImportStatusCode(message));
+    // 同上：远端超时要保持不可重试的 4xx，不能被 toImportStatusCode 的默认值当成服务端错误
+    return errorResponse(message, remoteRequestFailureStatus(message, toImportStatusCode(message)));
   }
 }
 

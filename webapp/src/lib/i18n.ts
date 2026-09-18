@@ -5,6 +5,11 @@
 //
 // Do not call t() at module scope for exported arrays/constants; async init can
 // otherwise leave raw txt_* keys in the rendered UI.
+// 这里用**相对路径**而不是 webapp 惯用的 `@shared` 别名：本模块会被几个后端测试
+// （`scripts/web-crypto-availability.test.ts` 等）在 Node 下间接加载，而那条链用的是
+// 根 tsconfig —— 它没有 `@shared` 别名，运行时（tsx）会报 ERR_MODULE_NOT_FOUND。
+import { REMOTE_TIMEOUT_MESSAGE_PATTERN } from '../../../shared/backup-timeout-message';
+
 export type Locale =
   | 'en'
   | 'zh-CN'
@@ -172,6 +177,19 @@ export function translateServerError(message: string | null | undefined, fallbac
     });
   }
 
+  // 远端请求超时：消息形状的唯一定义在 `shared/backup-timeout-message.ts`
+  //（后端 `RemoteRequestTimeoutError` 与 `isRemoteRequestTimeoutMessage()` 同源）。
+  // 那里还负责“这算不算超时”的判定，两边共用一份 ⇒ 改措辞会同时反映到两边。
+  // provider / action 只用于锚定正则，不进文案（把动作名译准的收益远低于成本，
+  // 而且管理员点的是哪个按钮自己清楚）；毫秒在这里换算成秒，避免界面出现「15000 秒」。
+  const remoteTimeoutMatch = normalized.match(REMOTE_TIMEOUT_MESSAGE_PATTERN);
+  if (remoteTimeoutMatch) {
+    const seconds = Number(remoteTimeoutMatch[1]) / 1000;
+    return t('txt_backup_error_remote_request_timeout', {
+      seconds: seconds >= 10 ? String(Math.round(seconds)) : String(Number(seconds.toFixed(1))),
+    });
+  }
+
   const remoteAttachmentStatusMatch = normalized.match(/^Remote attachment (download|batch download) failed: (\d+)$/i);
   if (remoteAttachmentStatusMatch) {
     return t(
@@ -230,6 +248,7 @@ export function translateServerError(message: string | null | undefined, fallbac
     'Forbidden': 'txt_server_error_forbidden',
     'Invite code is invalid or expired': 'txt_server_error_invite_invalid_or_expired',
     'Invite code is required': 'txt_server_error_invite_required',
+    'Invite not found': 'txt_server_error_invite_not_found',
     'Invalid backup timezone': 'txt_backup_error_timezone_invalid',
     'Invalid password': 'txt_server_error_invalid_password',
     'Invalid refresh token': 'txt_server_error_invalid_refresh_token',
@@ -258,18 +277,23 @@ export function translateServerError(message: string | null | undefined, fallbac
     'S3 endpoint must start with http:// or https://': 'txt_backup_error_s3_endpoint_protocol',
     'S3 secret key is required': 'txt_backup_error_s3_secret_key_required',
     'The cipher key sent by the client is not a valid encrypted string. Update the client and try again.': 'txt_server_error_cipher_key_invalid',
+    'This is the last active administrator. Promote another user first.': 'txt_server_error_last_active_admin',
     'TOTP token is required': 'txt_server_error_totp_token_required',
     'Two factor required.': 'txt_server_error_two_factor_required',
     'Two-step token is invalid. Try again.': 'txt_server_error_two_factor_invalid',
     'Unable to read backup file': 'txt_backup_error_read_backup_file_failed',
     'Unsupported backup destination type': 'txt_backup_error_destination_type_unsupported',
+    'User not found': 'txt_server_error_user_not_found',
     'Username or password is incorrect. Try again': 'txt_server_error_username_password_incorrect',
     'WebDAV password is required': 'txt_backup_error_webdav_password_required',
     'WebDAV remote backup path is too deep for safe attachment batching': 'txt_backup_error_webdav_path_too_deep',
     'WebDAV server URL is required': 'txt_backup_error_webdav_url_required',
     'WebDAV server URL must start with http:// or https://': 'txt_backup_error_webdav_url_protocol',
     'WebDAV username is required': 'txt_backup_error_webdav_username_required',
+    'You cannot ban yourself': 'txt_server_error_cannot_ban_self',
+    'You cannot delete yourself': 'txt_server_error_cannot_delete_self',
     'Secure browser cryptography is unavailable. Open NodeWarden over HTTPS in a supported browser.': 'txt_web_crypto_unavailable',
+    'status must be active or banned': 'txt_server_error_invalid_user_status',
     'masterPasswordHash is required': 'txt_server_error_master_password_hash_required',
     'masterPasswordHash or userVerificationToken is required': 'txt_server_error_master_password_or_verification_required',
   }[normalized];

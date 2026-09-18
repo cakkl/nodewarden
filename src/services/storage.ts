@@ -10,6 +10,7 @@ import {
 import {
   createFirstUser as createFirstStoredUser,
   createUser as createStoredUser,
+  countActiveAdmins as countStoredActiveAdmins,
   deleteUserById as deleteStoredUserById,
   getAllUsers as listStoredUsers,
   getUser as findStoredUserByEmail,
@@ -331,6 +332,11 @@ export class StorageService {
 
   async deleteUserById(id: string): Promise<boolean> {
     return deleteStoredUserById(this.db, id);
+  }
+
+  /** 还能用的管理员数量（role=admin 且 status=active）—— 见 storage-user-repo 的口径说明 */
+  async countActiveAdmins(): Promise<number> {
+    return countStoredActiveAdmins(this.db);
   }
 
   async createInvite(invite: Invite): Promise<void> {

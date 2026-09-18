@@ -1,6 +1,7 @@
 import {
   type BackupDestinationRecord,
   type BackupDestinationType,
+  type BackupRuntimeState,
   type BackupSettings,
   createBackupDestinationRecord,
   createDefaultBackupSettings,
@@ -9,7 +10,7 @@ import {
 import type { RemoteBackupBrowserResponse, RemoteBackupItem } from './api/backup';
 
 export { isBackupDestinationConfigured };
-import { t } from './i18n';
+import { t, translateServerError } from './i18n';
 
 export interface PersistedRemoteBrowserState {
   cache: Record<string, RemoteBackupBrowserResponse>;
@@ -86,6 +87,50 @@ export function formatBytes(value: number | null | undefined): string {
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+export interface DestinationRuntimeSummary {
+  /** 「上次失败：<时间>」；没失败过则为 null */
+  failedAt: string | null;
+  /** 失败原因；没失败过则为 null */
+  failureReason: string | null;
+}
+
+/** 解析时间戳；无法解析时返回 null（不回退到 0，免得把「坏值」当成「最早」） */
+function parseTimestampMs(value: string | null | undefined): number | null {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * 备份目标的「上次失败」摘要（地点列表与详情页共用）。
+ *
+ * **只有最后一次尝试是失败的才显示**：
+ * - 正常情况下后端在**成功**时就会清空 `lastError*`（docs/TODO 第 18 条），
+ * - 但归档恢复、手工改配置等途径可能带进「成功时间晚于失败时间」的旧状态，
+ *   那时这条失败信息已经过时，不该再占着列表与详情页；
+ * - 时间解析失败时**保持显示** —— 宁可多提示一次，也别把真实失败藏起来。
+ *
+ * 失败原因走 `translateServerError()`：后端文案是英文
+ * （如 `WebDAV upload timed out after 30000 ms`），命中映射表就本地化，
+ * 未命中则**保留英文原文** —— 刻意不回落到通用文案，因为具体原因才是排障线索。
+ */
+export function getDestinationRuntimeSummary(runtime: BackupRuntimeState): DestinationRuntimeSummary {
+  const reason = String(runtime.lastErrorMessage || '').trim();
+  if (!reason) return { failedAt: null, failureReason: null };
+
+  const errorMs = parseTimestampMs(runtime.lastErrorAt);
+  const successMs = parseTimestampMs(runtime.lastSuccessAt);
+  if (errorMs !== null && successMs !== null && successMs > errorMs) {
+    return { failedAt: null, failureReason: null };
+  }
+
+  return {
+    failedAt: t('txt_backup_destination_failed_at', { time: formatDateTime(runtime.lastErrorAt) }),
+    failureReason: translateServerError(reason, reason),
+  };
 }
 
 export function isReplaceRequiredError(error: unknown): boolean {

@@ -111,6 +111,11 @@ npm run deploy
 
 # 可选：KV 模式
 npm run deploy:kv
+#  首次部署会把账号里的 KV 命名空间 id 写回 wrangler.kv.toml（记得把这次改动一并提交）。
+#  若账号里已有「标题相近但名字不完全一致」的命名空间，脚本会停下来让你显式选择，
+#  而不是替你猜（猜错会把附件写进另一个库）：
+#    node scripts/ensure-kv.cjs --id <32 位 hex>   # 复用其中一个
+#    node scripts/ensure-kv.cjs --force-new        # 确实要新建
 
 # 本地开发
 npm run dev

@@ -703,11 +703,51 @@ export const DEMO_BACKUP_SETTINGS: AdminBackupSettings = {
         lastAttemptAt: '2026-05-04T03:00:00.000Z',
         lastAttemptLocalDate: '2026-05-04',
         lastSuccessAt: '2026-05-04T03:01:12.000Z',
-        lastErrorAt: null,
-        lastErrorMessage: null,
+        // 这个目标演示「失败过、但最后一次是成功的」⇒ 界面上**不应该**再显示上次失败
+        // （后端成功时会清空错误，这里刻意留一份旧的失败记录，
+        //   用来验证前端的「成功晚于失败就不显示」判断，见 backup-center.ts）
+        lastErrorAt: '2026-05-03T03:00:30.000Z',
+        lastErrorMessage: 'WebDAV upload timed out after 30000 ms',
         lastUploadedFileName: 'nodewarden_backup_20260504_030112_a1b2c.zip',
         lastUploadedSizeBytes: 1048576,
         lastUploadedDestination: 'Demo WebDAV',
+      },
+    },
+    // 第二个目标刻意处于「上次成功过、之后一直失败」的状态：
+    // 后端的 `lastErrorMessage` 只在**成功**时清空（docs/TODO 第 18 条），
+    // 所以这两个字段可以同时存在 —— 演示站要能展示这种真实形态，
+    // 否则「上次失败」那一行在演示里永远看不到（失败的原文走 translateServerError
+    // 映射成可读文案，这里用的是超时那种）。
+    {
+      id: 'demo-s3',
+      name: 'Demo S3',
+      type: 's3',
+      includeAttachments: false,
+      destination: {
+        endpoint: 'https://s3.example.com',
+        bucket: 'nodewarden-demo',
+        addressingStyle: 'path-style',
+        region: 'auto',
+        accessKeyId: 'demo-access-key',
+        secretAccessKey: 'demo-secret-key',
+        rootPath: 'backups',
+      },
+      schedule: {
+        enabled: true,
+        intervalHours: 12,
+        startTime: '00:00',
+        timezone: 'UTC',
+        retentionCount: 7,
+      },
+      runtime: {
+        lastAttemptAt: '2026-05-04T09:00:00.000Z',
+        lastAttemptLocalDate: '2026-05-04',
+        lastSuccessAt: '2026-05-03T21:00:08.000Z',
+        lastErrorAt: '2026-05-04T09:00:30.000Z',
+        lastErrorMessage: 'S3 upload timed out after 30000 ms',
+        lastUploadedFileName: 'nodewarden_backup_20260503_210008_d4e5f.zip',
+        lastUploadedSizeBytes: 987136,
+        lastUploadedDestination: 'Demo S3',
       },
     },
   ],

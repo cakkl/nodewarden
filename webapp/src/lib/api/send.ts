@@ -1,6 +1,7 @@
 import { base64ToBytes, bytesToBase64, decryptBw, decryptBwFileData, decryptStr, encryptBw, encryptBwFileData, hkdf, pbkdf2 } from '../crypto';
 import type { Send, SendDraft, SessionState } from '../types';
 import { chunkArray, createApiError, parseErrorMessage, parseJson, uploadDirectEncryptedPayload, type AuthedFetch } from './shared';
+import { t } from '../i18n';
 
 function toIsoDateFromDays(value: string, required: boolean): string | null {
   const raw = String(value || '').trim();
@@ -62,7 +63,7 @@ function parseMaxAccessCountRaw(value: string): number | null {
 
 export async function getSends(authedFetch: AuthedFetch): Promise<Send[]> {
   const resp = await authedFetch('/api/sends');
-  if (!resp.ok) throw new Error('Failed to load sends');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
   const body = await parseJson<{ data?: Send[] }>(resp);
   return body?.data || [];
 }
@@ -249,7 +250,7 @@ export async function bulkDeleteSends(authedFetch: AuthedFetch, ids: string[]): 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: chunk }),
     });
-    if (!resp.ok) throw new Error('Bulk delete sends failed');
+    if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_delete_sends_failed')));
   }
 }
 

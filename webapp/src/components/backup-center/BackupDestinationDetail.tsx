@@ -6,13 +6,33 @@ import type {
   S3BackupDestination,
   WebDavBackupDestination,
 } from '@/lib/api/backup';
-import { COMMON_TIME_ZONES, getDestinationTypeLabel } from '@/lib/backup-center';
+import { COMMON_TIME_ZONES, getDestinationRuntimeSummary, getDestinationTypeLabel } from '@/lib/backup-center';
 import type { RecommendedProvider } from '@/lib/backup-recommendations';
 import { RemoteBackupBrowser } from './RemoteBackupBrowser';
 import { t } from '@/lib/i18n';
 import { BackupIncludeAttachmentsField } from './BackupIncludeAttachmentsField';
 
 const INTERVAL_HOUR_PRESETS = [1, 6, 12, 24];
+
+/**
+ * 「上次失败」摘要 —— **只**在失败过时渲染，且只显示失败时间与原因。
+ *
+ * 刻意不显示「上次尝试」与「上次成功」：前者对排障没帮助（本轮的尝试已经在跑或刚跑完），
+ * 后者在左侧地点列表里已经有一份，在详情页再重复一遍只是占位置。
+ * 真正需要被看见的是「失败了、原因是什么」。
+ */
+function renderRuntimeSummary(destination: BackupDestinationRecord) {
+  const summary = getDestinationRuntimeSummary(destination.runtime);
+  if (!summary.failedAt) return null;
+  return (
+    <div className="backup-runtime-summary">
+      <div className="backup-runtime-error">
+        <span>{summary.failedAt}</span>
+        <span className="backup-runtime-reason">{summary.failureReason}</span>
+      </div>
+    </div>
+  );
+}
 
 interface BackupDestinationDetailProps {
   selectedRecommendedProvider: RecommendedProvider | null;
@@ -258,6 +278,7 @@ export function BackupDestinationDetail(props: BackupDestinationDetailProps) {
         <div className="backup-browser-empty">{t('txt_backup_select_destination')}</div>
       ) : (
         <>
+          {renderRuntimeSummary(props.selectedDestination)}
           <div className="backup-name-row">
             <label className="field backup-name-field">
               <span>{t('txt_backup_destination_name')}</span>
