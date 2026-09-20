@@ -130,6 +130,14 @@
   background: var(--overlay-strong);
 }
 
+/* 扫码弹窗的遮罩要跟它自己的「相机黑」(#0f172a) 配套，不跟全站统一值 ——
+   否则暗色下会从「深蓝黑」变成「纯黑」（合成后 ≈ rgb(2,3,3)：不影响可用性，
+   但相机皮肤就不自洽了）。用 (0,4,0) 压过上面那条 (0,3,0)。
+   注：移动端遮罩被 100vw×100dvh 的全屏弹窗整个盖住，此改动在那里不可见。 */
+:root[data-theme='dark'] .dialog-mask.totp-scan-mask {
+  background: rgba(15, 23, 42, 0.78);
+}
+
 :root[data-theme='dark'] .toast-item {
   background: var(--panel);
   border-color: var(--line);

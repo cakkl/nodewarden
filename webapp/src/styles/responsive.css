@@ -1241,7 +1241,10 @@
     -webkit-backdrop-filter: none;
   }
 
-  .dialog-card.totp-scan-dialog {
+  /* 这里的特异性也要 (0,4,0)：vault.css 里该弹窗的基线规则已抬到 (0,4,0) 以胜过
+     打磨层的暗色表面重置；本文件在 vault.css **之后**导入，同档时靠顺序取胜，
+     才能继续把移动端压成「全屏、无圆角、无投影」。 */
+  .dialog-mask.totp-scan-mask .dialog-card.totp-scan-dialog {
     width: 100vw;
     max-width: none;
     height: 100dvh;

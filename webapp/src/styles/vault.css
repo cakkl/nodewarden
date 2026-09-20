@@ -982,7 +982,14 @@ select.input.duplicate-mode-toolbar-select {
   background: rgba(15, 23, 42, 0.78);
 }
 
-.dialog-card.totp-scan-dialog {
+/* ⚠️ 选择器用 (0,4,0) 而非 (0,2,0)：styles.css 打磨层的「dark mode surface resets」
+   （`:root[data-theme='dark'] .dialog-card` = (0,3,0)，同组还有 .card / .input / .list-item 等 20+ 类）
+   会把 background / border-color / color / box-shadow 四项一起重置成主题变量 ⇒
+   暗色下这本该恒为「相机黑」的扫码弹窗会变成普通面板色 (#151b24 = --panel)，
+   连 `0 28px 80px` 的厚重投影也被换成 --shadow-sm。
+   该皮肤**在两个主题下都应是深色**（取景画面亮、深底不抢眼），故不靠加载顺序、
+   直接把特异性抬过打磨层。 */
+.dialog-mask.totp-scan-mask .dialog-card.totp-scan-dialog {
   @apply flex w-full max-w-[560px] flex-col overflow-hidden rounded-3xl border-0 p-0 text-left;
   height: min(720px, calc(100dvh - 48px));
   max-height: calc(100dvh - 48px);
@@ -1034,6 +1041,15 @@ select.input.duplicate-mode-toolbar-select {
 
 .totp-scan-status {
   @apply mb-3 min-h-6 text-center text-sm;
+}
+
+/* ⚠️ 特异性冲突（第 3 / 22 条同型）：该元素同时带 `.dialog-message`，而 overlays.css 的
+   `.dialog-message { color: #475467 }` 与本块同为 (0,1,0) 却**后加载**（vault.css 是第 8 个
+   @import、overlays.css 是第 10 个）⇒ 会把这里为深底 (#0f172a) 设计的浅字压成硬编码深灰。
+   暗色主题恰好被 dark.css 的 `.dialog-message:not(.warning)`（(0,3,0)）纠正回来，
+   **亮色主题就露馅**：深底压深字，实测对比度只有 **2.32:1**。
+   故把选择器抬到 (0,3,0)，确保亮色下也用浅字（不依赖加载顺序）。 */
+.dialog-card.totp-scan-dialog .totp-scan-status {
   color: rgba(248, 250, 252, 0.86);
 }
 
