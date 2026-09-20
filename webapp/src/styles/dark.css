@@ -130,6 +130,14 @@
   background: var(--overlay-strong);
 }
 
+/* 扫码弹窗的遮罩要跟它自己的「相机黑」(#0f172a) 配套，不跟全站统一值 ——
+   否则暗色下会从「深蓝黑」变成「纯黑」（合成后 ≈ rgb(2,3,3)：不影响可用性，
+   但相机皮肤就不自洽了）。用 (0,4,0) 压过上面那条 (0,3,0)。
+   注：移动端遮罩被 100vw×100dvh 的全屏弹窗整个盖住，此改动在那里不可见。 */
+:root[data-theme='dark'] .dialog-mask.totp-scan-mask {
+  background: rgba(15, 23, 42, 0.78);
+}
+
 :root[data-theme='dark'] .toast-item {
   background: var(--panel);
   border-color: var(--line);
@@ -468,6 +476,51 @@
 :root[data-theme='dark'] .folder-edit-btn:hover,
 :root[data-theme='dark'] .folder-sort-btn:hover {
   background: color-mix(in srgb, var(--primary) 22%, var(--panel));
+}
+
+/* #17 分类色标「淡色底 + 深色字」没做暗色适配（第 15 条审计新增发现）。
+   这 11 个类只出现在 management.css，用的是 Tailwind 调色板原值，例如
+   `.log-level-info { background: #eef4ff; color: #1d4ed8 }`，且本文件此前没有
+   任何对应覆盖 ⇒ 暗色下它们仍然是**近白色块**：实测日志页每行都有一个
+   rgb(248,250,252) 的图标圆 + 一个 rgb(238,244,255) 的级别药丸，
+   一屏 17 行就是 34 处白块，与暗色面板 (#151b24) 撞得很显眼。
+   注意：这批类**不能**换成 --primary/--danger 之类语义 token —— 它们用的是
+   调色板色相（玫红 #be123c、紫 #6d28d9 都没有对应 token），换 token 会改掉
+   亮色主题的观感，而本次只修暗色。
+   修法沿用本文件既有模式：字色取同一色相的 Tailwind 300 档，底色用 16% 该色
+   混入 --panel ⇒ 深色底 + 亮字，与 GitHub 暗色 label 同构。
+   同色相的类合并（.log-category-auth 与 .log-level-info 的原值完全相同）。 */
+:root[data-theme='dark'] .log-category-auth,
+:root[data-theme='dark'] .log-level-info {
+  background: color-mix(in srgb, #93c5fd 16%, var(--panel));
+  color: #93c5fd;
+}
+:root[data-theme='dark'] .log-category-security,
+:root[data-theme='dark'] .log-level-security {
+  background: color-mix(in srgb, #fda4af 16%, var(--panel));
+  color: #fda4af;
+}
+:root[data-theme='dark'] .log-level-error {
+  background: color-mix(in srgb, #fca5a5 16%, var(--panel));
+  color: #fca5a5;
+}
+:root[data-theme='dark'] .log-level-warn {
+  background: color-mix(in srgb, #fdba74 16%, var(--panel));
+  color: #fdba74;
+}
+:root[data-theme='dark'] .log-category-device,
+:root[data-theme='dark'] .device-status-pill.online {
+  background: color-mix(in srgb, #6ee7b7 16%, var(--panel));
+  color: #6ee7b7;
+}
+:root[data-theme='dark'] .log-category-data {
+  background: color-mix(in srgb, #c4b5fd 16%, var(--panel));
+  color: #c4b5fd;
+}
+:root[data-theme='dark'] .log-category-system,
+:root[data-theme='dark'] .device-status-pill.offline {
+  background: color-mix(in srgb, #cbd5e1 16%, var(--panel));
+  color: #cbd5e1;
 }
 
 /* #20 导入摘要关闭按钮的**悬停**色：overlays.css 写的是 #0f172a（= 浅色 --text）

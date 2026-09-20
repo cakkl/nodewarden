@@ -7,6 +7,10 @@
   --surface: #ffffff;
   --line: rgba(100, 116, 139, 0.24);
   --line-soft: rgba(100, 116, 139, 0.14);
+  /* 加载骨架的流光高光（`.shimmer::after`）。亮色下 38% 白叠在浅灰底上只提亮 5/255，
+     是几乎看不出的微光；暗色必须单独调低（见下方暗色块）——同一个 38% 白叠在
+     #0d1219 上会从 rgb(15,20,27) 直接跳到 rgb(106,108,112)。 */
+  --shimmer-highlight: color-mix(in srgb, white 38%, transparent);
   --text: #0f172a;
   --text-muted: #64748b;
   --muted: #64748b;
@@ -102,6 +106,10 @@
   --surface: #151b24;
   --line: rgba(148, 163, 184, 0.16);
   --line-soft: rgba(148, 163, 184, 0.09);
+  /* 同上一个 38% 白在深底上会从 rgb(15,20,27) 跳到 rgb(106,108,112)（实测对比度 3.43:1，
+     是亮色 1.04:1 的 3 倍多，视觉上就是一道白条扫过）⇒ 调低到 10%：实测合成后
+     rgb(39,43,50)、对比度 1.31:1，流光仍看得见但不刺眼。 */
+  --shimmer-highlight: color-mix(in srgb, white 10%, transparent);
   --text: #f1f5f9;
   --text-muted: #94a3b8;
   --muted: #94a3b8;

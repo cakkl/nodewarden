@@ -9,7 +9,6 @@
 @import './styles/management.css';
 @import './styles/overlays.css';
 @import './styles/motion.css';
-@import './styles/skeleton.css';
 @import './styles/responsive.css';
 @import './styles/dark.css';
 
@@ -227,7 +226,7 @@
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in srgb, white 38%, transparent) 48%,
+    var(--shimmer-highlight) 48%,
     transparent 100%
   );
   animation: loading-shimmer 1.25s ease-in-out infinite;
