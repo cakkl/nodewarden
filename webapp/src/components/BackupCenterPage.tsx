@@ -17,6 +17,7 @@ import {
   compareRemoteItems,
   createDraftBackupSettings,
   createDraftDestinationRecord,
+  getBackupDestinationAccessFingerprint,
   getDestinationById,
   getFirstVisibleDestinationId,
   getRemoteBrowserCacheKey,
@@ -26,6 +27,7 @@ import {
   isReplaceRequiredError,
   loadPersistedRemoteBrowserState,
   persistRemoteBrowserState,
+  shouldInvalidateRemoteBrowserCache,
 } from '@/lib/backup-center';
 import { BACKUP_PROGRESS_EVENT, type BackupProgressDetail, type BackupProgressOperation } from '@/lib/backup-restore-progress';
 import { RECOMMENDED_PROVIDERS } from '@/lib/backup-recommendations';
@@ -229,6 +231,9 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
   const disableWhileBusy = exporting || importing || savingSettings || runningRemoteBackup || backupPasswordSubmitting;
   const currentRemoteBrowserPath = savedSelectedDestination ? (remoteBrowserPathByDestination[savedSelectedDestination.id] || '') : '';
   const currentRemoteBrowserKey = savedSelectedDestination ? getRemoteBrowserCacheKey(savedSelectedDestination.id, currentRemoteBrowserPath) : '';
+  // 远端目录自动刷新的触发条件之一（见下方 effect）：只取「访问配置」的字段，
+  // 所以目标改名、改调度、跑过一次备份都不会触发重新列举。
+  const savedDestinationAccessFingerprint = getBackupDestinationAccessFingerprint(savedSelectedDestination);
   const remoteBrowser = currentRemoteBrowserKey ? remoteBrowserCache[currentRemoteBrowserKey] || null : null;
   const remoteBrowserItems = remoteBrowser?.items || [];
   const remoteBrowserTotalPages = Math.max(1, Math.ceil(remoteBrowserItems.length / REMOTE_BROWSER_ITEMS_PER_PAGE));
@@ -333,8 +338,16 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
     if (isStale) {
       void loadRemoteBrowser(destinationId, path, { force: true });
     }
+    // 依赖只列「目标 id」+「访问配置指纹」：
+    //   - id 变了 = 切换到别的目标；
+    //   - 指纹变了 = 同一个目标改了地址 / 账号 / 根路径并保存。
+    //     （原先只列 id，于是「把地址从空填成有效值再保存」时 id 没变，
+    //     这里不会重跑，而下方保存逻辑已把该目标的缓存清空 ⇒ 列表一直空着。）
+    // 其余被读到的值刻意不进依赖：loadRemoteBrowser 每次都会以 `{ ...current }` 造新对象
+    // 写回 pathByDestination / refreshedAt，对象引用永不相等，一旦列入依赖，
+    // 加载失败时（catch 分支不写 refreshedAt）就会无限重试。指纹是字符串，值比较，故可列入。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [savedSelectedDestination?.id]);
+  }, [savedSelectedDestination?.id, savedDestinationAccessFingerprint]);
 
   useEffect(() => {
     if (!restoreProgress) {
@@ -683,6 +696,8 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
   async function executeSaveSettings(masterPassword: string): Promise<boolean> {
     const payload = buildSettingsPayloadForSelectedDestination();
     const destinationIdToInvalidate = selectedDestinationId;
+    // 保存前的目标记录，用来判断「访问配置」（地址 / 账号 / 根路径）有没有变
+    const destinationBeforeSave = savedSelectedDestination;
     setSavingSettings(true);
     setLocalError('');
     try {
@@ -693,7 +708,15 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
         || null;
       setSavedSettings(saved);
       applySavedDestinationToDrafts(saved, nextSelected);
-      if (destinationIdToInvalidate) {
+      // 只有「访问配置」真的变了才作废远端目录缓存：
+      //   - 变了 ⇒ 旧列表是按旧地址 / 旧账号拉的，不可信，必须作废；
+      //     同时刷新 effect 的指纹依赖也会变、自动重新列举；
+      //   - 没变（只改了名字 / 调度）⇒ 别把用户正看着的列表清掉，
+      //     那种情况下 effect 不会重跑，列表会一直空着。
+      const destinationAfterSave = destinationIdToInvalidate
+        ? getDestinationById(saved, destinationIdToInvalidate)
+        : null;
+      if (destinationIdToInvalidate && shouldInvalidateRemoteBrowserCache(destinationBeforeSave, destinationAfterSave)) {
         setRemoteBrowserCache((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${destinationIdToInvalidate}:`))));
         setRemoteBrowserPathByDestination((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== destinationIdToInvalidate)));
         setRemoteBrowserPageByKey((current) => Object.fromEntries(Object.entries(current).filter(([key]) => !key.startsWith(`${destinationIdToInvalidate}:`))));

@@ -158,6 +158,50 @@ export function compareRemoteItems(a: RemoteBackupItem, b: RemoteBackupItem): nu
   return b.name.localeCompare(a.name, 'en');
 }
 
+/**
+ * 备份目标「访问配置」指纹：只取决定「能不能连上、连到哪里」的字段，
+ * 作为远端目录自动刷新的触发条件之一（见 `BackupCenterPage` 的 effect）。
+ *
+ * 为什么不直接用目标对象比较：名称、调度、`runtime`（上次尝试 / 上次成功 / 上次失败
+ * 原因）都跟「列目录」无关，凭对象引用判断会让这些改动也白跑一次远端列举。
+ *
+ * 为什么返回值必须是**字符串**：`loadRemoteBrowser` 每次都会以 `{ ...current }` 造一个
+ * 新对象写回 `pathByDestination`，而对象引用永不相等 ⇒ 若把这类对象放进 effect 依赖，
+ * 加载失败时（`catch` 分支不更新 `refreshedAt`）就会无限重试。字符串是值比较，天然稳定。
+ *
+ * 用 `JSON.stringify` 而不是自定义分隔符拼接：避免「`username` 的尾巴 + `remotePath` 的头」
+ * 这类相邻字段互相顶替的碰撞（`['ab', 'c']` 与 `['a', 'bc']` 拼出来不同）。
+ *
+ * 刻意**不含密码 / `secretAccessKey`**：它只是用来比较变更，没必要把密钥再复制一份；
+ * 「只改了密码」极少见，手动点一次「刷新」即可。
+ */
+export function getBackupDestinationAccessFingerprint(destination: BackupDestinationRecord | null | undefined): string {
+  if (!destination) return '';
+  const config = destination.destination as unknown as Record<string, unknown>;
+  const parts = destination.type === 's3'
+    ? ['s3', config.endpoint, config.bucket, config.region, config.addressingStyle, config.rootPath]
+    : ['webdav', config.baseUrl, config.username, config.remotePath];
+  return JSON.stringify(parts.map((value) => String(value ?? '').trim()));
+}
+
+/**
+ * 保存后是否需要作废该目标的远端目录缓存。
+ *
+ * 背景：保存逻辑原先**无条件**清缓存，于是「只改名字 / 改调度」也会把用户正看着的
+ * 文件列表清空 —— 而刷新 effect 的依赖（目标 id + 访问配置指纹）都没变、不会重载，
+ * 列表就一直空着，只能手动点「刷新」。
+ *
+ * 判据：只有「访问配置」变了才作废（旧列表是按旧地址 / 旧账号拉的，不可信）；
+ * 目标记录整个消失（被删）时一并作废，别留残留键。
+ */
+export function shouldInvalidateRemoteBrowserCache(
+  previous: BackupDestinationRecord | null | undefined,
+  next: BackupDestinationRecord | null | undefined
+): boolean {
+  if (!next) return true;
+  return getBackupDestinationAccessFingerprint(previous) !== getBackupDestinationAccessFingerprint(next);
+}
+
 export function getRemoteBrowserCacheKey(destinationId: string, path: string = ''): string {
   return `${destinationId}:${path}`;
 }
