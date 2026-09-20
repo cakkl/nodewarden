@@ -1830,7 +1830,7 @@
 
 .restore-progress-dot {
   @apply h-2 w-2 shrink-0 rounded-full;
-  background: #cbd5e1;
+  background: var(--line);
 }
 
 .restore-progress-item.active .restore-progress-dot {
