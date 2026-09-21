@@ -193,14 +193,16 @@ export default function SecurityDevicesPage(props: SecurityDevicesPageProps) {
             {props.devices.map((device) => (
               <tr key={device.identifier}>
                 <td data-label={t('txt_select')}>
-                  <input
-                    type="checkbox"
-                    className="authorized-device-checkbox"
-                    checked={selectedDeviceIdSet.has(device.identifier)}
-                    disabled={device.identifier === currentDeviceIdentifier}
-                    aria-label={t('txt_select_device_name', { name: device.name || t('txt_unknown_device') })}
-                    onChange={() => toggleSelectedDevice(device)}
-                  />
+                  <label className="check-hit">
+                    <input
+                      type="checkbox"
+                      className="authorized-device-checkbox"
+                      checked={selectedDeviceIdSet.has(device.identifier)}
+                      disabled={device.identifier === currentDeviceIdentifier}
+                      aria-label={t('txt_select_device_name', { name: device.name || t('txt_unknown_device') })}
+                      onChange={() => toggleSelectedDevice(device)}
+                    />
+                  </label>
                 </td>
                 <td data-label={t('txt_device')}>
                   <div>{device.name || t('txt_unknown_device')}</div>

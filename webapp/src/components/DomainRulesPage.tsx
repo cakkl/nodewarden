@@ -454,12 +454,14 @@ export default function DomainRulesPage(props: DomainRulesPageProps) {
                 </div>
               ) : (
                 <div key={rule.id} className={`domain-rule-row${expandedCustomRules.has(rule.id) ? ' domain-rule-row-expanded' : ''}`}>
-                  <input
-                    type="checkbox"
-                    checked={!rule.excluded}
-                    aria-label={t('txt_enabled')}
-                    onChange={(event) => setCustomRuleEnabled(ruleIndex, (event.currentTarget as HTMLInputElement).checked)}
-                  />
+                  <label className="check-hit">
+                    <input
+                      type="checkbox"
+                      checked={!rule.excluded}
+                      aria-label={t('txt_enabled')}
+                      onChange={(event) => setCustomRuleEnabled(ruleIndex, (event.currentTarget as HTMLInputElement).checked)}
+                    />
+                  </label>
                   <DomainRuleSummary
                     text={rule.domains.join(', ')}
                     expanded={expandedCustomRules.has(rule.id)}
@@ -508,12 +510,14 @@ export default function DomainRulesPage(props: DomainRulesPageProps) {
           <div className="domain-rules-table">
             {filteredGlobals.map((entry) => (
               <div key={entry.type} className={`domain-rule-row domain-rule-readonly-row${expandedGlobalRules.has(entry.type) ? ' domain-rule-row-expanded' : ''}`}>
-                <input
-                  type="checkbox"
-                  aria-label={entry.domains.join(', ')}
-                  checked={!excludedTypes.has(entry.type)}
-                  onChange={() => toggleGlobal(entry.type)}
-                />
+                <label className="check-hit">
+                  <input
+                    type="checkbox"
+                    aria-label={entry.domains.join(', ')}
+                    checked={!excludedTypes.has(entry.type)}
+                    onChange={() => toggleGlobal(entry.type)}
+                  />
+                </label>
                 <DomainRuleSummary
                   text={entry.domains.join(', ')}
                   expanded={expandedGlobalRules.has(entry.type)}

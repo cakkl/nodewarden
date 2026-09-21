@@ -357,19 +357,20 @@ export default function SendsPage(props: SendsPageProps) {
                 setMobileSidebarOpen(false);
               }}
             >
-              <input
-                type="checkbox"
-                className="row-check"
-                checked={!!selectedMap[send.id]}
-                aria-label={t('txt_select_device_name', { name: send.decName || t('txt_no_name') })}
-                onClick={(event) => event.stopPropagation()}
-                onInput={(e) =>
-                  setSelectedMap((prev) => ({
-                    ...prev,
-                    [send.id]: (e.currentTarget as HTMLInputElement).checked,
-                  }))
-                }
-              />
+              <label className="check-hit" onClick={(event) => event.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  className="row-check"
+                  checked={!!selectedMap[send.id]}
+                  aria-label={t('txt_select_device_name', { name: send.decName || t('txt_no_name') })}
+                  onInput={(e) =>
+                    setSelectedMap((prev) => ({
+                      ...prev,
+                      [send.id]: (e.currentTarget as HTMLInputElement).checked,
+                    }))
+                  }
+                />
+              </label>
               <button
                 type="button"
                 className="row-main"

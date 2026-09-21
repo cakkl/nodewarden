@@ -87,7 +87,16 @@
 
 .backup-option-label {
   @apply m-0 inline-flex cursor-pointer items-center gap-2 text-[15px] font-bold;
+  position: relative;
   color: #0f172a;
+}
+
+/* 命中区补到 ≥24px 高（WCAG 2.5.8）：该 label 只有 21px 高（19px 勾选框与 14px 文字并排），
+   用透明伪元素向上下各扩 2px，视觉尺寸不变。伪元素是绝对定位，不参与 flex 布局。 */
+.backup-option-label::before {
+  position: absolute;
+  inset: -2px 0;
+  content: '';
 }
 
 .backup-option-label input[type='checkbox'] {
@@ -100,9 +109,21 @@
 
 .backup-help-trigger {
   @apply inline-flex h-[22px] w-[22px] shrink-0 cursor-pointer items-center justify-center rounded-full p-0 text-[13px] font-extrabold leading-none;
+  position: relative;
   border: 1px solid #bfd1f3;
   background: #eef4ff;
   color: var(--primary-hover);
+}
+
+/* 命中区补到 ≥24×24（WCAG 2.5.8）：按钮本身只有 22px，用透明伪元素向外各扩 2px，
+   视觉尺寸不变。⚠️ 这里必须写 -2px 而不是 -1px —— `position: absolute` 的包含块是
+   **padding box**（小于 border-box），实测 `inset: -1px` 只能把命中区扩到 22.67px。
+   按钮元素支持伪元素，不像原生 checkbox 那样受限（Chrome 对 `appearance: auto`
+   的 checkbox 会忽略 border/padding）。 */
+.backup-help-trigger::before {
+  position: absolute;
+  inset: -2px;
+  content: '';
 }
 
 .backup-help-trigger:hover,
@@ -446,6 +467,15 @@
   @apply inline-flex cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left;
   color: #0f172a;
   min-width: 0;
+  position: relative;
+}
+
+/* 命中区补到 25px 高（WCAG 2.5.8）：行内按钮只有 21px 高，只在**垂直**方向各扩 2px，
+   水平不动，避免侵入同一行右侧的时间/大小/操作按钮。 */
+.backup-browser-entry::before {
+  position: absolute;
+  inset: -2px 0;
+  content: '';
 }
 
 .backup-browser-entry.file {

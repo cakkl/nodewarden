@@ -565,6 +565,26 @@ select.input.duplicate-mode-toolbar-select {
   @apply relative z-[2] h-4 w-4 cursor-pointer;
 }
 
+/* 原生 checkbox 的命中区扩到 24×24（WCAG 2.5.8 最小目标尺寸）。
+   ⚠️ 不能靠 `input` 自己扩大：Chrome 对 `appearance: auto` 的 checkbox 会**忽略**
+   border 与 padding（实测加 !important 后 border-top 仍为 0px、padding 仍为 0px），
+   也不支持伪元素（replaced element）⇒ 只能由外层 `<label>` 提供命中区。
+   `margin: -3px` 用来抵消外框变大，使其在 flex / grid 里的占位尺寸保持 18px 不变。 */
+.check-hit {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  margin: -3px;
+  cursor: pointer;
+}
+
+.check-hit:has(input:disabled) {
+  cursor: not-allowed;
+}
+
 .row-main {
   @apply relative z-[1] flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 border-0 bg-transparent p-0 text-left;
   border: none;
