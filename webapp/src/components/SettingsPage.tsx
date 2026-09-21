@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Clipboard, KeyRound, RefreshCw, Send, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { calcTotpNow } from '@/lib/crypto';
 import qrcode from 'qrcode-generator';
 import type { AccountPasskeyCredential, MailEncryption, MailSettings, MailSettingsInput, MailTestResult, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
+import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { describeMailFailure } from '@/hooks/useAdminMailActions';
 import { AVAILABLE_LOCALES, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -38,6 +39,11 @@ interface SettingsPageProps {
   onLoadMailSettings: () => Promise<MailSettings>;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
+  // 邮箱验证。未提供时账户选项卡不显示该模块。
+  onLoadEmailVerification?: () => Promise<EmailVerificationStatus>;
+  onSendEmailVerificationCode?: () => Promise<unknown>;
+  onSubmitEmailVerificationCode?: (code: string) => Promise<void>;
+  onCancelEmailVerification?: () => Promise<void>;
   onListAccountPasskeys: () => Promise<AccountPasskeyCredential[]>;
   onCreateAccountPasskey: (name: string, masterPassword: string, directUnlock: boolean) => Promise<AccountPasskeyCredential | null>;
   onEnableAccountPasskeyDirectUnlock: (id: string, masterPassword: string) => Promise<void>;
@@ -49,7 +55,7 @@ interface SettingsPageProps {
 }
 
 type ThemePreference = 'system' | 'light' | 'dark';
-type SettingsSection = 'appearance' | 'session' | 'masterPassword' | 'twoStep' | 'keys' | 'mail';
+type SettingsSection = 'preferences' | 'account' | 'twoStep' | 'keys' | 'mail';
 
 type MasterPasswordPromptAction =
   | 'enableTotp'
@@ -180,7 +186,92 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [masterPasswordPromptValue, setMasterPasswordPromptValue] = useState('');
   const [masterPasswordPromptSubmitting, setMasterPasswordPromptSubmitting] = useState(false);
   const [selectedLocale, setSelectedLocale] = useState<Locale>(() => getLocale());
-  const [activeSection, setActiveSection] = useState<SettingsSection>('appearance');
+  const [activeSection, setActiveSection] = useState<SettingsSection>('preferences');
+
+  const [emailVerification, setEmailVerification] = useState<EmailVerificationStatus | null>(null);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [emailVerificationBusy, setEmailVerificationBusy] = useState(false);
+  const [emailVerificationDialogOpen, setEmailVerificationDialogOpen] = useState(false);
+  const [verificationResendIn, setVerificationResendIn] = useState(0);
+
+  // 用 ref 持有最新的加载函数：父组件传的是内联箭头函数，每帧都是新引用，
+  // 直接放进依赖数组会让 effect 反复重跑，未完成的旧请求还会把刚更新的验证状态盖回去。
+  const loadEmailVerificationRef = useRef(props.onLoadEmailVerification);
+  loadEmailVerificationRef.current = props.onLoadEmailVerification;
+  useEffect(() => {
+    if (activeSection !== 'account') return;
+    const load = loadEmailVerificationRef.current;
+    if (!load) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = await load();
+        if (!cancelled) setEmailVerification(status);
+      } catch (error) {
+        if (!cancelled) props.onNotify?.('error', error instanceof Error ? error.message : t('txt_email_verification_failed'));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection]);
+
+  // 与服务端的 RESEND_INTERVAL_MS 对齐，避免按钮点了必然失败
+  const RESEND_COOLDOWN_SECONDS = 60;
+
+  useEffect(() => {
+    if (verificationResendIn <= 0) return;
+    const timer = window.setTimeout(() => setVerificationResendIn((n) => n - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [verificationResendIn]);
+
+  const sendVerificationCode = async () => {
+    if (!props.onSendEmailVerificationCode) return;
+    setEmailVerificationBusy(true);
+    try {
+      await props.onSendEmailVerificationCode();
+      setVerificationResendIn(RESEND_COOLDOWN_SECONDS);
+    } catch (error) {
+      props.onNotify?.('error', error instanceof Error ? error.message : t('txt_email_verification_failed'));
+    } finally {
+      setEmailVerificationBusy(false);
+    }
+  };
+
+  // 点「验证邮箱地址」即发码并开窗，省一次点击
+  const openVerificationDialog = async () => {
+    setVerificationCode('');
+    setEmailVerificationDialogOpen(true);
+    await sendVerificationCode();
+  };
+
+  const closeVerificationDialog = () => {
+    setEmailVerificationDialogOpen(false);
+    setVerificationCode('');
+  };
+
+  const submitVerificationCode = async () => {
+    if (!props.onSubmitEmailVerificationCode) return;
+    const code = verificationCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      props.onNotify?.('error', t('txt_email_verification_failed'));
+      return;
+    }
+    setEmailVerificationBusy(true);
+    try {
+      await props.onSubmitEmailVerificationCode(code);
+      setEmailVerification((prev) => (prev ? { ...prev, verified: true, pendingExpiresAt: null } : prev));
+      setVerificationCode('');
+      setVerificationResendIn(0);
+      setEmailVerificationDialogOpen(false);
+      props.onNotify?.('success', t('txt_email_verification_verified_badge'));
+    } catch (error) {
+      props.onNotify?.('error', error instanceof Error ? error.message : t('txt_email_verification_failed'));
+    } finally {
+      setEmailVerificationBusy(false);
+    }
+  };
+
   const [mailSettings, setMailSettings] = useState<MailSettings | null>(null);
   const [mailHost, setMailHost] = useState('');
   const [mailPort, setMailPort] = useState('587');
@@ -736,10 +827,10 @@ export default function SettingsPage(props: SettingsPageProps) {
     }
   }
 
+  // 顺序是刻意的：偏好最常用排第一，账户次之，服务器级配置压到最后。
   const settingsSections: Array<{ id: SettingsSection; label: string }> = [
-    { id: 'appearance', label: t('txt_settings_appearance') },
-    { id: 'session', label: t('txt_session_timeout') },
-    { id: 'masterPassword', label: t('txt_master_password') },
+    { id: 'preferences', label: t('txt_settings_preferences') },
+    { id: 'account', label: t('txt_settings_account') },
     { id: 'twoStep', label: t('txt_two_step_login') },
     { id: 'keys', label: t('txt_keys') },
     // 邮件发送是服务器级配置，只有管理员能改，因此仅对管理员显示
@@ -763,7 +854,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         </nav>
 
         <section className="settings-category-panel">
-          {activeSection === 'appearance' && (
+          {activeSection === 'preferences' && (
             <div className="settings-section-stack">
               <section className="settings-submodule">
                 <label className="field">
@@ -798,11 +889,7 @@ export default function SettingsPage(props: SettingsPageProps) {
                   <div className="field-help">{t('txt_display_language_help')}</div>
                 </label>
               </section>
-            </div>
-          )}
 
-          {activeSection === 'session' && (
-            <div className="settings-section-stack">
               <section className="settings-submodule">
                 <div className="session-timeout-fields">
                   <label className="field">
@@ -835,8 +922,56 @@ export default function SettingsPage(props: SettingsPageProps) {
             </div>
           )}
 
-          {activeSection === 'masterPassword' && (
+          {activeSection === 'account' && (
             <div className="settings-section-stack">
+              {props.onLoadEmailVerification && (
+                <section className="settings-submodule">
+                  <div className="settings-module-head">
+                    <h3>{t('txt_email')}</h3>
+                    <span className={`two-step-enabled-badge ${emailVerification?.verified ? '' : 'is-danger'}`}>
+                      {emailVerification?.verified
+                        ? t('txt_email_verification_verified_badge')
+                        : t('txt_email_verification_unverified_badge')}
+                    </span>
+                  </div>
+                  <label className="field">
+                    <span>{t('txt_current_email')}</span>
+                    <input className="input" value={props.profile.email} disabled readOnly />
+                  </label>
+                  <div className="settings-vertical-fields">
+                    <label className="field">
+                      <span>{t('txt_new_email')}</span>
+                      <input className="input" value="" disabled />
+                    </label>
+                  </div>
+                  {/* 间距对齐 management.css 的 .settings-vertical-fields + .btn（按钮组打断了相邻兄弟选择器） */}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '14px' }}>
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      disabled
+                      title={t('txt_change_email_unavailable')}
+                    >
+                      {t('txt_change_email')}
+                    </button>
+                    {!emailVerification?.verified && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={emailVerificationBusy || !emailVerification?.available}
+                        onClick={() => void openVerificationDialog()}
+                      >
+                        {t('txt_verify_email_address')}
+                      </button>
+                    )}
+                  </div>
+                  <p className="field-help">{t('txt_change_email_unavailable')}</p>
+                  {!emailVerification?.available && (
+                    <p className="field-help">{t('txt_email_verification_unavailable_hint')}</p>
+                  )}
+                </section>
+              )}
+
               <section className="settings-submodule">
                 <h3>{t('txt_change_master_password')}</h3>
                 <label className="field">
@@ -1301,6 +1436,44 @@ export default function SettingsPage(props: SettingsPageProps) {
           />
         </label>
       </ConfirmDialog>
+      <ConfirmDialog
+        open={emailVerificationDialogOpen}
+        title={t('txt_verify_email_address')}
+        message={t('txt_email_verification_description')}
+        confirmText={t('txt_email_verification_submit')}
+        confirmDisabled={emailVerificationBusy || verificationCode.length !== 6}
+        onConfirm={() => void submitVerificationCode()}
+        onCancel={closeVerificationDialog}
+      >
+        {/* 固定高度：内容在开窗时就已是最终形态，这里只是防止提示行把底部按钮推下去 */}
+        <div style={{ minHeight: '132px' }}>
+          <label className="field">
+            <span>{t('txt_email_verification_code_label')}</span>
+            <input
+              className="input"
+              inputMode="numeric"
+              maxLength={6}
+              value={verificationCode}
+              onInput={(e) => setVerificationCode((e.currentTarget as HTMLInputElement).value.replace(/\D/g, ''))}
+            />
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+            <p className="field-help" style={{ margin: 0 }}>{t('txt_email_verification_sent_hint')}</p>
+            <button
+              type="button"
+              className="btn btn-secondary small"
+              style={{ flexShrink: 0 }}
+              disabled={emailVerificationBusy || verificationResendIn > 0}
+              onClick={() => void sendVerificationCode()}
+            >
+              {verificationResendIn > 0
+                ? `${t('txt_email_verification_resend_code')} (${verificationResendIn}s)`
+                : t('txt_email_verification_resend_code')}
+            </button>
+          </div>
+        </div>
+      </ConfirmDialog>
+
       <ConfirmDialog
         open={totpManageDialogOpen}
         title={t('txt_totp')}

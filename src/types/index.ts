@@ -68,6 +68,7 @@ export interface User {
   yubikeyKey5: string | null;
   yubikeyNfc: boolean;
   apiKey: string | null;
+  emailVerified?: boolean;
   createdAt: string;
   updatedAt: string;
 }

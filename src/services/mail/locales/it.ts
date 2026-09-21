@@ -11,6 +11,14 @@ const it: MailCopy = {
     labels: { server: 'Server', encryption: 'Crittografia', sentAt: 'Inviato' },
     outro: 'Se non aspettavi questo messaggio, qualcuno con accesso amministratore ha modificato le impostazioni email.',
   },
+  verification: {
+    subject: 'Verifica il tuo indirizzo email NodeWarden',
+    heading: 'Conferma il tuo indirizzo email',
+    intro: 'Inserisci questo codice in NodeWarden per confermare che questo indirizzo è tuo. Le notifiche di sicurezza vengono inviate solo a un indirizzo confermato.',
+    codeLabel: 'Codice di verifica',
+    expiresLabel: 'Questo codice scade il',
+    outro: 'Se non hai richiesto tu questa operazione, ignora questo messaggio. Il tuo indirizzo resterà non confermato e non verranno inviate notifiche.',
+  },
   footer: 'Inviato automaticamente da NodeWarden. Le risposte a questo indirizzo non vengono lette.',
 };
 

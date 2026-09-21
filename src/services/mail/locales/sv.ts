@@ -11,6 +11,14 @@ const sv: MailCopy = {
     labels: { server: 'Server', encryption: 'Kryptering', sentAt: 'Skickat' },
     outro: 'Om du inte väntade dig detta meddelande har någon med administratörsbehörighet ändrat e-postinställningarna.',
   },
+  verification: {
+    subject: 'Verifiera din e-postadress i NodeWarden',
+    heading: 'Bekräfta din e-postadress',
+    intro: 'Ange den här koden i NodeWarden för att bekräfta att adressen tillhör dig. Säkerhetsaviseringar skickas bara till en bekräftad adress.',
+    codeLabel: 'Verifieringskod',
+    expiresLabel: 'Koden gäller till',
+    outro: 'Om du inte begärde detta kan du ignorera meddelandet. Adressen förblir obekräftad och inga aviseringar skickas.',
+  },
   footer: 'Skickat automatiskt av NodeWarden. Svar till denna adress läses inte.',
 };
 

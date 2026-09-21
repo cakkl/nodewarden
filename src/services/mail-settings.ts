@@ -376,3 +376,15 @@ export async function resolveMailConnection(
     render: { locale: settings.locale, timezone: settings.timezone },
   };
 }
+
+/**
+ * 通知类邮件（验证码、安全告警）能否真的发出去。
+ *
+ * 比 `resolveMailConnection` 严格：还要求 `enabled`。管理员可以保留全部配置却关掉发送能力，
+ * 此时不能给用户展示「发送验证码」入口 —— 那只会换来一个必然失败的按钮。
+ */
+export async function isMailDeliveryAvailable(db: D1Database, env: Env): Promise<boolean> {
+  const settings = await getMailSettings(db);
+  if (!settings.enabled) return false;
+  return (await resolveMailConnection(db, env)).status === 'ok';
+}

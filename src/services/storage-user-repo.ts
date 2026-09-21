@@ -4,7 +4,7 @@ type SafeBind = (stmt: D1PreparedStatement, ...values: any[]) => D1PreparedState
 const USER_SELECT_COLUMNS =
   'id, email, name, master_password_hint, master_password_hash, key, private_key, public_key, ' +
   'kdf_type, kdf_iterations, kdf_memory, kdf_parallelism, security_stamp, role, status, verify_devices, ' +
-  'totp_secret, totp_recovery_code, yubikey_key1, yubikey_key2, yubikey_key3, yubikey_key4, yubikey_key5, yubikey_nfc, api_key, created_at, updated_at';
+  'totp_secret, totp_recovery_code, yubikey_key1, yubikey_key2, yubikey_key3, yubikey_key4, yubikey_key5, yubikey_nfc, api_key, email_verified, created_at, updated_at';
 
 function mapUserRow(row: any): User {
   return {
@@ -33,6 +33,7 @@ function mapUserRow(row: any): User {
     yubikeyKey5: row.yubikey_key5 ?? null,
     yubikeyNfc: !!row.yubikey_nfc,
     apiKey: row.api_key ?? null,
+    emailVerified: row.email_verified == null ? false : !!row.email_verified,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -126,6 +127,15 @@ export async function saveUser(db: D1Database, safeBind: SafeBind, user: User): 
 
 export async function createUser(db: D1Database, safeBind: SafeBind, user: User): Promise<void> {
   await saveUser(db, safeBind, user);
+}
+
+// 邮箱验证状态单独写：saveUser 是全字段覆盖，让它携带该列容易被无关改动误重置。
+// 改邮箱时必须显式调用本函数传 false。
+export async function setEmailVerified(db: D1Database, userId: string, verified: boolean): Promise<void> {
+  await db
+    .prepare('UPDATE users SET email_verified = ?, updated_at = ? WHERE id = ?')
+    .bind(verified ? 1 : 0, new Date().toISOString(), userId)
+    .run();
 }
 
 export async function createFirstUser(db: D1Database, safeBind: SafeBind, user: User): Promise<boolean> {

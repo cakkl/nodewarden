@@ -101,6 +101,16 @@ export function mailDetailBlock(title: string, rows: Array<[string, string]>): s
 </table>`;
 }
 
+/** 大字号验证码区块：收件人要能一眼抄下来，所以字号远大于正文。 */
+export function mailCodeBlock(label: string, code: string): string {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background:${COLOR.insetBg};border-radius:10px;margin:0 0 18px;">
+  <tr><td align="center" style="padding:20px 18px;">
+    <p style="margin:0 0 8px;font-size:12px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:${COLOR.muted};">${escapeHtml(label)}</p>
+    <p style="margin:0;font-size:32px;line-height:1.2;font-weight:700;letter-spacing:0.18em;color:${COLOR.heading};font-family:${FONT_STACK};">${escapeHtml(code)}</p>
+  </td></tr>
+</table>`;
+}
+
 /** 所有动态文本都必须过这一层 —— 邮件正文同样可能被注入标签 */
 export function escapeHtml(value: string): string {
   return String(value ?? '')

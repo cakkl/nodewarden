@@ -65,7 +65,7 @@ async function writeAdminMailAudit(
  * 供前端映射文案 —— 服务器回复里的 5xx 详情是动态的，`translateServerError` 匹配不上。
  * 用 502：语义上是上游 SMTP 拒绝/不可用。
  */
-function smtpFailureResponse(error: SmtpDeliveryError): Response {
+export function smtpFailureResponse(error: SmtpDeliveryError): Response {
   return jsonResponse(
     {
       error: 'mail_delivery_failed',

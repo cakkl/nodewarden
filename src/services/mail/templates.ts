@@ -5,7 +5,7 @@
  * 而且它是 HTML 被拦截时的兜底。两者必须表达同样的信息。
  */
 import type { MailCopy } from './locales/en';
-import { mailDetailBlock, mailParagraph, renderMailLayout } from './layout';
+import { mailCodeBlock, mailDetailBlock, mailParagraph, renderMailLayout } from './layout';
 
 export interface RenderedMail {
   subject: string;
@@ -18,6 +18,11 @@ export interface TestMailInput {
   port: number;
   encryption: 'implicit' | 'starttls';
   sentAt: Date;
+}
+
+export interface VerificationMailInput {
+  code: string;
+  expiresAt: Date;
 }
 
 /** 渲染选项：语言与时区都来自邮件设置，不是写死的。 */
@@ -92,6 +97,43 @@ export function renderTestMail(
       ...rows.map(([label, value]) => `- ${label}: ${value}`),
       '',
       copy.test.outro,
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
+/** 邮箱验证码邮件。码是唯一需要用户动手的东西，正文里给它最高视觉权重。 */
+export function renderVerificationMail(
+  copy: MailCopy,
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  const expiresAt = formatMailTime(input.expiresAt, context.timezone);
+  const expiryLine = `${copy.verification.expiresLabel} ${expiresAt}`;
+
+  return {
+    subject: copy.verification.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.verification.heading,
+      bodyHtml:
+        mailParagraph(copy.verification.intro) +
+        mailCodeBlock(copy.verification.codeLabel, input.code) +
+        mailParagraph(expiryLine, { muted: true }) +
+        mailParagraph(copy.verification.outro, { muted: true }),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.verification.heading,
+      '',
+      copy.verification.intro,
+      '',
+      `${copy.verification.codeLabel}: ${input.code}`,
+      expiryLine,
+      '',
+      copy.verification.outro,
       '',
       copy.footer,
     ].join('\n'),

@@ -9,8 +9,13 @@ const i18nEntry = path.join(__dirname, '..', 'webapp', 'src', 'lib', 'i18n.ts');
 
 // CONTRACT:
 // This is the authoritative locale consistency gate. It checks key parity,
-// placeholder parity, and accidental mostly-English locale files. Run after any
+// placeholder parity, and accidentally untranslated locales. Run after any
 // user-facing text or locale-file change.
+//
+// 「没翻译」的判定只依赖两个自洽的信号，不再靠手工维护键白名单：
+// - 连续相同段（主）：未翻译的内容是成片复制的，同形词凑不出长段；
+// - 相同值比例（次）：随词表规模增长，以后不必再手工调数字。
+// 同形词（Password / Account / IBAN / S3）由 sharedLoanwords 自动豁免。
 const locales = Object.fromEntries(
   localeFiles.map(([locale, fileName, variableName]) => [locale, readLocale(fileName, variableName)])
 );
@@ -91,6 +96,70 @@ function isIntentionallyEnglishKey(key) {
   return intentionallyEnglishKeys.has(key) || intentionallyEnglishPrefixes.some((prefix) => key.startsWith(prefix));
 }
 
+// 跨语言同形词：技术借用词、协议名、平台名。它们在多数语言里本来就这么写，
+// 与「没翻译」不是一回事。按「值」判定而不是按「键」判定 —— 否则每遇到一个
+// 合法的同形词就得往 intentionallyEnglishKeys 里手工加一行，而那只是迁就。
+//
+// 只收技术性/专有性的词。刻意**不**收 the/and/to 这类英语常用词：它们出现在
+// 正文里往往真的意味着漏翻，放进来等于放水。
+const sharedLoanwords = new Set([
+  'account', 'active', 'admin', 'android', 'api', 'auto', 'backup', 'bucket',
+  'chrome', 'client', 'credentials', 'debug', 'dash', 'download', 'duo', 'edge',
+  'email', 'export', 'file', 'files', 'firefox', 'folder', 'grant', 'host',
+  'hosted', 'http', 'https', 'iban', 'id', 'ids', 'idle', 'implicit', 'import',
+  'info', 'ios', 'jwt', 'kofi', 'koofr', 'level', 'linux', 'log', 'macos',
+  'master', 'menu', 'nfc', 'no', 'none', 'oauth', 'off', 'offline', 'ok', 'on',
+  'online', 'otp', 'passkey', 'passkeys', 'password', 'passwords', 'path', 'port',
+  'restore', 'role', 's3', 'safari', 'secret', 'self', 'server', 'smtp', 'ssl',
+  'starttls', 'status', 'sync', 'tls', 'token', 'totp', 'type', 'upload', 'uri',
+  'url', 'webauthn', 'webdav', 'windows', 'yubikey',
+]);
+
+/**
+ * 该值是否「本来就不该翻译」。
+ *
+ * 判定分两层：
+ * - 纯符号/纯数字（`-`、`—`、`1`）没有语言之分；
+ * - 全部由同形词组成的短语（`Master Password`、`Client ID`、`Implicit TLS`）。
+ *   按词拆分判定，所以短语能自动命中，不需要为每种组合单独登记。
+ */
+function isNonTranslatableValue(value) {
+  const text = String(value).trim();
+  if (!text) return true;
+  // 不含任何字母 ⇒ 符号、数字、分隔符
+  if (!/\p{L}/u.test(text)) return true;
+  const words = text
+    .toLowerCase()
+    .split(/[^a-z0-9-]+/)
+    .filter(Boolean);
+  // 纯数字词（端口号、年份）没有语言之分，与同形词同等对待
+  return words.length > 0 && words.every((word) => sharedLoanwords.has(word) || /^\d+$/.test(word));
+}
+
+/**
+ * 连续相同的最长段落。
+ *
+ * 这是「整块没翻译」的真实特征：新加一种语言或一段功能时，那批键会被整段复制过来，
+ * 形成长段。同形词是零星散布的，凑不出长段，因此不会误报。
+ *
+ * 已豁免的键视为中断 —— 它本来就合法，不构成未翻译的迹象。
+ */
+function longestUntranslatedRun(localeTable) {
+  let best = { length: 0, start: 0 };
+  let current = 0;
+  for (let i = 0; i < baseKeys.length; i += 1) {
+    const key = baseKeys[i];
+    const identical = localeTable[key] === base[key];
+    if (identical && !isIntentionallyEnglishKey(key) && !isNonTranslatableValue(base[key])) {
+      current += 1;
+      if (current > best.length) best = { length: current, start: i - current + 1 };
+    } else {
+      current = 0;
+    }
+  }
+  return best;
+}
+
 for (const [locale, table] of Object.entries(locales)) {
   const keys = Object.keys(table).sort();
   const missing = baseKeys.filter((key) => !(key in table));
@@ -108,12 +177,36 @@ for (const [locale, table] of Object.entries(locales)) {
   }
 
   if (locale !== 'en') {
-    const sameAsEnglish = baseKeys.filter((key) => table[key] === base[key] && !isIntentionallyEnglishKey(key));
-    if (sameAsEnglish.length > 40) {
+    // 同形词与纯符号先剔掉：它们与英文相同是语言事实，不是漏翻。
+    const sameAsEnglish = baseKeys.filter(
+      (key) =>
+        table[key] === base[key] &&
+        !isIntentionallyEnglishKey(key) &&
+        !isNonTranslatableValue(base[key])
+    );
+
+    const run = longestUntranslatedRun(table);
+    const runKeys = run.length ? baseKeys.slice(run.start, run.start + run.length) : [];
+
+    // 主判据：成片的连续相同。8 个相邻键一字不差，几乎不可能是同形巧合。
+    const hasUntranslatedBlock = run.length >= 8;
+    // 次判据：用比例而非绝对数量，随词表规模自然增长，不必以后再手工调数字。
+    const ratioLimit = Math.max(20, Math.floor(baseKeys.length * 0.03));
+    const tooManyIdentical = sameAsEnglish.length > ratioLimit;
+
+    if (hasUntranslatedBlock || tooManyIdentical) {
       errors.push({
         locale,
-        sameAsEnglishCount: sameAsEnglish.length,
-        sameAsEnglishSample: sameAsEnglish.slice(0, 25),
+        problem: hasUntranslatedBlock
+          ? `untranslated block: ${run.length} consecutive keys are identical to English`
+          : 'too many values are identical to English',
+        identicalCount: sameAsEnglish.length,
+        identicalRatio: `${((sameAsEnglish.length / baseKeys.length) * 100).toFixed(1)}%`,
+        identicalLimit: ratioLimit,
+        longestRun: run.length,
+        longestRunLimit: 8,
+        longestRunKeys: runKeys.slice(0, 12),
+        identicalSample: sameAsEnglish.slice(0, 25),
       });
     }
   }

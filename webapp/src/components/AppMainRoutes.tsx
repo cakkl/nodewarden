@@ -7,6 +7,7 @@ import LoadingState from '@/components/LoadingState';
 import type { AdminBackupImportResponse, AdminBackupRunResponse, AdminBackupSettings, RemoteBackupBrowserResponse } from '@/lib/api/backup';
 import type { AuditLogFilters } from '@/lib/api/admin';
 import type { CiphersImportPayload } from '@/lib/api/vault';
+import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { t } from '@/lib/i18n';
 import type { AccountPasskeyCredential, AdminInvite, AdminUser, AuditLogListResult, AuditLogSettings, AuthRequest, AuthorizedDevice, Cipher, CustomEquivalentDomain, DomainRules, Folder as VaultFolder, MailSettings, MailSettingsInput, MailTestResult, Profile, Send, SendDraft, SessionState, TwoFactorPasskeySettings, VaultDraft, YubiKeyOtpSettings } from '@/lib/types';
 import type { ExportRequest } from '@/lib/export-formats';
@@ -128,6 +129,10 @@ export interface AppMainRoutesProps {
   onGetRecoveryCode: (masterPassword: string) => Promise<string>;
   onGetApiKey: (masterPassword: string) => Promise<string>;
   onRotateApiKey: (masterPassword: string) => Promise<string>;
+  onLoadEmailVerification: () => Promise<EmailVerificationStatus>;
+  onSendEmailVerificationCode: () => Promise<unknown>;
+  onSubmitEmailVerificationCode: (code: string) => Promise<void>;
+  onCancelEmailVerification: () => Promise<void>;
   onLoadMailSettings: () => Promise<MailSettings>;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
@@ -328,6 +333,10 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onGetRecoveryCode={props.onGetRecoveryCode}
                 onGetApiKey={props.onGetApiKey}
                 onRotateApiKey={props.onRotateApiKey}
+                onLoadEmailVerification={props.onLoadEmailVerification}
+                onSendEmailVerificationCode={props.onSendEmailVerificationCode}
+                onSubmitEmailVerificationCode={props.onSubmitEmailVerificationCode}
+                onCancelEmailVerification={props.onCancelEmailVerification}
                 onLoadMailSettings={props.onLoadMailSettings}
                 onSaveMailSettings={props.onSaveMailSettings}
                 onSendTestMail={props.onSendTestMail}

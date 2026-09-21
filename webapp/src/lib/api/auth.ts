@@ -937,6 +937,70 @@ export async function verifyMasterPassword(
   }
 }
 
+export interface EmailVerificationStatus {
+  /** 服务器是否真的能发出邮件；false 时界面不应显示验证入口 */
+  available: boolean;
+  verified: boolean;
+  email: string;
+  /** 已发出且仍有效的验证码到期时间，无则 null */
+  pendingExpiresAt: string | null;
+}
+
+function normalizeEmailVerification(raw: any): EmailVerificationStatus {
+  return {
+    available: raw?.available === true || raw?.Available === true,
+    verified: raw?.verified === true || raw?.Verified === true,
+    email: String(raw?.email ?? raw?.Email ?? ''),
+    pendingExpiresAt: raw?.pendingExpiresAt ?? raw?.PendingExpiresAt ?? null,
+  };
+}
+
+/** 从失败响应里取服务端说明；取不到就用兜底文案。 */
+async function emailVerificationError(resp: Response): Promise<Error> {
+  const body = await parseJson<any>(resp);
+  return new Error(
+    translateServerError(body?.error_description || body?.error, t('txt_email_verification_failed'))
+  );
+}
+
+export async function getEmailVerificationStatus(authedFetch: AuthedFetch): Promise<EmailVerificationStatus> {
+  // 必须绕开缓存：验证成功后会立即回来校准一次，读到旧响应会把状态盖回未验证。
+  const resp = await authedFetch('/api/accounts/email-verification', { cache: 'no-store' });
+  if (!resp.ok) throw await emailVerificationError(resp);
+  return normalizeEmailVerification(await parseJson<any>(resp));
+}
+
+/** 取消验证，回到未验证状态。目前仅供本地调试使用。 */
+export async function cancelEmailVerification(authedFetch: AuthedFetch): Promise<void> {
+  const resp = await authedFetch('/api/accounts/email-verification', { method: 'DELETE' });
+  if (!resp.ok) throw await emailVerificationError(resp);
+}
+
+export async function sendEmailVerificationCode(
+  authedFetch: AuthedFetch
+): Promise<{ email: string; expiresAt: string | null }> {
+  const resp = await authedFetch('/api/accounts/email-token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!resp.ok) throw await emailVerificationError(resp);
+  const body = await parseJson<any>(resp);
+  return {
+    email: String(body?.email ?? body?.Email ?? ''),
+    expiresAt: body?.expiresAt ?? body?.ExpiresAt ?? null,
+  };
+}
+
+export async function submitEmailVerificationCode(authedFetch: AuthedFetch, code: string): Promise<void> {
+  const resp = await authedFetch('/api/accounts/verify-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  if (!resp.ok) throw await emailVerificationError(resp);
+}
+
 function normalizeAccountPasskeyCredential(raw: any): AccountPasskeyCredential {
   return {
     id: String(raw?.id || raw?.Id || ''),

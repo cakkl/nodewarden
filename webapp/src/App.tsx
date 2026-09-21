@@ -11,6 +11,10 @@ import RecoverTwoFactorPage from '@/components/RecoverTwoFactorPage';
 import JwtWarningPage from '@/components/JwtWarningPage';
 import {
   createAuthedFetch,
+  getEmailVerificationStatus,
+  cancelEmailVerification,
+  sendEmailVerificationCode,
+  submitEmailVerificationCode,
   deriveLoginHash,
   getAuthorizedDevices,
   clearProfileSnapshot,
@@ -2120,6 +2124,10 @@ export default function App() {
     onLoadMailSettings: adminMailActions.loadMailSettings,
     onSaveMailSettings: adminMailActions.saveMailSettings,
     onSendTestMail: adminMailActions.sendTestMail,
+    onLoadEmailVerification: () => getEmailVerificationStatus(authedFetch),
+    onSendEmailVerificationCode: () => sendEmailVerificationCode(authedFetch),
+    onSubmitEmailVerificationCode: (code: string) => submitEmailVerificationCode(authedFetch, code),
+    onCancelEmailVerification: () => cancelEmailVerification(authedFetch),
     onListAccountPasskeys: accountSecurityActions.listAccountPasskeys,
     onCreateAccountPasskey: accountSecurityActions.createAccountPasskey,
     onEnableAccountPasskeyDirectUnlock: accountSecurityActions.enableAccountPasskeyDirectUnlock,

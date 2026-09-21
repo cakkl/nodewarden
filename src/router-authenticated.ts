@@ -26,6 +26,12 @@ import {
   handleRotateApiKey,
 } from './handlers/accounts';
 import {
+  handleCancelEmailVerification,
+  handleGetEmailVerificationStatus,
+  handleSendEmailVerificationCode,
+  handleVerifyEmailCode,
+} from './handlers/account-email-verification';
+import {
   handleGetCiphers,
   handleGetCipher,
   handleCreateCipher,
@@ -121,10 +127,7 @@ export async function handleAuthenticatedRoute(
   }
 
   const mailBackedAccountPaths = new Set([
-    '/api/accounts/email-token',
-    '/accounts/email-token',
-    '/api/accounts/verify-email',
-    '/accounts/verify-email',
+    // 邮箱验证走真实实现（见下方分发）；这里只剩尚未接入的邮件能力。
     '/api/accounts/verify-email-token',
     '/accounts/verify-email-token',
     '/api/accounts/request-otp',
@@ -154,6 +157,23 @@ export async function handleAuthenticatedRoute(
     if (method === 'GET') return handleGetProfile(request, env, userId);
     if (method === 'PUT') return handleUpdateProfile(request, env, userId);
     return errorResponse('Method not allowed', 405);
+  }
+
+  // 邮箱验证：状态查询、发送验证码、提交验证码、取消验证
+  if (path === '/api/accounts/email-verification' && method === 'GET') {
+    return handleGetEmailVerificationStatus(request, env, currentUser);
+  }
+
+  if (path === '/api/accounts/email-verification' && method === 'DELETE') {
+    return handleCancelEmailVerification(request, env, currentUser);
+  }
+
+  if ((path === '/api/accounts/email-token' || path === '/accounts/email-token') && method === 'POST') {
+    return handleSendEmailVerificationCode(request, env, currentUser);
+  }
+
+  if ((path === '/api/accounts/verify-email' || path === '/accounts/verify-email') && method === 'POST') {
+    return handleVerifyEmailCode(request, env, currentUser);
   }
 
   if ((path === '/api/accounts/password' || path === '/api/accounts/change-password') && (method === 'POST' || method === 'PUT')) {

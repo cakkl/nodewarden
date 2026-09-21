@@ -43,8 +43,22 @@ CREATE TABLE IF NOT EXISTS users (
   yubikey_key5 TEXT,
   yubikey_nfc INTEGER NOT NULL DEFAULT 0,
   api_key TEXT,
+  -- 邮箱是否已由用户自己验证。默认 0：未验证的邮箱不接收任何通知邮件。
+  email_verified INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+-- 邮箱验证码。user_id 作主键 ⇒ 每个用户同时只有一个待用码（新码覆盖旧码）。
+-- 存 email 是为了让「发码后用户改了邮箱」的旧码立即失效。
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  user_id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS domain_settings (

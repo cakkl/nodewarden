@@ -14,7 +14,7 @@ import de from './locales/de';
 import fr from './locales/fr';
 import it from './locales/it';
 import sv from './locales/sv';
-import { renderTestMail, type MailRenderContext, type RenderedMail, type TestMailInput } from './templates';
+import { renderTestMail, renderVerificationMail, type MailRenderContext, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
 
 export type MailLocale = 'en' | 'zh-CN' | 'zh-TW' | 'ru' | 'es' | 'fi' | 'de' | 'fr' | 'it' | 'sv';
 
@@ -48,4 +48,12 @@ export function renderTestEmail(
   return { ...renderTestMail(copy, input, { ...context, locale: resolved }), locale: resolved };
 }
 
-export type { MailCopy, MailRenderContext, RenderedMail, TestMailInput };
+export function renderVerificationEmail(
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail & { locale: MailLocale } {
+  const { locale: resolved, copy } = resolveMailCopy(context.locale);
+  return { ...renderVerificationMail(copy, input, { ...context, locale: resolved }), locale: resolved };
+}
+
+export type { MailCopy, MailRenderContext, RenderedMail, TestMailInput, VerificationMailInput };
