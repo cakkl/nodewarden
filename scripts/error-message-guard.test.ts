@@ -453,6 +453,15 @@ interface RegisteredDynamicMessage {
  * 防止登记表腐烂成"什么都放行"。
  */
 const REGISTERED_DYNAMIC_MESSAGES: RegisteredDynamicMessage[] = [
+  // ── 管理端邮件（SMTP）配置 ──────────────────────────────────────────
+  // `MailSettingsValidationError` 只在 `src/services/mail-settings.ts` 里构造，
+  // 每条 message 都是那里的字符串字面量，从不包裹底层异常。
+  // 护栏是静态分析，只看得到 `error.message` 这个形状，无法证明它来自 instanceof 分支。
+  {
+    site: 'src/handlers/admin-mail.ts :: error.message',
+    count: 2,
+    reason: 'MailSettingsValidationError 的固定校验文案，仅管理员可达',
+  },
   // ── 管理端备份链路：刻意保留的可诊断性 ──────────────────────────────
   // 远端地址是管理员自己填的 WebDAV / S3，失败原文（真机验收见到的
   // `WebDAV upload timed out after 30000 ms`）正是前端 i18n 映射表覆盖的业务文案，

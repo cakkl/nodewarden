@@ -428,6 +428,48 @@ export interface YubiKeyOtpSettings {
   yubicoSecretKey: string;
 }
 
+export type MailEncryption = 'implicit' | 'starttls';
+
+/** 服务端返回的邮件配置，永不包含口令。 */
+export interface MailSettings {
+  enabled: boolean;
+  host: string;
+  port: number;
+  encryption: MailEncryption;
+  username: string;
+  fromAddress: string;
+  fromName: string;
+  /** 邮件正文语言 */
+  locale: string;
+  /** IANA 时区名，决定邮件里时间的显示时区 */
+  timezone: string;
+  passwordConfigured: boolean;
+  configured: boolean;
+}
+
+/** 保存时提交的字段；`password` 留空表示保持原口令不变。 */
+export interface MailSettingsInput {
+  enabled: boolean;
+  host: string;
+  port: number;
+  /** 只读回显用；服务端保存时忽略，加密方式由端口推断。 */
+  encryption?: MailEncryption;
+  username: string;
+  fromAddress: string;
+  fromName: string;
+  locale?: string;
+  timezone?: string;
+  password?: string;
+  clearPassword?: boolean;
+}
+
+export interface MailTestResult {
+  recipient: string;
+  authMethod: 'plain' | 'login';
+  encryption: MailEncryption;
+  response: string;
+}
+
 export interface TokenSuccess {
   access_token: string;
   refresh_token?: string;

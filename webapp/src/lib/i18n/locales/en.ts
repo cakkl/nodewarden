@@ -1524,10 +1524,7 @@ const en: Record<string, string> = {
   "txt_auth_request_approved": "Device login approved",
   "txt_auth_request_denied": "Device login denied",
   "txt_auth_request_missing_public_key": "Device login request is missing a public key",
-  "txt_ip_address": "IP address"
-};
-
-Object.assign(en, {
+  "txt_ip_address": "IP address",
   "nav_password_security": "Password Security",
   "txt_password_security": "Password Security Check",
   "txt_password_security_privacy": "Passwords are checked locally in your browser. Only an anonymous hash prefix is sent to the breach database.",
@@ -1559,7 +1556,39 @@ Object.assign(en, {
   "txt_open_vault": "Open vault",
   "txt_check_password_breach": "Check breach",
   "txt_password_not_found_in_breaches": "Not found in the breach database",
-  "txt_password_security_check_failed": "The breach check could not be completed."
-});
+  "txt_password_security_check_failed": "The breach check could not be completed.",
+  "txt_mail_configured": "Configured",
+  "txt_mail_sending_intro": "Configure an SMTP server so NodeWarden can send email.",
+  "txt_mail_host": "SMTP host",
+  "txt_mail_port": "Port",
+  "txt_mail_encryption_starttls": "STARTTLS (587 / 2587)",
+  "txt_mail_encryption_implicit": "Implicit TLS (465 / 2465)",
+  "txt_mail_username": "Username",
+  "txt_mail_password": "Password",
+  "txt_mail_password_keep": "Leave blank to keep the saved password",
+  "txt_mail_from_address": "Sender address",
+  "txt_mail_from_name": "Sender name",
+  "txt_mail_send_test": "Send test email",
+  "txt_mail_save_title": "Save mail settings",
+  "txt_mail_settings_load_failed": "Could not load mail settings",
+  "txt_mail_settings_save_failed": "Could not save mail settings",
+  "txt_mail_settings_saved": "Mail settings saved",
+  "txt_mail_test_failed": "Could not send the test email",
+  "txt_mail_test_sent": "Test email sent to {email}",
+  "txt_mail_error_timeout": "The mail server did not respond in time",
+  "txt_mail_error_connect": "Could not connect to the mail server. Check the host and port.",
+  "txt_mail_error_auth": "The mail server refused the session. Check the port and encryption mode.",
+  "txt_mail_error_auth_rejected": "Authentication failed. Check the username and password.",
+  "txt_mail_error_delivery": "The mail server refused the message. The sender address may not be allowed.",
+  "txt_mail_encryption_inferred": "Encryption: {mode}",
+  "txt_mail": "Mail",
+  "txt_mail_disable": "Disable",
+  "txt_mail_not_configured": "Not configured",
+  "txt_mail_config": "Mail configuration",
+  "txt_mail_locale": "Email language",
+  "txt_mail_locale_help": "Language used for message subjects and bodies.",
+  "txt_mail_timezone": "Time zone",
+  "txt_mail_timezone_help": "Times shown inside emails use this zone."
+};
 
 export default en;

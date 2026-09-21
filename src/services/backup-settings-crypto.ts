@@ -1,4 +1,5 @@
 import type { Env, User } from '../types';
+import { base64ToBytes, bytesToBase64, deriveServerDomainKey } from './server-secret-crypto';
 
 // CONTRACT:
 // Backup settings contain provider credentials. They are stored as a v2 envelope:
@@ -42,48 +43,16 @@ export interface BackupSettingsEnvelopeV2 {
   portable: BackupSettingsPortableEnvelope;
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let text = '';
-  for (let index = 0; index < bytes.length; index += 1) {
-    text += String.fromCharCode(bytes[index]);
-  }
-  return btoa(text);
-}
-
-function base64ToBytes(value: string): Uint8Array {
-  const normalized = String(value || '').trim();
-  const binary = atob(normalized);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+/**
+ * 派生运行时解密密钥。
+ * ⚠️ `RUNTIME_SALT` / `RUNTIME_INFO` 是已落库密文的契约，改动会让历史设置无法解开。
+ */
 async function deriveRuntimeKey(secret: string): Promise<CryptoKey> {
-  const encoder = new TextEncoder();
-  const keyMaterial = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    'HKDF',
-    false,
-    ['deriveBits']
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: 'HKDF',
-      hash: 'SHA-256',
-      salt: encoder.encode(RUNTIME_SALT),
-      info: encoder.encode(RUNTIME_INFO),
-    },
-    keyMaterial,
-    256
-  );
-  return crypto.subtle.importKey('raw', bits, { name: AES_GCM_ALGORITHM }, false, ['encrypt', 'decrypt']);
+  return deriveServerDomainKey(secret, RUNTIME_SALT, RUNTIME_INFO);
 }
 
 async function encryptAesGcm(plaintext: Uint8Array, key: CryptoKey): Promise<{ iv: Uint8Array; ciphertext: Uint8Array }> {

@@ -46,7 +46,8 @@ export async function guardLastActiveAdmin(storage: StorageService, target: User
   return errorResponse(LAST_ACTIVE_ADMIN_MESSAGE, 400);
 }
 
-async function requireMasterPasswordHash(
+/** 管理员敏感写操作前的主密码复核。导出供 `admin-mail.ts`（SMTP 凭证）复用。 */
+export async function requireMasterPasswordHash(
   env: Env,
   actorUser: User,
   masterPasswordHash: unknown

@@ -71,6 +71,11 @@ const intentionallyEnglishKeys = new Set([
   'txt_backup_recommend_group_s3',
   'txt_backup_destination_name_default_webdav',
   'txt_backup_destination_name_default_s3',
+  // 邮件设置：协议名与端口在多种语言里本就写作英文（如 de/fr/sv 的 "Port"、it 的 "Password"）
+  'txt_mail_port',
+  'txt_mail_password',
+  'txt_mail_encryption_starttls',
+  'txt_mail_encryption_implicit',
   'txt_dash',
   'txt_text_3',
 ]);

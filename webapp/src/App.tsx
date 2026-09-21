@@ -61,6 +61,7 @@ import {
 import { assertTwoFactorPasskey } from '@/lib/account-passkeys';
 import useAccountSecurityActions from '@/hooks/useAccountSecurityActions';
 import useAdminActions from '@/hooks/useAdminActions';
+import useAdminMailActions from '@/hooks/useAdminMailActions';
 import useBackupActions from '@/hooks/useBackupActions';
 import useVaultSendActions from '@/hooks/useVaultSendActions';
 import { useToastManager } from '@/hooks/useToastManager';
@@ -1912,6 +1913,12 @@ export default function App() {
     refetchUsers: usersQuery.refetch,
     refetchInvites: invitesQuery.refetch,
   });
+  const adminMailActions = useAdminMailActions({
+    authedFetch,
+    profile,
+    defaultKdfIterations,
+    onNotify: pushToast,
+  });
 
   refreshAuthorizedDevicesRef.current = async () => {
     if (!vaultInitialDecryptDone) return;
@@ -2110,6 +2117,9 @@ export default function App() {
     onGetRecoveryCode: accountSecurityActions.getRecoveryCode,
     onGetApiKey: accountSecurityActions.getApiKey,
     onRotateApiKey: accountSecurityActions.rotateApiKey,
+    onLoadMailSettings: adminMailActions.loadMailSettings,
+    onSaveMailSettings: adminMailActions.saveMailSettings,
+    onSendTestMail: adminMailActions.sendTestMail,
     onListAccountPasskeys: accountSecurityActions.listAccountPasskeys,
     onCreateAccountPasskey: accountSecurityActions.createAccountPasskey,
     onEnableAccountPasskeyDirectUnlock: accountSecurityActions.enableAccountPasskeyDirectUnlock,

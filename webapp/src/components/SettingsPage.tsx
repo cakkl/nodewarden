@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { Clipboard, KeyRound, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
+import { Clipboard, KeyRound, RefreshCw, Send, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { calcTotpNow } from '@/lib/crypto';
 import qrcode from 'qrcode-generator';
-import type { AccountPasskeyCredential, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
+import type { AccountPasskeyCredential, MailEncryption, MailSettings, MailSettingsInput, MailTestResult, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
+import { describeMailFailure } from '@/hooks/useAdminMailActions';
 import { AVAILABLE_LOCALES, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
@@ -34,6 +35,9 @@ interface SettingsPageProps {
   onGetRecoveryCode: (masterPassword: string) => Promise<string>;
   onGetApiKey: (masterPassword: string) => Promise<string>;
   onRotateApiKey: (masterPassword: string) => Promise<string>;
+  onLoadMailSettings: () => Promise<MailSettings>;
+  onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
+  onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
   onListAccountPasskeys: () => Promise<AccountPasskeyCredential[]>;
   onCreateAccountPasskey: (name: string, masterPassword: string, directUnlock: boolean) => Promise<AccountPasskeyCredential | null>;
   onEnableAccountPasskeyDirectUnlock: (id: string, masterPassword: string) => Promise<void>;
@@ -45,7 +49,7 @@ interface SettingsPageProps {
 }
 
 type ThemePreference = 'system' | 'light' | 'dark';
-type SettingsSection = 'appearance' | 'session' | 'masterPassword' | 'twoStep' | 'keys';
+type SettingsSection = 'appearance' | 'session' | 'masterPassword' | 'twoStep' | 'keys' | 'mail';
 
 type MasterPasswordPromptAction =
   | 'enableTotp'
@@ -68,6 +72,15 @@ const LOCK_TIMEOUT_OPTIONS = [
 ] as const;
 
 const EMPTY_YUBIKEY_KEYS: [string, string, string, string, string] = ['', '', '', '', ''];
+
+/** 浏览器所在时区；拿不到就回退 UTC。 */
+function detectBrowserTimezone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
 
 function formatStoredYubiKey(value: string): string {
   if (!value) return '';
@@ -168,10 +181,144 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [masterPasswordPromptSubmitting, setMasterPasswordPromptSubmitting] = useState(false);
   const [selectedLocale, setSelectedLocale] = useState<Locale>(() => getLocale());
   const [activeSection, setActiveSection] = useState<SettingsSection>('appearance');
+  const [mailSettings, setMailSettings] = useState<MailSettings | null>(null);
+  const [mailHost, setMailHost] = useState('');
+  const [mailPort, setMailPort] = useState('587');
+  const [mailUsername, setMailUsername] = useState('');
+  const [mailPassword, setMailPassword] = useState('');
+  const [mailFromAddress, setMailFromAddress] = useState('');
+  const [mailFromName, setMailFromName] = useState('');
+  const [mailLocale, setMailLocale] = useState('en');
+  const [mailTimezone, setMailTimezone] = useState('UTC');
+  const [mailSubmitting, setMailSubmitting] = useState(false);
+  const [mailPromptAction, setMailPromptAction] = useState<'save' | 'disable' | null>(null);
+  const [mailMasterPassword, setMailMasterPassword] = useState('');
+  /** 当前表单是否已通过测试 —— 只有它为真时「保存」才可用 */
+  const [mailTested, setMailTested] = useState(false);
+  /** 表单是否与已保存的一致（配置完整时无需重测即可重新启用） */
+  const [mailSynced, setMailSynced] = useState(false);
+
+  const isAdmin = props.profile.role === 'admin';
+  /** 端口决定加密方式，不单独选择，避免存下必然失败的组合 */
+  const mailEncryption: MailEncryption = Number(mailPort) === 465 || Number(mailPort) === 2465 ? 'implicit' : 'starttls';
+  /** 服务端当前是否已启用邮件发送 */
+  const mailEnabled = !!mailSettings?.enabled;
+  /** 已停用等同未配置：只有「参数完整 **且** 已启用」才算配置好了 */
+  const mailConfigured = !!mailSettings?.configured && mailEnabled;
+  /** 表单没改过且参数完整 ⇒ 可以不经重测直接提交（重新启用 / 停用） */
+  const mailUnchanged = mailSynced && !!mailSettings?.configured;
+  const mailCanTest = !mailSubmitting && !!mailHost.trim() && !!mailFromAddress.trim();
+  /** 保存（= 启用）：测过、或配置未变且当前处于停用状态（重新启用） */
+  const mailCanSave = !mailSubmitting && (mailTested || (mailUnchanged && !mailEnabled));
+  const mailInput: MailSettingsInput = {
+    enabled: true,
+    host: mailHost.trim(),
+    port: Number(mailPort),
+    username: mailUsername.trim(),
+    fromAddress: mailFromAddress.trim(),
+    fromName: mailFromName.trim(),
+    locale: mailLocale,
+    timezone: mailTimezone,
+    ...(mailPassword ? { password: mailPassword } : {}),
+  };
+
+  /** 时区列表由运行环境提供（workerd/浏览器的 ICU 数据），拿不到时保底只给 UTC */
+  const timezoneOptions = useMemo<string[]>(() => {
+    try {
+      const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] })
+        .supportedValuesOf?.('timeZone');
+      return supported && supported.length > 0 ? supported : ['UTC'];
+    } catch {
+      return ['UTC'];
+    }
+  }, []);
+
+  /**
+   * 表单被改动 ⇒ 之前的测试结果作废，保存重新变为不可用。
+   * 语言与时区也走这里：它们会影响邮件正文，改了同样要重新测试。
+   */
+  function touchMailForm(): void {
+    setMailTested(false);
+    setMailSynced(false);
+  }
+
+  function applyMailSettings(settings: MailSettings): void {
+    setMailSettings(settings);
+    setMailHost(settings.host);
+    setMailPort(String(settings.port));
+    setMailUsername(settings.username);
+    setMailFromAddress(settings.fromAddress);
+    setMailFromName(settings.fromName);
+    // 从未配置过 ⇒ 用浏览器环境自动填：界面语言 + 本机时区。
+    // 已经存过值就尊重它，不覆盖（否则会悄悄改掉管理员的显式选择）。
+    if (settings.host) {
+      setMailLocale(settings.locale);
+      setMailTimezone(settings.timezone);
+    } else {
+      setMailLocale(getLocale());
+      setMailTimezone(detectBrowserTimezone());
+    }
+    // 口令永不回显：留空表示「保持原口令不变」
+    setMailPassword('');
+    setMailTested(false);
+    setMailSynced(true);
+  }
+
+  function closeMailPrompt(): void {
+    setMailPromptAction(null);
+    setMailMasterPassword('');
+  }
+
+  /** 测试不需要主密码：只给操作者自己发一封信，不是敏感写操作。 */
+  async function submitMailTest(): Promise<void> {
+    if (!mailCanTest) return;
+    setMailSubmitting(true);
+    try {
+      await props.onSendTestMail(mailInput);
+      setMailTested(true);
+    } catch (error) {
+      props.onNotify?.('error', describeMailFailure(error));
+    } finally {
+      setMailSubmitting(false);
+    }
+  }
+
+  async function submitMailPrompt(): Promise<void> {
+    if (mailSubmitting || !mailMasterPassword) return;
+    setMailSubmitting(true);
+    try {
+      // 禁用再启用走同一个端点：靠 `enabled` 区分（保存 = 启用）
+      const payload = mailPromptAction === 'disable' ? { ...mailInput, enabled: false } : mailInput;
+      const saved = await props.onSaveMailSettings(payload, mailMasterPassword);
+      applyMailSettings(saved);
+      closeMailPrompt();
+    } catch (error) {
+      props.onNotify?.('error', describeMailFailure(error));
+      closeMailPrompt();
+    } finally {
+      setMailSubmitting(false);
+    }
+  }
 
   useEffect(() => {
     clearLegacyTotpSetupSecrets();
   }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'mail' || !isAdmin) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settings = await props.onLoadMailSettings();
+        if (!cancelled) applyMailSettings(settings);
+      } catch (error) {
+        if (!cancelled) props.onNotify?.('error', describeMailFailure(error));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, isAdmin]);
 
   useEffect(() => {
     if (!props.totpEnabled) {
@@ -595,6 +742,8 @@ export default function SettingsPage(props: SettingsPageProps) {
     { id: 'masterPassword', label: t('txt_master_password') },
     { id: 'twoStep', label: t('txt_two_step_login') },
     { id: 'keys', label: t('txt_keys') },
+    // 邮件发送是服务器级配置，只有管理员能改，因此仅对管理员显示
+    ...(isAdmin ? [{ id: 'mail' as SettingsSection, label: t('txt_mail') }] : []),
   ];
 
   return (
@@ -919,8 +1068,217 @@ export default function SettingsPage(props: SettingsPageProps) {
               </section>
             </div>
           )}
+
+          {activeSection === 'mail' && (
+            <div className="settings-section-stack">
+              <section className="settings-submodule">
+                <div className="settings-module-head">
+                  <h3>{t('txt_mail_config')}</h3>
+                  {mailConfigured ? (
+                    <span className="two-step-enabled-badge">{t('txt_mail_configured')}</span>
+                  ) : (
+                    <span className="two-step-enabled-badge is-danger">{t('txt_mail_not_configured')}</span>
+                  )}
+                </div>
+                <p className="muted-inline settings-field-note">{t('txt_mail_sending_intro')}</p>
+                <div className="settings-vertical-fields">
+                  <label className="field">
+                    <span>{t('txt_mail_host')}</span>
+                    <input
+                      className="input"
+                      value={mailHost}
+                      placeholder="smtp.example.com"
+                      onInput={(event) => {
+                        setMailHost((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_port')}</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={mailPort}
+                      onInput={(event) => {
+                        setMailPort((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                    <div className="field-help">
+                      {t('txt_mail_encryption_inferred', {
+                        mode:
+                          mailEncryption === 'implicit'
+                            ? t('txt_mail_encryption_implicit')
+                            : t('txt_mail_encryption_starttls'),
+                      })}
+                    </div>
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_username')}</span>
+                    <input
+                      className="input"
+                      value={mailUsername}
+                      onInput={(event) => {
+                        setMailUsername((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_password')}</span>
+                    <input
+                      className="input"
+                      type="password"
+                      autoComplete="new-password"
+                      value={mailPassword}
+                      placeholder={mailSettings?.passwordConfigured ? t('txt_mail_password_keep') : ''}
+                      onInput={(event) => {
+                        setMailPassword((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_from_address')}</span>
+                    <input
+                      className="input"
+                      value={mailFromAddress}
+                      placeholder="noreply@example.com"
+                      onInput={(event) => {
+                        setMailFromAddress((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_from_name')}</span>
+                    <input
+                      className="input"
+                      value={mailFromName}
+                      onInput={(event) => {
+                        setMailFromName((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_locale')}</span>
+                    <select
+                      className="input"
+                      value={mailLocale}
+                      onInput={(event) => {
+                        setMailLocale((event.currentTarget as HTMLSelectElement).value);
+                        touchMailForm();
+                      }}
+                    >
+                      {AVAILABLE_LOCALES.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="field-help">{t('txt_mail_locale_help')}</div>
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_timezone')}</span>
+                    <select
+                      className="input"
+                      value={mailTimezone}
+                      onInput={(event) => {
+                        setMailTimezone((event.currentTarget as HTMLSelectElement).value);
+                        touchMailForm();
+                      }}
+                    >
+                      {timezoneOptions.map((zone) => (
+                        <option key={zone} value={zone}>
+                          {zone}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="field-help">{t('txt_mail_timezone_help')}</div>
+                  </label>
+
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={!mailCanSave}
+                      onClick={() => setMailPromptAction('save')}
+                    >
+                      {t('txt_save')}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled={!mailCanTest}
+                      onClick={() => void submitMailTest()}
+                    >
+                      <Send size={14} className="btn-icon" />
+                      {t('txt_mail_send_test')}
+                    </button>
+                    {mailEnabled && (
+                      <button
+                        type="button"
+                        className="btn btn-danger push-right"
+                        disabled={mailSubmitting}
+                        onClick={() => setMailPromptAction('disable')}
+                      >
+                        {t('txt_mail_disable')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
         </section>
       </div>
+      <ConfirmDialog
+        open={mailPromptAction !== null}
+        title={mailPromptAction === 'disable' ? t('txt_mail_disable') : t('txt_mail_save_title')}
+        message={t('txt_enter_master_password_to_continue')}
+        hideConfirm
+        hideCancel
+        closeButton
+        onConfirm={() => undefined}
+        onCancel={closeMailPrompt}
+        afterActions={
+          <div className="settings-vertical-fields">
+            <label className="field">
+              <span>{t('txt_master_password')}</span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="current-password"
+                value={mailMasterPassword}
+                onInput={(event) =>
+                  setMailMasterPassword((event.currentTarget as HTMLInputElement).value)
+                }
+              />
+            </label>
+            <div className="actions">
+              <button
+                type="button"
+                className={mailPromptAction === 'disable' ? 'btn btn-danger' : 'btn btn-primary'}
+                disabled={mailSubmitting || !mailMasterPassword}
+                onClick={() => void submitMailPrompt()}
+              >
+                {mailPromptAction === 'disable' ? t('txt_mail_disable') : t('txt_save')}
+              </button>
+            </div>
+          </div>
+        }
+      />
       <ConfirmDialog
         open={masterPasswordPrompt !== null}
         title={masterPasswordPromptTitle}

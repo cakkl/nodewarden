@@ -794,6 +794,18 @@
   color: var(--success);
 }
 
+/* 需要提醒的负面状态（如「未配置」）：同构于上一条，改用危险色。 */
+.two-step-enabled-badge.is-danger {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+  color: var(--danger-text);
+}
+
+/* 把按钮推到按钮组的另一端（用于「禁用」这类破坏性操作，与常规按钮拉开距离） */
+.actions > .push-right {
+  margin-left: auto;
+}
+
 .totp-manage-dialog-body {
   @apply mt-3;
 }
