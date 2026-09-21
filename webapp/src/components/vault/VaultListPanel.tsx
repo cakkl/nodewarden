@@ -128,14 +128,15 @@ const CipherListItem = memo(function CipherListItem(props: CipherListItemProps) 
         props.onSelectCipher(props.cipher.id);
       }}
     >
-      <input
-        type="checkbox"
-        className="row-check"
-        checked={props.checked}
-        aria-label={t('txt_select_device_name', { name: props.cipher.decName || t('txt_no_name') })}
-        onClick={(event) => event.stopPropagation()}
-        onInput={(e) => props.onToggleSelected(props.cipher.id, (e.currentTarget as HTMLInputElement).checked)}
-      />
+      <label className="check-hit" onClick={(event) => event.stopPropagation()}>
+        <input
+          type="checkbox"
+          className="row-check"
+          checked={props.checked}
+          aria-label={t('txt_select_device_name', { name: props.cipher.decName || t('txt_no_name') })}
+          onInput={(e) => props.onToggleSelected(props.cipher.id, (e.currentTarget as HTMLInputElement).checked)}
+        />
+      </label>
       <button type="button" className="row-main" onClick={() => props.onSelectCipher(props.cipher.id)}>
         <div className={`list-icon-wrap ${Number(props.cipher.type || 1) === 3 ? 'card-list-icon-wrap' : ''}`}>
           <VaultListIcon cipher={props.cipher} />
