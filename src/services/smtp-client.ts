@@ -37,10 +37,18 @@ export interface SmtpTimeouts {
   overallMs: number;
 }
 
+/**
+ * 默认超时预算。
+ *
+ * ⚠️ 总量必须**明显小于 30 秒**：`ctx.waitUntil()` 只在响应发出后延长 30 秒执行
+ * （见 Workers 平台限制），超过会被运行时直接砍掉 —— 那时我们自己的兜底超时
+ * 根本来不及生效，失败会以「任务消失」而不是「可读错误」的形式呈现。
+ * 25 秒留了 5 秒余量，也足够覆盖实测 0.7–1.0 秒的正常投递。
+ */
 export const DEFAULT_SMTP_TIMEOUTS: SmtpTimeouts = {
-  connectMs: 10_000,
-  replyMs: 20_000,
-  overallMs: 45_000,
+  connectMs: 8_000,
+  replyMs: 10_000,
+  overallMs: 25_000,
 };
 
 export interface SmtpConnectionSettings {
