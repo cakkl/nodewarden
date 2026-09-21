@@ -44,6 +44,19 @@ function addSearchIndexHeaders(request: Request, response: Response): Response {
   });
 }
 
+/**
+ * 资源目录前缀。
+ *
+ * `[assets] not_found_handling = "single-page-application"` 会把**任何**未找到的路径
+ * 都变成 `index.html` + `200 OK`。对 SPA 路由这是想要的，但对 `/assets/*` 是灾难：
+ * 浏览器会把这个 HTML 当 ES module 解析 → 语法错误 → `import()` 失败 →
+ * 内容区整块卸载、只剩导航栏。而且因为旧 index.html 记着的是**整套**旧 chunk 名，
+ * 表现就是「所有页面都白屏」，极易误判成路由或组件问题。
+ *
+ * 所以这里把资源目录的「伪 200」还原成真 404 —— 缺失就是缺失，不该伪装成别的东西。
+ */
+const ASSET_PATH_PREFIX = '/assets/';
+
 async function maybeServeAsset(request: Request, env: Env): Promise<Response | null> {
   if (!env.ASSETS) return null;
   if (request.method !== 'GET' && request.method !== 'HEAD') return null;
@@ -51,6 +64,17 @@ async function maybeServeAsset(request: Request, env: Env): Promise<Response | n
   if (isBackendRequestPath(url.pathname)) return null;
 
   const response = await env.ASSETS.fetch(request);
+
+  if (url.pathname.startsWith(ASSET_PATH_PREFIX) && response.status === 200) {
+    const contentType = String(response.headers.get('Content-Type') || '').toLowerCase();
+    if (contentType.includes('text/html')) {
+      return new Response('Not found', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+  }
+
   return addSearchIndexHeaders(request, response);
 }
 

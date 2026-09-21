@@ -1,9 +1,10 @@
 import { lazy, Suspense } from 'preact/compat';
 import { useEffect } from 'preact/hooks';
-import { Link, Route, Switch } from 'wouter';
+import { Link, Route, Switch, useLocation } from 'wouter';
 import { ArrowUpDown, Cloud, FileClock, Globe2, LogOut, Settings as SettingsIcon, Shield, ShieldCheck, ShieldUser } from 'lucide-preact';
 import type { ImportAttachmentFile, ImportResultSummary } from '@/components/ImportPage';
 import LoadingState from '@/components/LoadingState';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import type { AdminBackupImportResponse, AdminBackupRunResponse, AdminBackupSettings, RemoteBackupBrowserResponse } from '@/lib/api/backup';
 import type { AuditLogFilters } from '@/lib/api/admin';
 import type { CiphersImportPayload } from '@/lib/api/vault';
@@ -32,6 +33,25 @@ function LegacyBackupRedirect(props: { onNavigate: (path: string) => void }) {
   useEffect(() => {
     props.onNavigate('/backup');
   }, [props]);
+  return null;
+}
+
+/**
+ * 兜底重定向。
+ *
+ * `Switch` 里没有匹配的 Route 时会渲染 `null` —— 表现是「只剩导航栏、内容区一片空白」，
+ * 且因为与具体页面无关，**所有页面都可能是白的**；刷新后 location 变了又恢复正常。
+ * 本组件挂在无 path 的 Route 上，匹配所有剩余情况，把用户送回密码库。
+ */
+function UnknownRouteRedirect(props: { onNavigate: (path: string) => void }) {
+  const navigate = props.onNavigate;
+  const [location] = useLocation();
+  useEffect(() => {
+    // 走到兜底说明有一处导航到了未注册的路径。留痕才能定位源头 ——
+    // 否则现象只有「内容区空白」，无从反推。
+    console.warn('[nodewarden] unmatched route, redirecting to /vault:', location);
+    navigate('/vault');
+  }, [navigate, location]);
   return null;
 }
 
@@ -208,7 +228,9 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
   );
 
   return (
-    <Switch>
+    <ErrorBoundary>
+      {/* 包在 Switch 外层：页面组件报错时不会连带导航栏一起消失 */}
+      <Switch>
       <Route path="/security/password-health">
         <div className="stack">
           {props.mobileLayout && (
@@ -545,6 +567,12 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           </div>
         ) : null}
       </Route>
-    </Switch>
+
+      {/* 无 path ⇒ 匹配所有剩余情况。必须在最后。 */}
+      <Route>
+        <UnknownRouteRedirect onNavigate={props.onNavigate} />
+      </Route>
+      </Switch>
+    </ErrorBoundary>
   );
 }

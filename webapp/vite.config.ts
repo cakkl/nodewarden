@@ -51,21 +51,6 @@ function isCacheableResponse(response) {
   return response && response.ok && (response.type === 'basic' || response.type === 'default');
 }
 
-async function refreshNavigationCache(request) {
-  const cache = await caches.open(APP_SHELL_CACHE);
-  try {
-    const response = await fetch(request);
-    if (isCacheableResponse(response)) {
-      await cache.put('/', response.clone());
-      await cache.put('/index.html', response.clone());
-      await warmStaticDependencies(response.clone());
-    }
-    return response;
-  } catch {
-    return null;
-  }
-}
-
 async function warmStaticDependencies(response) {
   try {
     const html = await response.text();
@@ -90,6 +75,28 @@ async function warmStaticDependencies(response) {
 async function appShellNavigation(request) {
   const cache = await caches.open(APP_SHELL_CACHE);
   const url = new URL(request.url);
+
+  // 在线时必须 network-first，并把最新的 index.html 写回缓存。
+  //
+  // 缓存中的 index.html 记录着一整套带 hash 的 chunk 名。部署新版本后那些文件
+  // 全部不存在，用旧清单渲染会让**所有**页面都加载失败（只剩导航栏、内容区白屏），
+  // 而且应用本身也是被缓存的那份，强制刷新也救不回来。离线时才回退到缓存。
+  if (navigator.onLine !== false) {
+    try {
+      const response = await fetch(request);
+      if (isCacheableResponse(response)) {
+        const shellCopy = response.clone();
+        await cache.put('/index.html', response.clone());
+        await cache.put('/', response.clone());
+        // 依赖预热是 best-effort，不能阻塞导航
+        void warmStaticDependencies(shellCopy);
+        return response;
+      }
+    } catch {
+      // 落到下面的缓存分支
+    }
+  }
+
   return (
     (await cache.match(request, { ignoreSearch: true }))
     || (await cache.match(url.pathname, { ignoreSearch: true }))
@@ -175,10 +182,8 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
+    // 缓存写入已包含在 appShellNavigation 内部，不再额外发一次请求
     event.respondWith(appShellNavigation(request));
-    if (navigator.onLine !== false) {
-      event.waitUntil(refreshNavigationCache(request));
-    }
     return;
   }
 
