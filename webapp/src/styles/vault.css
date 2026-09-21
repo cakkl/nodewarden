@@ -414,7 +414,9 @@ select.input.duplicate-mode-toolbar-select {
 }
 
 .desktop-create-trigger {
-  @apply h-[34px] w-[34px] min-w-[34px] gap-0 rounded-[10px] p-0 text-[0];
+  @apply h-[34px] w-[34px] min-w-[34px] gap-0 rounded-[10px] p-0;
+  /* 同上：`@apply text-[0]` 在 Tailwind 4 下不生成 font-size，必须显式写 */
+  font-size: 0;
 }
 
 .desktop-create-trigger .btn-icon {

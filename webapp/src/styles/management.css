@@ -1292,7 +1292,11 @@
     padding-inline: 9px 26px;
   }
 
-  .log-search-input {
+  /* ⚠️ 选择器必须带 `.log-filter-form`（= (0,2,0)）：上面那条 `.log-filter-form .input`
+     的 `padding-inline: 9px 26px` 同为 (0,2,0)，会把只写 `.log-search-input`（(0,1,0)）
+     的 `padding-left: 2.15rem` 压掉 ⇒ padding-left 实际只有 9px，而左上角的搜索图标
+     固定在 left:12px（宽 15px，右边缘 27px）⇒ 文字与图标**重叠 17px**（402px 实测）。 */
+  .log-filter-form .log-search-input {
     font-size: 14px;
     padding-left: 2.15rem;
     padding-right: 10px;
