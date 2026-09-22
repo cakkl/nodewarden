@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
-import { ChevronLeft, ChevronRight, Database, RefreshCw, Save, Search, Server, Settings2, ShieldAlert, Smartphone, Trash2, UserRound } from 'lucide-preact';
+import { ChevronLeft, ChevronRight, Database, RefreshCw, Save, Search, Server, Settings2, ShieldAlert, Smartphone, Trash2, UserRound, X } from 'lucide-preact';
 import LoadingState from '@/components/LoadingState';
 import type { AuditLogFilters } from '@/lib/api/admin';
 import { t } from '@/lib/i18n';
@@ -210,7 +210,8 @@ export default function LogCenterPage(props: LogCenterPageProps) {
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  const load = useCallback(async (nextOffset = offset) => {
+  // searchOverride：清除按钮要在同一次查询里就生效（setState 未生效时读 state 会查出旧关键字）。
+  const load = useCallback(async (nextOffset = offset, searchOverride?: string) => {
     setLoading(true);
     setError('');
     try {
@@ -220,7 +221,7 @@ export default function LogCenterPage(props: LogCenterPageProps) {
         offset: nextOffset,
         category,
         level,
-        q: search,
+        q: searchOverride ?? search,
         ...rangeFilter,
       });
       setLogs(result.logs);
@@ -360,11 +361,25 @@ export default function LogCenterPage(props: LogCenterPageProps) {
             <div className="input-action-wrap">
               <Search size={15} className="input-leading-icon" />
               <input
-                className="input log-search-input"
+                className={`input log-search-input${search ? ' has-clear' : ''}`}
                 value={search}
                 placeholder={t('txt_log_search_placeholder')}
                 onInput={(event) => setSearch((event.currentTarget as HTMLInputElement).value)}
               />
+              {!!search && (
+                <button
+                  type="button"
+                  className="input-icon-btn"
+                  aria-label={t('txt_clear_search')}
+                  title={t('txt_clear_search_esc')}
+                  onClick={() => {
+                    setSearch('');
+                    void load(0, '');
+                  }}
+                >
+                  <X size={16} />
+                </button>
+              )}
             </div>
           </label>
           <label className="field">

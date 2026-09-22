@@ -322,84 +322,90 @@ export default function VaultListPanel(props: VaultListPanelProps) {
             </>
           ) : (
             <>
-              {props.sidebarFilter.kind === 'duplicates' && props.isMobileLayout ? (
-                <div className="duplicate-mode-head-menu mobile-duplicate-toolbar">
-                  <div className="mobile-duplicate-mode-select-wrap">
-                    {renderMobileFilterMenu('duplicate', t('txt_duplicate_detection_mode'), duplicateModeSelected, <Copy size={14} />, duplicateModeOptions)}
-                  </div>
-                  <button type="button" className="btn btn-secondary small" onClick={props.onSelectUniqueFromDuplicates}>
-                    <Check size={14} className="btn-icon" /> {t('txt_select_duplicate_items')}
-                  </button>
-                </div>
-              ) : (
-                <div className="search-input-wrap">
-                  <input
-                    className="search-input"
-                    placeholder={t('txt_search_items_count', { count: props.totalCipherCount })}
-                    value={props.searchInput}
-                    onInput={(e) => props.onSearchInput((e.currentTarget as HTMLInputElement).value)}
-                    onCompositionStart={props.onSearchCompositionStart}
-                    onCompositionEnd={(e) => props.onSearchCompositionEnd((e.currentTarget as HTMLInputElement).value)}
-                    onKeyDown={(e) => {
-                      if (e.key !== 'Escape' || !props.searchInput) return;
-                      e.preventDefault();
-                      props.onClearSearch();
-                    }}
-                  />
-                  {!!props.searchInput && (
-                    <button
-                      type="button"
-                      className="search-clear-btn"
-                      aria-label={t('txt_clear_search')}
-                      title={t('txt_clear_search_esc')}
-                      onClick={props.onClearSearch}
-                    >
-                      <X size={14} />
+              {/* 搜索组：搜索框 + 与它绑定的筛选下拉 */}
+              <div className="head-search-group">
+                {props.sidebarFilter.kind === 'duplicates' && props.isMobileLayout ? (
+                  <div className="duplicate-mode-head-menu mobile-duplicate-toolbar">
+                    <div className="mobile-duplicate-mode-select-wrap">
+                      {renderMobileFilterMenu('duplicate', t('txt_duplicate_detection_mode'), duplicateModeSelected, <Copy size={14} />, duplicateModeOptions)}
+                    </div>
+                    <button type="button" className="btn btn-secondary small" onClick={props.onSelectUniqueFromDuplicates}>
+                      <Check size={14} className="btn-icon" /> {t('txt_select_duplicate_items')}
                     </button>
-                  )}
-                </div>
-              )}
-              {props.sidebarFilter.kind === 'duplicates' && !props.isMobileLayout && (
-                <div className="duplicate-mode-head-menu">
-                  {renderMobileFilterMenu('duplicate', t('txt_duplicate_detection_mode'), duplicateModeSelected, <Copy size={14} />, duplicateModeOptions)}
-                </div>
-              )}
-              <div className="sort-menu-wrap" ref={props.sortMenuRef}>
-                <button
-                  type="button"
-                  className={`btn btn-secondary small sort-trigger sort-trigger-labeled ${props.sortMenuOpen ? 'active' : ''}`}
-                  aria-label={t('txt_sort')}
-                  title={t('txt_sort')}
-                  onClick={props.onToggleSortMenu}
-                >
-                  <ArrowUpDown size={14} className="btn-icon" /> <span>{t('txt_sort')}</span>
-                </button>
-                {props.sortMenuOpen && (
-                  <div className="sort-menu">
-                    {vaultSortOptions.map((option) => (
+                  </div>
+                ) : (
+                  <div className="search-input-wrap">
+                    <input
+                      className={`search-input${props.searchInput ? ' has-clear' : ''}`}
+                      placeholder={t('txt_search_items_count', { count: props.totalCipherCount })}
+                      value={props.searchInput}
+                      onInput={(e) => props.onSearchInput((e.currentTarget as HTMLInputElement).value)}
+                      onCompositionStart={props.onSearchCompositionStart}
+                      onCompositionEnd={(e) => props.onSearchCompositionEnd((e.currentTarget as HTMLInputElement).value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Escape' || !props.searchInput) return;
+                        e.preventDefault();
+                        props.onClearSearch();
+                      }}
+                    />
+                    {!!props.searchInput && (
                       <button
-                        key={option.value}
                         type="button"
-                        className={`sort-menu-item ${props.sortMode === option.value ? 'active' : ''}`}
-                        onClick={() => props.onSelectSortMode(option.value)}
+                        className="search-clear-btn"
+                        aria-label={t('txt_clear_search')}
+                        title={t('txt_clear_search_esc')}
+                        onClick={props.onClearSearch}
                       >
-                        <span>{option.label}</span>
-                        {props.sortMode === option.value ? <Check size={14} /> : <span className="sort-menu-check-placeholder" />}
+                        <X size={14} />
                       </button>
-                    ))}
+                    )}
+                  </div>
+                )}
+                {props.sidebarFilter.kind === 'duplicates' && !props.isMobileLayout && (
+                  <div className="duplicate-mode-head-menu">
+                    {renderMobileFilterMenu('duplicate', t('txt_duplicate_detection_mode'), duplicateModeSelected, <Copy size={14} />, duplicateModeOptions)}
                   </div>
                 )}
               </div>
-              <button type="button" className="btn btn-secondary small list-icon-btn" disabled={props.busy || props.loading} onClick={props.onSyncVault}>
-                <RefreshCw size={14} className="btn-icon" /> {t('txt_sync_vault')}
-              </button>
-              {props.sidebarFilter.kind === 'duplicates' && !props.isMobileLayout ? (
-                <button type="button" className="btn btn-secondary small" onClick={props.onSelectUniqueFromDuplicates}>
-                  <Check size={14} className="btn-icon" /> {t('txt_select_duplicate_items')}
+              {/* 动作组：排序 / 同步 / 新建，作为整体换行 */}
+              <div className="head-actions-group">
+                <div className="sort-menu-wrap" ref={props.sortMenuRef}>
+                  <button
+                    type="button"
+                    className={`btn btn-secondary small sort-trigger sort-trigger-labeled ${props.sortMenuOpen ? 'active' : ''}`}
+                    aria-label={t('txt_sort')}
+                    title={t('txt_sort')}
+                    onClick={props.onToggleSortMenu}
+                  >
+                    <ArrowUpDown size={14} className="btn-icon" /> <span>{t('txt_sort')}</span>
+                  </button>
+                  {props.sortMenuOpen && (
+                    <div className="sort-menu">
+                      {vaultSortOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`sort-menu-item ${props.sortMode === option.value ? 'active' : ''}`}
+                          onClick={() => props.onSelectSortMode(option.value)}
+                        >
+                          <span>{option.label}</span>
+                          {props.sortMode === option.value ? <Check size={14} /> : <span className="sort-menu-check-placeholder" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button type="button" className="btn btn-secondary small list-icon-btn" disabled={props.busy || props.loading} onClick={props.onSyncVault}>
+                  <RefreshCw size={14} className="btn-icon" /> {t('txt_sync_vault')}
                 </button>
-              ) : (
-                !props.isMobileLayout && props.sidebarFilter !== undefined && createMenu
-              )}
+                {props.sidebarFilter.kind === 'duplicates' && !props.isMobileLayout ? (
+                  <button type="button" className="btn btn-secondary small" onClick={props.onSelectUniqueFromDuplicates}>
+                    <Check size={14} className="btn-icon" /> {t('txt_select_duplicate_items')}
+                  </button>
+                ) : (
+                  !props.isMobileLayout && props.sidebarFilter !== undefined && createMenu
+                )}
+              </div>
             </>
           )}
         </div>

@@ -932,10 +932,25 @@
 .input-leading-icon {
   @apply pointer-events-none absolute left-3 top-1/2 -translate-y-1/2;
   color: #64748b;
+  /* 输入框聚焦时会加 `transform`（`.input:focus`），那会把它抬到与图标同层并盖住图标
+     （它有不透明背景）⇒ 图标必须抬到输入框之上。 */
+  z-index: 1;
 }
 
 .log-search-input {
   padding-left: 2.25rem;
+}
+
+/* 日志中心的搜索框右侧没有按钮，而 `.input-action-wrap .input { pr-12 }` 是给「框内右侧按钮」
+   （`.input-icon-btn`，如密码库的 QR 扫描）预留的 ⇒ 会白占 45px、长 placeholder 像被一个看不见的按钮截断。
+   选择器需 3 个类，才能压过 (0,2,0) 的 `.input-action-wrap .input`。 */
+.log-filter-form .input-action-wrap .log-search-input {
+  padding-right: 10px;
+}
+
+/* 只有真的渲染了清除按钮时才预留那 45px（无值时按钮不存在）。 */
+.log-filter-form .input-action-wrap .log-search-input.has-clear {
+  padding-right: 45px;
 }
 
 .log-filter-actions {
@@ -1337,11 +1352,12 @@
   /* ⚠️ 选择器必须带 `.log-filter-form`（= (0,2,0)）：上面那条 `.log-filter-form .input`
      的 `padding-inline: 9px 26px` 同为 (0,2,0)，会把只写 `.log-search-input`（(0,1,0)）
      的 `padding-left: 2.15rem` 压掉 ⇒ padding-left 实际只有 9px，而左上角的搜索图标
-     固定在 left:12px（宽 15px，右边缘 27px）⇒ 文字与图标**重叠 17px**（402px 实测）。 */
+     固定在 left:12px（宽 15px，右边缘 27px）⇒ 文字与图标**重叠 17px**（402px 实测）。
+     `padding-right` 不在这里写：由顶层的 `.log-filter-form .input-action-wrap .log-search-input`
+     统一（有清除按钮时才 45px），避免同一值两处维护。 */
   .log-filter-form .log-search-input {
     font-size: 14px;
     padding-left: 2.15rem;
-    padding-right: 10px;
   }
 
   .log-filter-form select.input {

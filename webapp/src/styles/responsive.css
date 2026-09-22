@@ -385,6 +385,12 @@
     grid-template-columns: minmax(0, 1fr) auto auto auto;
   }
 
+  /* 移动态两组透明化：子项仍直接参与上面的网格布局。 */
+  .head-search-group,
+  .head-actions-group {
+    display: contents;
+  }
+
   .list-head.selection-mode {
     @apply justify-stretch;
     grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -442,8 +448,14 @@
     display: none;
   }
 
-  .duplicate-mode-head-menu .mobile-vault-filter-menu {
+  /* 「完全相同」的菜单锚点只有 110px 宽、菜单却有 190px ⇒ 通用的 `:last-child { right: 0 }`
+     会让它向左伸出屏幕（竖屏实测左溢出 72px）。改为左对齐 + 限制不超出视口。
+     选择器需 4 个类，才能压过 vault.css 的 `.mobile-vault-filter-control:last-child .…`（0,3,0）。 */
+  .list-head .duplicate-mode-head-menu .mobile-vault-filter-control .mobile-vault-filter-menu {
+    left: 0;
+    right: auto;
     min-width: max(100%, 190px);
+    max-width: calc(100vw - 20px);
   }
 
   .list-head .mobile-duplicate-toolbar {
