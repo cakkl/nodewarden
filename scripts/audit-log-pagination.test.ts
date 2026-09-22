@@ -1,11 +1,9 @@
 // 日志中心分页的回归测试。
 //
-// 为什么需要它：`listAuditLogs` 曾经把 `total` 算成
-// `offset + logs.length + (hasMore ? 1 : 0)` —— 那是"已走过的行数 + 本页行数"，
-// 不是真实总数。后果是分页分母每翻一页恰好 +limit，`ceil(total/limit)` 恒等于"页码 + 1"：
-// 用户看到 350/351 → 400/401、7/8 → 8/9，永远看不到真实条数与真实总页数
-// （只有最后一页凑巧是对的）。这类"数字在自己动"的缺陷光看代码很难发现，
-// 所以把"翻页时分母必须不变"写成断言。
+// 为什么需要：`listAuditLogs` 曾把 `total` 算成 `offset + logs.length + (hasMore ? 1 : 0)` —— 那是
+// "已走过的行数 + 本页行数"，不是真实总数。后果是分页分母每翻一页恰好 +limit，
+// `ceil(total/limit)` 恒等于"页码 + 1"：用户看到 350/351 → 400/401、7/8 → 8/9，永远看不到真实条数与
+// 真实总页数（只有最后一页凑巧是对的）。所以把"翻页时分母必须不变"写成断言。
 //
 // 运行方式：npm run test:audit-log-pagination
 import assert from 'node:assert/strict';
@@ -149,14 +147,12 @@ test('空库与越界 offset：total 为 0 / 不报错', async () => {
 
 // 「操作者」列的行内快照（audit_logs.actor_email）。
 //
-// 背景：actor_user_id 上有 `ON DELETE SET NULL` 外键，而 `DELETE FROM users` 会在
-// 「从备份恢复」和「管理端删除用户」两条路径上跑 —— 那一刻该用户所有历史日志的
-// actor_user_id 都被置成 NULL，且**不会自愈**（恢复虽把用户按同样 id 写回，
-// 但没有任何代码把值算回来）。表现就是日志中心「操作者」永久显示 `—`、
-// 按操作者邮箱搜索永久失效。
+// 背景：actor_user_id 上有 `ON DELETE SET NULL` 外键，而 `DELETE FROM users` 会在「从备份恢复」和
+// 「管理端删除用户」两条路径上跑 —— 那一刻该用户所有历史日志的 actor_user_id 都被置成 NULL，且
+// **不会自愈**。表现就是日志中心「操作者」永久显示 `—`、按邮箱搜索永久失效。
 //
-// 修法是写入时在行内抄一份邮箱。本测试断言的就是这条快照链路：
-// ① `createAuditLog` 真的写了快照；② 编号被置空后仍能显示；③ 搜索也还命中。
+// 修法是写入时在行内抄一份邮箱。本测试断言这条快照链路：① `createAuditLog` 真的写了快照；
+// ② 编号被置空后仍能显示；③ 搜索也还命中。
 test('恢复/删用户把 actor_user_id 置空后，操作者邮箱仍能显示与搜索', async () => {
   const handle = await freshHandle();
   const ACTOR_EMAIL = 'audit-a@example.test';

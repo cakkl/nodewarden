@@ -1,13 +1,10 @@
-// webapp 纯逻辑测试：密码哈希与弱密码判定（§3.5 方案 A）
+// webapp 纯逻辑测试：密码哈希与弱密码判定
 //
-// 为什么值得测：
-//   · `sha1Password` 的输出会直接拼进 HaveIBeenPwned 的 k-anonymity 查询 URL。
-//     服务端那一侧（`checkPasswordHashLeaked`）要求 **40 位大写十六进制**，
-//     一旦这里的输出变成小写，查询会被判为「哈希非法」，而调用方
-//     `checkPasswordLeaked` 会把异常吞掉、返回 `{ count: null, available: false }` ——
-//     也就是**泄露检测静默失效**。所以这里用已知向量 + 大小写共同把住。
-//   · `isWeakPassword` 是纯判定逻辑，规则边界多（公共密码表 / 长度 / 重复字符 /
-//     键盘序列 / 包含用户名 / 字符类别数），值得逐条钉住。
+//   · `sha1Password` 的输出会拼进 HaveIBeenPwned 的 k-anonymity 查询 URL，服务端要求 **40 位大写
+//     十六进制**；一旦变小写，查询被判"哈希非法"，而调用方会把异常吞掉、返回
+//     `{ count: null, available: false }` —— 也就是**泄露检测静默失效**。所以用已知向量 + 大小写把住。
+//   · `isWeakPassword` 规则边界多（公共密码表 / 长度 / 重复字符 / 键盘序列 / 包含用户名 /
+//     字符类别数），值得逐条钉住。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';

@@ -757,8 +757,8 @@ export const DEMO_BACKUP_SETTINGS: AdminBackupSettings = {
 /**
  * 演示日志的时间戳一律**相对当前时间**生成（参数单位：小时）。
  *
- * 为什么不能像本文件其它演示数据那样写死日期：日志中心默认只查「最近 7 天」，
- * 日期写死在过去会让整个页面在默认视图下空着，示例也就失去了意义。
+ * 为什么不能像本文件其它演示数据那样写死日期：日志中心默认只查「最近 7 天」，日期写死在过去会让整个
+ * 页面在默认视图下空着，示例也就失去了意义。
  */
 function demoLogAt(hoursAgo: number): string {
   return new Date(Date.now() - hoursAgo * 60 * 60 * 1000).toISOString();

@@ -119,9 +119,8 @@
     // Max device identifiers accepted in one batch request body.
     // 单次批量请求里允许出现的设备标识数上限。
     //
-    // 这些列表直接来自客户端请求体（`body.otherDevices` / `body.devices`），
-    // 没有天然上界。不设限的话，"逐条 IO"会变成客户端可控的线性放大器：
-    // 每个条目触发一次数据库往返，条数由请求方随意决定。
+    // 这些列表直接来自客户端请求体（`body.otherDevices` / `body.devices`），没有天然上界。不设限的话，
+    // "逐条 IO"会变成客户端可控的线性放大器：每个条目触发一次数据库往返，条数由请求方随意决定。
     maxBulkIdentifiers: 50,
   },
   cors: {

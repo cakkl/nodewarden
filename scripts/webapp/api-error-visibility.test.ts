@@ -1,17 +1,12 @@
-// 「前端不要把服务端错误文案吞掉」的源码护栏（docs/TODO.md 第 21 条）。
+// 「前端不要把服务端错误文案吞掉」的源码护栏。
 //
-// 背景：`webapp/src/lib/api/**` 里原有 **32 处**写成
-//   if (!resp.ok) throw new Error('Create item failed');
-// 它们把服务端的 `error_description` / `error` **整个丢掉**，于是：
-//   · 主密码输错 → 用户只看到「创建失败」，无从自救；
-//   · 命中限流（429）/ 权限（403）→ 同样只剩一句笼统的失败。
-// 正确的形态是把服务端文案接过来再本地化：
-//   if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_…')));
-// 老代码里还有等价的 `translateServerError(body?.error_description || body?.error, t('…'))`
-// （手动 parseJson 的版本）—— 两种都算合格，本护栏只禁「完全不吃服务端文案」的写法。
+// 背景：`webapp/src/lib/api/**` 原有 32 处写成 `throw new Error('Create item failed')`，把服务端的
+// `error_description` / `error` 整个丢掉 —— 主密码输错、命中 429/403 都只剩一句笼统的失败。
+// 合格形态：`throw new Error(await parseErrorMessage(resp, t('txt_…')))`，或手动 parseJson 版的
+// `translateServerError(body?.error_description || body?.error, t('…'))`。本护栏只禁「完全不吃服务端
+// 文案」的写法。
 //
-// 为什么必须用护栏而不是靠人记：第 5/20/21 条已经是**第三次**修同一个模式了
-// （管理端 2 处 → 邀请码 4 处 → 全仓 32 处），加护栏才能止住。
+// 加护栏是因为同一模式已修到第三次。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';

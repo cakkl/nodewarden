@@ -316,13 +316,12 @@ export async function saveAccountPasskeyChallenge(
 
   // 清理旧挑战。这里原本是一条 `WHERE expires_at < ? OR used_at IS NOT NULL`。
   //
-  // 实测（EXPLAIN QUERY PLAN）：**OR 里只要有一侧没有可用索引，SQLite 就整个退化成
-  // 全表扫** —— 连已经建好的 idx_webauthn_challenges_expires 都白费了。
-  // 拆成两条之后，每条都能各自走索引（`SEARCH … USING INDEX`）。
+  // 实测（EXPLAIN QUERY PLAN）：**OR 里只要有一侧没有可用索引，SQLite 就整个退化成全表扫** —— 连已经
+  // 建好的 idx_webauthn_challenges_expires 都白费了。拆成两条之后，每条都能各自走索引。
   // 代价是多一次往返；换来的是这个"每次保存挑战都会跑"的清理不再全表扫。
   //
-  // 注意两条的顺序无关紧要（都是删除），但**都必须在 INSERT 之前**，
-  // 否则刚写入的挑战可能被自己的清理句删掉。
+  // 注意两条的顺序无关紧要（都是删除），但**都必须在 INSERT 之前**，否则刚写入的挑战可能被自己的
+  // 清理句删掉。
   const now = Date.now();
   await db.prepare('DELETE FROM webauthn_challenges WHERE expires_at < ?').bind(now).run();
   await db.prepare('DELETE FROM webauthn_challenges WHERE used_at IS NOT NULL').run();

@@ -906,14 +906,13 @@ export async function handleGetTwoFactorAuthenticator(request: Request, env: Env
   if (!verified) return errorResponse('User verification failed.', 400);
 
   const storedKey = normalizeTotpSecret(user.totpSecret || '');
-  // 与官方客户端兼容：库里没有密钥时，这里要**现场生成一把**供客户端的“启用验证器”流程使用
-  // （客户端拿它当二维码显示，用户提交的 PUT 会把同一把存回去）。
-  // 因此调用方**必须**靠 `Enabled` 区分“已保存的真值”与“本次待启用的新值”。
+  // 与官方客户端兼容：库里没有密钥时，这里要**现场生成一把**供客户端的“启用验证器”流程使用（客户端
+  // 拿它当二维码显示，用户提交的 PUT 会把同一把存回去）。因此调用方**必须**靠 `Enabled` 区分“已保存的
+  // 真值”与“本次待启用的新值”。
   //
-  // `Enabled` 与返回值保持一致也修掉了另一处隐患：过去用的是 `!!user.totpSecret`，
-  // 遇到“有值但不可用”（字母表非法）时会回 `Enabled: true` + 一把**随机**密钥，
-  // 客户端就会把随机值当“当前密钥”展示。现在这种情形会回 `Enabled: false` + 新密钥，
-  // 用户再启用一次就能自愈。
+  // `Enabled` 与返回值保持一致也修掉了另一处隐患：过去用的是 `!!user.totpSecret`，遇到“有值但不可用”
+  // （字母表非法）时会回 `Enabled: true` + 一把**随机**密钥，客户端就会把随机值当“当前密钥”展示。现在
+  // 这种情形会回 `Enabled: false` + 新密钥，用户再启用一次就能自愈。
   const hasUsableStoredKey = isValidTotpSecret(storedKey);
   const key = hasUsableStoredKey ? storedKey : randomBase32Secret();
   const userVerificationToken = await createTotpUserVerificationToken(env, user, key);

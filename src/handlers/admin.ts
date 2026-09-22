@@ -16,9 +16,9 @@ const LAST_ACTIVE_ADMIN_MESSAGE = 'This is the last active administrator. Promot
  * 管理端**写**操作前用库里的最新状态复核操作者。
  *
  * 为什么需要：`actorUser` 来自 `AuthService` 的 isolate 级缓存（TTL 15 s，见
- * `AUTH_CONTEXT_CACHE_TTL_MS`），而 ban / 删除只清**当前 isolate** 的缓存 ——
- * 其余 isolate 上「刚被别的管理员 ban 掉的人」还能按 active 管理员继续操作最多 15 s。
- * 管理端写操作本来极低频，多一次主键查询换掉这个窗口很划算。
+ * `AUTH_CONTEXT_CACHE_TTL_MS`），而 ban / 删除只清**当前 isolate** 的缓存 —— 其余 isolate 上
+ * 「刚被别的管理员 ban 掉的人」还能按 active 管理员继续操作最多 15 s。管理端写操作极低频，多一次主键
+ * 查询换掉这个窗口很划算。
  */
 async function resolveFreshAdmin(storage: StorageService, actorUser: User): Promise<User | null> {
   const fresh = await storage.getUserById(actorUser.id);
@@ -28,15 +28,13 @@ async function resolveFreshAdmin(storage: StorageService, actorUser: User): Prom
 /**
  * 「最后一个还能用的管理员」保护。
  *
- * 为什么不变量不显然：能走到这里的操作者本身必须是 active 管理员，而各 handler 都有
- * 「不能对自己动手」的检查 ⇒ 单看代码似乎永远归不到零。但有两个漏口：
- *   ① 上面的 15 s 缓存窗口（A 被 B ban 后，A 仍可能以管理员身份删/封 B）；
- *   ② 将来新增的批量操作 / 恢复流程。
- * 一旦归零，`ensureAdminUserExists()` 要等下次 schema 重建才兜底，而恢复归档会立刻触发 ——
- * 也就是「把别人的备份恢复进来」会静默决定谁成为管理员。所以把不变量写成显式断言。
+ * 不变量不显然的原因：能走到这里的操作者本身必须是 active 管理员、且各 handler 都有「不能对自己
+ * 动手」的检查，单看代码似乎永远归不到零。但有两个漏口：① 上面的 15 s 缓存窗口（A 被 B ban 后，
+ * A 仍可能以管理员身份删/封 B）；② 将来新增的批量操作 / 恢复流程。一旦归零，
+ * `ensureAdminUserExists()` 要等下次 schema 重建才兜底，而恢复归档会立刻触发 —— 也就是「把别人的
+ * 备份恢复进来」会静默决定谁成为管理员。所以把不变量写成显式断言。
  *
- * 导出**仅为可测试性**：handler 路径上它当前不可达（操作者自己就是 active 管理员 ⇒
- * 计数至少为 2，或者命中「不能对自己动手」），所以只能直接对它做单测。
+ * 导出**仅为可测试性**：handler 路径上它当前不可达，只能直接对它做单测。
  */
 export async function guardLastActiveAdmin(storage: StorageService, target: User): Promise<Response | null> {
   // 只有「移除一个还能用的管理员」才有风险：把 user 改成 banned、把 banned 恢复成 active 都安全。

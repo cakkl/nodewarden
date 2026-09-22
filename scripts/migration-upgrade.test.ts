@@ -1,19 +1,12 @@
 // D1 迁移在「已有数据的库」上的升级路径测试
 //
-// 要回答的问题：一个有存量的老库升级到新版本时，**数据是否完好**？
+// 要回答的：有存量的老库升级到新版本时，**数据是否完好**？此前的验证只覆盖了「语法能执行」与
+// 「运行时 schema 无漂移」，从未在真实数据上跑过一次升级 —— 而升级是部署路径上的必经步骤。
 //
-// 之前的验证只覆盖了「语法能执行」与「运行时 schema 与迁移文件无漂移」（第 3 轮），
-// 但**从未在真实数据上跑过一次升级**。而升级是部署路径上的必经步骤，只对有存量库的
-// 实例生效 —— 恰恰是最难靠人工发现问题的场景。
-//
-// 做法：用 node:sqlite 适配器（./lib/d1-sqlite.ts）跑真实 SQL。
-//   ① 用 migrations/0001_init.sql 建库（新库基线）
-//   ② 灌入代表性数据
-//   ③ **机械地**把「后加的列」DROP 掉，模拟老库形态
-//      —— 后加列的清单来自 SCHEMA_STATEMENTS 的 `ALTER TABLE ... ADD COLUMN`，
-//         而不是手写清单，因此将来新增列时本测试会自动覆盖到
-//   ④ 跑 ensureStorageSchema / initializeDatabase
-//   ⑤ 断言：列被补齐、原有数据逐行完好、重复执行幂等
+// 做法（node:sqlite 跑真实 SQL）：① 用 migrations/0001_init.sql 建基线；② 灌入代表性数据；③ **机械
+// 地**把「后加的列」DROP 掉模拟老库形态（清单来自 SCHEMA_STATEMENTS 的 `ALTER TABLE ... ADD COLUMN`，
+// 所以将来新增列会自动被覆盖）；④ 跑 ensureStorageSchema / initializeDatabase；⑤ 断言列被补齐、
+// 原数据逐行完好、重复执行幂等。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
@@ -89,8 +82,8 @@ function pick(row: Record<string, unknown>, columns: string[]): Record<string, u
  * 断言「升级前已存在的行」在升级后仍存在，且**既有列**取值未变。
  *
  * 两处刻意的放宽，都对应 bootstrap 的**文档化副作用**（见 src/services/storage-schema.ts）：
- *  - **允许新增行**：兜底提权会补写一条审计事件。所以按主键逐行定位，而不是比较整个数组
- *  - **`ignoreColumns` 内的列允许变化**：兜底提权会改写 `users.role` 与 `users.updated_at`
+ * **允许新增行**（兜底提权会补写一条审计事件，所以按主键逐行定位而非比较整个数组）；`ignoreColumns`
+ * 内的列允许变化（兜底提权会改写 `users.role` 与 `users.updated_at`）。
  *
  * 另外只比较「升级前就存在的列」—— 补列会让行的字段集合变大，那是预期的结构变化，不是数据损坏。
  */
@@ -207,14 +200,10 @@ function resetSchemaVerifiedFlag(): void {
 /**
  * 断言 `initializeDatabase` **不发起任何出站请求**。
  *
- * 背景：它此前会在末尾调 `ensurePushInstallationCredentials`，在缺少缓存凭据时向 Bitwarden
- * 的 push relay 发起真实 POST（实测吃到 429 限流）。但 `/config` 硬编码
- * `pushTechnology: 0` 与 `'web-push': false`，客户端根本不会使用推送 —— 也就是说
- * **每个 isolate 的首次请求都在白等一次第三方往返**。
- *
- * 而真正需要凭据的两处（`getPushAccessToken`、设备注册）都会自己先调
- * `ensurePushInstallationCredentials`，因此数据库初始化不该承担这件事。
- * 本测试锁死"数据库初始化是纯本地的"。
+ * 背景：它此前会在末尾调 `ensurePushInstallationCredentials`，缺少缓存凭据时会向 Bitwarden 的 push
+ * relay 发起真实 POST（实测吃到 429 限流）。但客户端根本不用推送，于是**每个 isolate 的首次请求都在
+ * 白等一次第三方往返**。而真正需要凭据的两处（`getPushAccessToken`、设备注册）都会自己先调它，
+ * 因此数据库初始化不该承担这件事。本测试锁死"数据库初始化是纯本地的"。
  */
 async function expectNoOutboundFetch<T>(run: () => Promise<T>): Promise<T> {
   const original = globalThis.fetch;

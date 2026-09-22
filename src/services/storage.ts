@@ -270,14 +270,13 @@ export class StorageService {
 
     // 刻意不在这里注册 Bitwarden 的 push installation。
     //
-    // 此处曾调用 `ensurePushInstallationCredentials(this.db)`，但它会在缺少缓存凭据时
-    // 向 `api.bitwarden.com/installations` 发起真实出站 POST —— 而本函数是每个 isolate
-    // **首次请求**的必经之路，于是冷启动平白依赖一个第三方服务（失败被吞掉、不影响功能，
-    // 但会增加延迟，实测这一步耗时 1-2 秒）。
+    // 此处曾调用 `ensurePushInstallationCredentials(this.db)`，但它会在缺少缓存凭据时向
+    // `api.bitwarden.com/installations` 发起真实出站 POST —— 而本函数是每个 isolate **首次请求**的
+    // 必经之路，于是冷启动平白依赖一个第三方服务（失败被吞掉、不影响功能，但实测增加 1-2 秒延迟）。
     //
     // 而真正需要凭据的两处（`getPushAccessToken`、设备注册）都会自己先调
-    // `ensurePushInstallationCredentials`，因此移除这里的预热不会影响推送功能。
-    // 另：`/config` 硬编码 `pushTechnology: 0` 与 `'web-push': false`，客户端本就不会使用推送。
+    // `ensurePushInstallationCredentials`，因此移除预热不影响推送功能。另：`/config` 硬编码
+    // `pushTechnology: 0` 与 `'web-push': false`，客户端本就不会使用推送。
 
     StorageService.schemaVerified = true;
   }

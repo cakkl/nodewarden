@@ -1,21 +1,13 @@
 // ciphers handler 的行为测试
 //
-// 为什么需要它：`ciphers.ts` 是核心数据面（约 1500 行），却**没有任何测试** ——
-// 第 1-10 轮的后端审计只覆盖了安全面（注入 / 越权 / 并发 / 限流），§3.4 的统计显示
-// 20 个 handler 中只有 2 个被测试引用。
+// 用**真实 SQL**（node:sqlite 适配器 + migrations/0001_init.sql）驱动真实 handler，重点三件事：
+//   ① **跨用户隔离** —— 越权读写必须 404 且数据分毫不变
+//   ② **陈旧写入** —— 过期的 lastKnownRevisionDate 必须被拒绝
+//   ③ **未知字段保留** —— CONTRIBUTING 的硬性要求（Bitwarden 兼容面）
 //
-// 本文件用**真实 SQL**（node:sqlite 适配器 + migrations/0001_init.sql）驱动真实 handler，
-// 重点是三件最要紧的事：
-//   1. **跨用户隔离** —— 越权读写必须 404，且数据分毫不变
-//   2. **陈旧写入** —— 过期的 lastKnownRevisionDate 必须被拒绝
-//   3. **未知字段保留** —— CONTRIBUTING 的硬性要求（Bitwarden 兼容面）
-//
-// 运行方式（必须带模块解析钩子）：
-//   npm run test:ciphers-handler
-//
-// 原因：`ciphers.ts` 间接 import `src/durable/notifications-hub.ts`，后者从 Workers 虚拟
-// 模块 `cloudflare:workers` 导入，而 Node 无法解析该协议
-// （ERR_UNSUPPORTED_ESM_URL_SCHEME）。钩子把该模块重定向到本地桩。
+// 运行方式：npm run test:ciphers-handler
+// 必须带 `--import ./scripts/lib/register-cloudflare-stub.mjs`：`ciphers.ts` 间接 import
+// `cloudflare:workers`，Node 无法解析该协议（package.json 里已固化）。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';

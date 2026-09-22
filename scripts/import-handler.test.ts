@@ -1,12 +1,10 @@
 // `src/handlers/import.ts` 的行为测试（Bitwarden 客户端的导入端点）
 //
-// 为什么值得测：导入是**批量写入**路径 —— 客户端会把整个 vault（最多 5000 条）一次性推上来。
-// 这里出错的形态与单条 CRUD 不同：
-//   · 写错了 → 一次污染几千条，且用户很难分辨哪些是导入的
-//   · 失败时留下了半截数据 → 用户看到"导入失败"，库里却多了东西，重试后越积越多
+// 为什么值得测：导入是**批量写入**路径 —— 客户端会把整个 vault（最多 5000 条）一次性推上来，出错
+// 形态与单条 CRUD 不同：写错一次污染几千条且用户难分辨；失败时留下半截数据则会出现"导入失败"但库里
+// 多了东西，重试后越积越多。
 //
-// 本文件把下面这条当作**期望行为**来断言：**导入要么整体成功，要么什么都不留下**。
-// （首次运行时它应当失败 —— 那正是要修的东西。）
+// 本文件把这条当作**期望行为**断言：**导入要么整体成功，要么什么都不留下**。
 //
 // 运行方式：npm run test:import-handler
 import assert from 'node:assert/strict';
@@ -277,13 +275,11 @@ test('导入：客户端未知字段要原样保留（PascalCase 别名只覆盖
   h.handle.close();
 });
 
-// 值得记下的**不对称**（不是缺陷，但后人容易踩）：
-//   import.ts 里 `folderId` / `login` / `card` / `identity` / `secureNote` / `sshKey` … 这些字段
-//   走 `readAliasedImportProp(['x', 'X'])`，**同时接受 camelCase 与 PascalCase**；
-//   而 `type` / `name` / `notes` / `favorite` / `reprompt` 是直接属性访问，**只认 camelCase**。
-// 官方客户端发的都是 camelCase，所以现在没问题；但假如有客户端只发 `Name`，
-// 结果是 name 回退为 'Untitled' → 加密校验失败 → **400 报错并指明条目序号**，
-// 即“响亮地失败”而不是静默写坏数据。因此不为此改动实现。
+// 值得记下的**不对称**（不是缺陷，但后人容易踩）：`import.ts` 里 `folderId` / `login` / `card` /
+// `identity` / `secureNote` / `sshKey` … 走 `readAliasedImportProp(['x', 'X'])`，**camelCase 与
+// PascalCase 都接受**；而 `type` / `name` / `notes` / `favorite` / `reprompt` 是直接属性访问、
+// **只认 camelCase**。官方客户端都发 camelCase，所以现在没问题；若真有客户端只发 `Name`，结果是 name
+// 回退成 'Untitled' → 加密校验失败 → **400 并指明条目序号**（响亮地失败，而非静默写坏数据）。
 
 // ---------------------------------------------------------------- 失败时的原子性
 

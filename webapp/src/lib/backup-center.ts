@@ -107,15 +107,12 @@ function parseTimestampMs(value: string | null | undefined): number | null {
 /**
  * 备份目标的「上次失败」摘要（地点列表与详情页共用）。
  *
- * **只有最后一次尝试是失败的才显示**：
- * - 正常情况下后端在**成功**时就会清空 `lastError*`（docs/TODO 第 18 条），
- * - 但归档恢复、手工改配置等途径可能带进「成功时间晚于失败时间」的旧状态，
- *   那时这条失败信息已经过时，不该再占着列表与详情页；
- * - 时间解析失败时**保持显示** —— 宁可多提示一次，也别把真实失败藏起来。
+ * **只有最后一次尝试是失败的才显示**：后端在**成功**时会清空 `lastError*`，但归档恢复、手工改配置
+ * 等途径可能带进「成功时间晚于失败时间」的旧状态，那时这条消息已过时；而时间解析失败时**保持显示**
+ * —— 宁可多提示一次，也别把真实失败藏起来。
  *
- * 失败原因走 `translateServerError()`：后端文案是英文
- * （如 `WebDAV upload timed out after 30000 ms`），命中映射表就本地化，
- * 未命中则**保留英文原文** —— 刻意不回落到通用文案，因为具体原因才是排障线索。
+ * 失败原因走 `translateServerError()`：后端文案是英文（如 `WebDAV upload timed out after 30000 ms`），
+ * 命中映射表就本地化，未命中则**保留英文原文** —— 刻意不回落到通用文案，具体原因才是排障线索。
  */
 export function getDestinationRuntimeSummary(runtime: BackupRuntimeState): DestinationRuntimeSummary {
   const reason = String(runtime.lastErrorMessage || '').trim();
@@ -159,21 +156,15 @@ export function compareRemoteItems(a: RemoteBackupItem, b: RemoteBackupItem): nu
 }
 
 /**
- * 备份目标「访问配置」指纹：只取决定「能不能连上、连到哪里」的字段，
- * 作为远端目录自动刷新的触发条件之一（见 `BackupCenterPage` 的 effect）。
+ * 备份目标「访问配置」指纹：只取决定「能不能连上、连到哪里」的字段，用作远端目录自动刷新的触发条件。
  *
- * 为什么不直接用目标对象比较：名称、调度、`runtime`（上次尝试 / 上次成功 / 上次失败
- * 原因）都跟「列目录」无关，凭对象引用判断会让这些改动也白跑一次远端列举。
+ * 不用目标对象本身比较：名称、调度、`runtime` 与「列目录」无关，按引用判断会让这些改动也白跑一次远端
+ * 列举。返回值必须是**字符串**：`loadRemoteBrowser` 每次都造新对象写回 `pathByDestination`，引用永不
+ * 相等 ⇒ 放进 effect 依赖会在加载失败时无限重试（`catch` 分支不更新 `refreshedAt`）。
  *
- * 为什么返回值必须是**字符串**：`loadRemoteBrowser` 每次都会以 `{ ...current }` 造一个
- * 新对象写回 `pathByDestination`，而对象引用永不相等 ⇒ 若把这类对象放进 effect 依赖，
- * 加载失败时（`catch` 分支不更新 `refreshedAt`）就会无限重试。字符串是值比较，天然稳定。
- *
- * 用 `JSON.stringify` 而不是自定义分隔符拼接：避免「`username` 的尾巴 + `remotePath` 的头」
- * 这类相邻字段互相顶替的碰撞（`['ab', 'c']` 与 `['a', 'bc']` 拼出来不同）。
- *
- * 刻意**不含密码 / `secretAccessKey`**：它只是用来比较变更，没必要把密钥再复制一份；
- * 「只改了密码」极少见，手动点一次「刷新」即可。
+ * 用 `JSON.stringify` 而非自定义分隔符：避免「`username` 的尾巴 + `remotePath` 的头」这类相邻字段互相
+ * 顶替。刻意**不含密码 / `secretAccessKey`**：只用来比较变更，没必要复制密钥；「只改了密码」极少见，
+ * 手动刷新一次即可。
  */
 export function getBackupDestinationAccessFingerprint(destination: BackupDestinationRecord | null | undefined): string {
   if (!destination) return '';
@@ -187,12 +178,11 @@ export function getBackupDestinationAccessFingerprint(destination: BackupDestina
 /**
  * 保存后是否需要作废该目标的远端目录缓存。
  *
- * 背景：保存逻辑原先**无条件**清缓存，于是「只改名字 / 改调度」也会把用户正看着的
- * 文件列表清空 —— 而刷新 effect 的依赖（目标 id + 访问配置指纹）都没变、不会重载，
- * 列表就一直空着，只能手动点「刷新」。
+ * 背景：保存逻辑原先**无条件**清缓存，于是「只改名字 / 改调度」也会把用户正看着的文件列表清空 ——
+ * 而刷新 effect 的依赖（目标 id + 访问配置指纹）都没变、不会重载，列表就一直空着，只能手动刷新。
  *
- * 判据：只有「访问配置」变了才作废（旧列表是按旧地址 / 旧账号拉的，不可信）；
- * 目标记录整个消失（被删）时一并作废，别留残留键。
+ * 判据：只有「访问配置」变了才作废（旧列表是按旧地址 / 旧账号拉的，不可信）；目标记录整个消失（被删）
+ * 时一并作废，别留残留键。
  */
 export function shouldInvalidateRemoteBrowserCache(
   previous: BackupDestinationRecord | null | undefined,

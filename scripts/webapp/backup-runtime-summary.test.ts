@@ -1,15 +1,12 @@
-// 备份目标「最近运行」摘要的测试（docs/TODO.md 第 22 条）。
+// 备份目标「最近运行」摘要的测试。
 //
-// 背景：后端在 `runtime` 里**同时**保留 `lastSuccessAt` 与 `lastErrorAt` / `lastErrorMessage`，
-// 并且只在**成功**时清空错误（第 18 条修掉的就是「每次尝试开始就清空」）。
-// 界面以前完全没有这个信息，只能靠 API / 审计日志看。
-// 详情页只展示**失败**（「上次成功」在左侧地点列表里已有），所以这里只测失败那一支。
+// 后端在 `runtime` 里同时保留 `lastSuccessAt` 与 `lastErrorAt` / `lastErrorMessage`，且只在**成功**
+// 时清空错误。详情页只展示**失败**（「上次成功」在左侧地点列表里已有），所以这里只测失败那一支。
 //
-// 这里测的是**纯函数** `getDestinationRuntimeSummary()`（组件只负责把它铺到 DOM 上），
-// 因为要盯住两件容易静默出错的事：
+// 测的是**纯函数** `getDestinationRuntimeSummary()`，盯住两件容易静默出错的事：
 //   ① 没有失败时不能凭空造出一行「上次失败」（否则详情页会多一个空框）；
-//   ② 失败原因必须走 `translateServerError()`（命中映射就本地化），
-//      但**未命中时必须保留原文** —— 刻意不回落到通用文案，具体原因才是排障线索。
+//   ② 失败原因必须走 `translateServerError()`，但**未命中时必须保留原文** —— 刻意不回落到通用文案，
+//      具体原因才是排障线索。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';

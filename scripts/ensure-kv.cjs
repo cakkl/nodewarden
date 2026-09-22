@@ -7,15 +7,11 @@
  * on first deploy. In non-interactive builds, wrangler may try to create the
  * same namespace again on later builds and fail with code 10014.
  *
- * 加固（2026-09-18 代码审计）：本脚本会**改写受版本控制的 `wrangler.kv.toml`**，而写进去的
- * id 决定「附件写进哪个 KV 库」。因此：
- *   1. 只复用**标题完全一致**的命名空间；发现"标题相近"的会**停下来报错并列出候选**，
- *      而不是猜一个 —— 猜错会让附件静默写进别的库。
- *   2. 显式指定：`--id <32 位 hex>` 复用指定命名空间，`--force-new` 确认要新建。
- *   3. 回写后**校验** id 确实进了目标段，否则报错退出 —— 原来的实现遇到格式不匹配会
- *      "打印成功但其实没写"，下一次构建又会去新建（正是本脚本要防的 10014）。
- *   4. 纯函数在文件末尾导出，`main()` 只在作为主模块运行时执行
- *      （便于单测，见 `scripts/ensure-kv.test.ts`）。
+ * 本脚本会**改写受版本控制的 `wrangler.kv.toml`**，写进去的 id 决定「附件写进哪个 KV 库」，所以：
+ * 只复用**标题完全一致**的命名空间（标题相近的报错并列出候选，猜错会让附件静默写进别的库）；
+ * 回写后**校验** id 确实进了目标段，否则报错退出 —— 原实现格式不匹配时会"打印成功但其实没写"，
+ * 下一次构建又去新建（正是本脚本要防的 10014）。`--id <32 位 hex>` 复用指定命名空间，`--force-new`
+ * 确认新建；纯函数在文件末尾导出，`main()` 只在作为主模块运行时执行（便于单测）。
  */
 const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');

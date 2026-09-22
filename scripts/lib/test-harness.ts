@@ -81,15 +81,12 @@ export async function createSchemaDatabase(): Promise<D1SqliteDatabase> {
 /**
  * 预热**模块级**惰性 schema 初始化。
  *
- * `storage-account-passkey-repo.ts` 里有一个模块级的 `accountPasskeySchemaReady` 标志，
- * 首次调用 passkey 相关方法时会先跑一轮建表/补列（实测约 39 条 DDL）。
- * 它只在**进程内第一次**发生 —— 也就是说：第一个建库的测试会额外看到这 39 条，
- * 后续测试看不到。如果测试要断言"查询条数"，这个一次性的差值就是纯粹的噪声
- * （实测会让 3 用户与 8 用户的对比变成 49 : 10，方向都是反的）。
+ * `storage-account-passkey-repo.ts` 有个模块级 `accountPasskeySchemaReady` 标志，首次调用 passkey
+ * 方法时会跑一轮建表/补列（约 39 条 DDL），且**只在进程内第一次**发生 —— 不预热的话，第一个建库
+ * 的测试会多出这 39 条，断言“查询条数”时就是纯粹的噪声（实测会让 3 用户与 8 用户的对比变成
+ * 49 : 10，方向都是反的）。
  *
- * 所以在夹具里主动跑掉它，让每个库都处在同样的"已预热"状态。
- * 顺带一提：生产上这意味着**每个 isolate 的第一个请求**会多付这些 DDL 的开销，
- * 属既有设计（"每个 isolate 只做一次"），本文件不改变它。
+ * 顺带说明：生产上这意味着**每个 isolate 的第一个请求**会多付这些 DDL，属既有设计，本文件不改变它。
  */
 async function warmUpLazySchemaEnsures(db: D1Database): Promise<void> {
   await countAccountPasskeyCredentialsByUserId(db, '__warmup__', 'twoFactor');
