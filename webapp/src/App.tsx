@@ -1947,8 +1947,10 @@ export default function App() {
     ],
     object: 'domains',
   }), []);
-  const mobilePrimaryRoute =
-    location === ROUTES.sends
+  // 未知路径不高亮任何 tab（否则底部会错误地亮着「设置」）。
+  const mobilePrimaryRoute = isUnknownRoute
+    ? ''
+    : location === ROUTES.sends
       ? ROUTES.sends
       : location === ROUTES.generator
         ? ROUTES.generator
@@ -1958,6 +1960,7 @@ export default function App() {
           ? ROUTES.vault
           : ROUTES.settings;
   const currentPageTitle = (() => {
+    if (isUnknownRoute) return t('txt_page_not_found');
     if (location === ROUTES.passwordHealth) return t('txt_password_security');
     if (location === ROUTES.vaultTotp) return t('txt_verification_code');
     if (location === ROUTES.generator) return t('txt_password_generator');
@@ -2199,7 +2202,9 @@ export default function App() {
     );
   }
 
-  if (isUnknownRoute) {
+  // 未登录时没有 shell 可回退，只能整页 404；已登录则交给 `AppMainRoutes` 的兜底渲染在
+  // **内容区**里 —— 导航栏还在，用户能自己走回去，而不是被丢在一个孤立页面上。
+  if (isUnknownRoute && phase !== 'app') {
     return (
       <>
         <NotFoundPage />
