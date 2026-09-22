@@ -107,19 +107,44 @@
       <p class="hint" data-i18n="hint">This page may have been deleted, expired, or the link is incomplete.</p>
       <a href="/" data-i18n="home">Back to home</a>
     </main>
+    <!-- 文案由 scripts/pages-spa-redirects.cjs 在 build:demo 时从
+         webapp/src/lib/i18n/locales/*.ts 注入（语言包是唯一来源）。 -->
+    <script type="application/json" id="nw-not-found-messages">{}</script>
     <script>
-      // 静态落地页拿不到应用的 i18n 运行时，这里只做中英二选一。
+      // 静态页拿不到应用的 i18n 运行时，所以文案来自上面那块 JSON、按浏览器语言挑选。
+      // 注入失败（JSON 为空）时就沿用 HTML 里写死的英文。
       (function () {
-        var locale = String(navigator.language || '');
-        if (!/^zh/i.test(locale)) return;
-        var text = {
-          title: '页面不存在',
-          hint: '这个页面可能已经删除、过期，或者链接不完整。',
-          home: '回到首页',
-        };
-        document.documentElement.lang = 'zh-CN';
-        Array.prototype.forEach.call(document.querySelectorAll('[data-i18n]'), function (el) {
-          var value = text[el.getAttribute('data-i18n')];
+        var node = document.getElementById('nw-not-found-messages');
+        if (!node) return;
+        var messages;
+        try {
+          messages = JSON.parse(node.textContent || '{}');
+        } catch (error) {
+          return;
+        }
+        var locales = Object.keys(messages);
+        if (!locales.length) return;
+
+        function pick(tag) {
+          var lower = String(tag || '').toLowerCase();
+          if (!lower) return null;
+          var exact = locales.find(function (key) { return key.toLowerCase() === lower; });
+          if (exact) return exact;
+          // `zh-Hans` / `zh-Hant` / `zh-HK` 都归到这两个包
+          if (lower.indexOf('zh') === 0) return /tw|hk|hant|mo/.test(lower) ? 'zh-TW' : 'zh-CN';
+          var base = lower.split('-')[0];
+          return locales.find(function (key) { return key.toLowerCase() === base; }) || null;
+        }
+
+        var candidates = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language];
+        var chosen = null;
+        for (var i = 0; i < candidates.length && !chosen; i += 1) chosen = pick(candidates[i]);
+        var table = messages[chosen || 'en'];
+        if (!table) return;
+
+        document.documentElement.lang = chosen || 'en';
+        document.querySelectorAll('[data-i18n]').forEach(function (el) {
+          var value = table[el.getAttribute('data-i18n')];
           if (value) el.textContent = value;
         });
       })();
