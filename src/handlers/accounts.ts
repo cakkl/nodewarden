@@ -528,7 +528,9 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
     targetType: 'user',
     targetId: user.id,
     metadata: {
-      updatedMasterPasswordHint: true,
+      // 用白名单里的 `changed`（标签就是「Changed fields」）：
+      // `updatedMasterPasswordHint` 这类名字不在白名单、又命中敏感正则 ⇒ 会被静默丢弃。
+      changed: 'masterPasswordHint',
       ...auditRequestMetadata(request),
     },
   });
@@ -629,9 +631,13 @@ export async function handleSetKeys(request: Request, env: Env, userId: string):
     targetType: 'user',
     targetId: user.id,
     metadata: {
-      updatedKey: !!body.key,
-      updatedPrivateKey: !!body.encryptedPrivateKey,
-      updatedPublicKey: !!body.publicKey,
+      // 用白名单里的 `changed` 承载「哪几段密钥材料被替换」（受控词表，永不是密钥本体）：
+      // `updatedKey` 这类名字不在白名单、又含 `key` / `private` ⇒ 会被静默丢弃。
+      changed: [
+        body.key ? 'key' : null,
+        body.encryptedPrivateKey ? 'encryptedPrivateKey' : null,
+        body.publicKey ? 'publicKey' : null,
+      ].filter(Boolean).join(','),
       ...auditRequestMetadata(request),
     },
   });
@@ -977,7 +983,8 @@ export async function handlePutDeviceVerificationSettings(request: Request, env:
     metadata: {
       requested: rawEnabled,
       reason: 'new-device verification is not supported (no email delivery channel)',
-      source: 'two-factor.device-verification-settings',
+      // `trigger` 已在白名单且有标签（原键名 `source` 未登记，会被静默丢弃）。
+      trigger: 'two-factor.device-verification-settings',
       ...auditRequestMetadata(request),
     },
   });
@@ -1596,7 +1603,9 @@ async function apiKey(request: Request, env: Env, userId: string, rotate: boolea
     actorUserId: user.id,
     action: auditAction,
     category: 'security',
-    level: rotate ? 'security' : 'info',
+    // 创建与轮换都是「铸出一把长期凭据、且可绕过两步登录」⇒ 一律记 security；
+    // 只有查看（未改动密钥）是 info。
+    level: auditAction === 'account.api_key.view' ? 'info' : 'security',
     targetType: 'user',
     targetId: user.id,
     metadata: auditRequestMetadata(request),

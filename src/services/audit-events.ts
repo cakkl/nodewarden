@@ -130,12 +130,25 @@ export function auditRequestMetadata(request: Request): Record<string, unknown> 
   };
 }
 
+/**
+ * 该元数据键是否会被 `sanitizeMetadata` 保留。
+ *
+ * 两道关卡缺一不可：键不在 `ALLOWED_METADATA_KEYS`，或键名命中敏感正则
+ *（含 `token` / `secret` / `password` / `key` / `hash` / `code` / `private`），都会被**静默丢弃**，
+ * 日志中心里只剩动作名。
+ *
+ * 新增事件时请优先挑一个**已在白名单里的**键（如 `changed` / `trigger` / `reason`）。
+ * 导出供护栏自检：`scripts/audit-events-coverage.test.ts`。
+ */
+export function isAuditableMetadataKey(key: string): boolean {
+  return ALLOWED_METADATA_KEYS.has(key) && !SENSITIVE_KEY_RE.test(key);
+}
+
 function sanitizeMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
   const clean: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
-    if (!ALLOWED_METADATA_KEYS.has(key)) continue;
+    if (!isAuditableMetadataKey(key)) continue;
     if (value === undefined || value === null || value === '') continue;
-    if (SENSITIVE_KEY_RE.test(key)) continue;
     if (Array.isArray(value)) {
       clean[key] = value.length;
       continue;
