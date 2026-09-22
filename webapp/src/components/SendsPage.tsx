@@ -268,7 +268,6 @@ export default function SendsPage(props: SendsPageProps) {
           </div>
         )}
         <div className="sidebar-block">
-          <div className="sidebar-title">{t('txt_all_sends')}</div>
           <button type="button" className={`tree-btn ${typeFilter === 'all' ? 'active' : ''}`} onClick={() => setTypeFilter('all')}>
             <LayoutGrid size={14} className="tree-icon" />
             <span className="tree-label">{t('txt_all_sends')}</span>
@@ -289,17 +288,31 @@ export default function SendsPage(props: SendsPageProps) {
 
       <section className="list-col">
         <div className="list-head">
-          <input
-            className="search-input"
-            placeholder={t('txt_search_sends')}
-            value={search}
-            onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
-          />
-          <button type="button" className="btn btn-secondary small list-icon-btn" disabled={busy || props.loading} onClick={() => void props.onRefresh()}>
-            <RefreshCw size={14} className="btn-icon" /> {t('txt_refresh')}
-          </button>
+          <div className="search-input-wrap">
+            <input
+              className={`search-input${search ? ' has-clear' : ''}`}
+              placeholder={t('txt_search_sends')}
+              value={search}
+              onInput={(e) => setSearch((e.currentTarget as HTMLInputElement).value)}
+            />
+            {!!search && (
+              <button
+                type="button"
+                className="search-clear-btn"
+                aria-label={t('txt_clear_search')}
+                title={t('txt_clear_search_esc')}
+                onClick={() => setSearch('')}
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
         </div>
         <div className="toolbar actions">
+          {/* 刷新靠左，与右侧的批量操作隔开 */}
+          <button type="button" className="btn btn-secondary small list-icon-btn mr-auto" disabled={busy || props.loading} onClick={() => void props.onRefresh()}>
+            <RefreshCw size={14} className="btn-icon" /> {t('txt_refresh')}
+          </button>
           <button type="button" className="btn btn-danger small" disabled={!selectedCount || busy} onClick={() => void removeSelected()}>
             <Trash2 size={14} className="btn-icon" /> {t('txt_delete_selected')}
           </button>
