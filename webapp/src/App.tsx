@@ -75,6 +75,7 @@ import {
   PUBLIC_SEND_PATH_PATTERN,
   ROUTES,
   isKnownRoutePath,
+  normalizeRoutePath,
 } from '@/lib/routes';
 import { decryptSends, decryptVaultCore } from '@/lib/vault-decrypt';
 import { decryptSendsInWorker, decryptVaultCoreInWorker } from '@/lib/vault-worker';
@@ -110,11 +111,6 @@ function isAdminProfile(profile: Profile | null): profile is Profile {
   return String(profile?.role || '').toLowerCase() === 'admin';
 }
 
-function normalizeRoutePath(path: string): string {
-  const pathOnly = String(path || '/').split('?')[0].split('#')[0];
-  const normalized = pathOnly.startsWith('/') ? pathOnly : `/${pathOnly}`;
-  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : '/';
-}
 const THEME_STORAGE_KEY = 'nodewarden.theme.preference.v1';
 const SIGNALR_RECORD_SEPARATOR = String.fromCharCode(0x1e);
 const SIGNALR_UPDATE_TYPE_SYNC_CIPHER_UPDATE = 0;
@@ -215,7 +211,6 @@ export default function App() {
     hint: null,
   });
   const [inviteCodeFromUrl, setInviteCodeFromUrl] = useState(initialInviteCode);
-  const [hashPathRaw, setHashPathRaw] = useState(() => (typeof window !== 'undefined' ? window.location.hash || '' : ''));
   const [unlockPassword, setUnlockPassword] = useState('');
   const [pendingTotp, setPendingTotp] = useState<PendingTotp | null>(null);
   // 只保留 setter：这里写入的值当前没有任何读取点（CodeQL js/unused-local-variable）。
@@ -290,7 +285,6 @@ export default function App() {
   useEffect(() => {
     const syncUrlState = () => {
       setInviteCodeFromUrl(readInviteCodeFromUrl());
-      setHashPathRaw(window.location.hash || '');
     };
     syncUrlState();
     window.addEventListener('hashchange', syncUrlState);
@@ -1923,29 +1917,16 @@ export default function App() {
     await pendingAuthRequestsQuery.refetch();
   };
 
-  const hashPath = hashPathRaw.startsWith('#') ? hashPathRaw.slice(1) : hashPathRaw;
-  const hashPathOnly = String(hashPath || '').split('?')[0].split('#')[0];
-  const trimmedHashPath = hashPathOnly.replace(/^\/+/, '').replace(/\/+$/, '');
-  const normalizedHashPath = trimmedHashPath ? `/${trimmedHashPath}` : '/';
-  const isImportHashRoute = IMPORT_EXPORT_ROUTE_ALIASES.has(normalizedHashPath);
-  const normalizedLocation = normalizeRoutePath(location);
-  // hash 形式的路径（`#/vault`）是给旧客户端 / 旧书签的兼容入口，**只在它指向一个已知路由时**
-  // 才优先。否则 `#` 只是个普通锚点：`/vault#/some-anchor` 不该被当成未注册路径、
-  // 整页渲染 404（地址栏里随手粘一段带 `#` 的 URL 就会撞上）。
-  const hashRouteCandidate = hashPath.startsWith('/') ? normalizedHashPath : null;
-  const routeLocation = hashRouteCandidate && isKnownRoutePath(hashRouteCandidate)
-    ? hashRouteCandidate
-    : normalizedLocation;
+  // 单页应用：路径一律以 wouter 的 location（pathname + search）为准，**不解析 hash**。
+  // 旧版客户端用过的 `#/xxx` 深链接不再支持 —— 详见 docs/DONE.md 第 40 项。
+  const routeLocation = normalizeRoutePath(location);
   const effectiveLocation = routeLocation;
   const publicSendMatch = effectiveLocation.match(/^\/send\/([^/]+)(?:\/([^/]+))?\/?$/i);
   const isRecoverTwoFactorRoute = effectiveLocation === ROUTES.recoverTwoFactor;
   const isPublicSendRoute = !!publicSendMatch;
   const isMalformedSendRoute = PUBLIC_SEND_PATH_PATTERN.test(effectiveLocation) && !publicSendMatch;
-  // `isKnownRoutePath` 已合并「登录前可达 / 登录后可达 / send 链接」三类；
-  // hash 形式的 import 别名是唯一例外 —— 它由下面的 effect 跳到规范路径，所以也算已知。
   const isKnownRoute = isKnownRoutePath(routeLocation);
-  const isUnknownRoute = isMalformedSendRoute
-    || (phase === 'app' ? !isKnownRoute && !isImportHashRoute : !isKnownRoute);
+  const isUnknownRoute = isMalformedSendRoute || !isKnownRoute;
   const isImportRoute = routeLocation === ROUTES.importExport || IMPORT_EXPORT_ROUTE_ALIASES.has(routeLocation);
   const showSidebarToggle = mobileLayout && location === ROUTES.sends;
   const sidebarToggleTitle = location === ROUTES.vault ? t('txt_folders') : t('txt_type');
@@ -1993,26 +1974,10 @@ export default function App() {
   })();
 
   useEffect(() => {
-    if (phase !== 'app') return;
-    if (!hashPath.startsWith('/')) return;
-    if (normalizedHashPath !== ROUTES.deviceManagement && normalizedHashPath !== DIRECT_ALIASES.deviceManagementLegacy) return;
-    if (typeof window !== 'undefined' && typeof window.history?.replaceState === 'function') {
-      window.history.replaceState(null, '', ROUTES.deviceManagement);
-    }
-    if (location !== ROUTES.deviceManagement) navigate(ROUTES.deviceManagement);
-  }, [phase, hashPath, normalizedHashPath, location, navigate]);
-
-  useEffect(() => {
     if (phase === 'register' && (location === ROUTES.home || location === ROUTES.login) && !isPublicSendRoute) {
       navigate(ROUTES.register);
     }
   }, [phase, location, isPublicSendRoute, navigate]);
-
-  useEffect(() => {
-    if (phase === 'app' && isImportHashRoute && location !== ROUTES.importExport) {
-      navigate(ROUTES.importExport);
-    }
-  }, [phase, isImportHashRoute, location, navigate]);
 
   useEffect(() => {
     if (phase === 'app' && !isAdminProfile(profile) && (location === ROUTES.backup || location === ROUTES.logs) && !profileQuery.isFetching) {

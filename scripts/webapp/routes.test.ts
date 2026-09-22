@@ -21,6 +21,7 @@ import {
   ROUTES,
   SHELL_ROUTE_PATHS,
   isKnownRoutePath,
+  normalizeRoutePath,
 } from '../../webapp/src/lib/routes';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
@@ -189,4 +190,19 @@ test('公开 Send 链接算作已知入口', () => {
   // 由 `App.tsx` 的 `isMalformedSendRoute` 拦下并渲染 404。
   assert.equal(isKnownRoutePath('/send/abc123'), true);
   assert.equal(isKnownRoutePath('/send/abc123/key'), true);
+});
+
+// ---------------------------------------------------------------- 路径规范化
+//
+// 单页应用：路径一律以 pathname 为准。`normalizeRoutePath` 必须丢掉 hash / query 片段，否则带
+// `#` 的 URL 会让「判定层」与「渲染层」（wouter 只看 pathname）分家。旧版客户端用过的
+// `#/xxx` 深链接已不再支持（见 docs/DONE.md 第 40 项）。
+
+test('normalizeRoutePath：丢掉 hash 与 query 片段', () => {
+  assert.equal(normalizeRoutePath('/vault#/tools/import'), '/vault');
+  assert.equal(normalizeRoutePath('/vault?cipher=abc#/x'), '/vault');
+  assert.equal(normalizeRoutePath('/vault/'), '/vault');
+  assert.equal(normalizeRoutePath('vault'), '/vault');
+  assert.equal(normalizeRoutePath(''), '/');
+  assert.equal(normalizeRoutePath('/'), '/');
 });

@@ -90,3 +90,10 @@ export const PUBLIC_SEND_PATH_PATTERN = /^\/send(?:\/|$)/i;
 export function isKnownRoutePath(path: string): boolean {
   return AUTH_ROUTES.has(path) || SHELL_ROUTES.has(path) || PUBLIC_SEND_PATH_PATTERN.test(path);
 }
+
+/** 规范化路径：去 query / hash 片段、补前导斜杠、去尾部斜杠（`/` 除外）。 */
+export function normalizeRoutePath(path: string): string {
+  const pathOnly = String(path || '/').split('?')[0].split('#')[0];
+  const normalized = pathOnly.startsWith('/') ? pathOnly : `/${pathOnly}`;
+  return normalized.length > 1 ? normalized.replace(/\/+$/, '') : '/';
+}
