@@ -220,9 +220,8 @@ export async function clearAuditLogs(db: D1Database): Promise<number> {
 /**
  * 列表查询的 FROM/JOIN 子句。
  *
- * `buildAuditWhere` 生成的 WHERE 可能引用 `actor.email` / `target.email`
- * （关键词搜索会查这两列），因此**计数查询必须复用同一段 FROM**，
- * 否则会出现 "no such column: actor.email" 或口径不一致。
+ * `buildAuditWhere` 生成的 WHERE 可能引用 `actor.email` / `target.email`（关键词搜索会查这两列），
+ * 因此**计数查询必须复用同一段 FROM**，否则会出现 "no such column: actor.email" 或口径不一致。
  */
 const AUDIT_LIST_FROM =
   'FROM audit_logs l ' +

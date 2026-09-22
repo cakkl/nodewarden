@@ -1,21 +1,11 @@
 // SQL 采集器：包一层 Proxy，记录被测代码**实际发出**的每一条 SQL。
 //
-// 为什么不用正则去源码里抓 SQL 字符串：
-//   本仓库大量 SQL 是模板字符串拼出来的（`WHERE ${where} ORDER BY ...`），
-//   正则抓不全、抓到的也不是"运行时真正执行的形态"。运行时采集拿到的就是真相。
+// 不用正则抓源码：本仓库大量 SQL 是模板字符串拼的，抓到的不是运行时真正执行的形态。只拦 `prepare` /
+// `batch`、其余原样转发 —— `batch()` 需要拿到真正的 statement 对象。
 //
-// 为什么用 Proxy 而不是包装 statement：
-//   `env.DB.batch([...])` 需要拿到**真正的** statement 对象（`d1-sqlite.ts` 里靠
-//   `.execute()` 复用同步执行路径）。如果包装 statement，batch 就会拿到假对象。
-//   只拦 `prepare` / `batch`、其余原样转发。
-//
-// ⚠️ `queries` 与 `roundTrips` 回答的是**两个不同的问题**，别混用：
-//   · `queries`    —— 准备好的 SQL 条数。用于"这条 SQL 的查询计划是什么"。
-//   · `roundTrips` —— **数据库往返次数**。用于"这次请求会不会随数据量线性变慢"。
-//
-//   差别在 `batch()` 上体现：`db.batch([...N 条...])` 会先 prepare N 条
-//   （`queries` 记 N 条），但只发**一次**往返（`roundTrips` 记 1）。
-//   拿 `queries.length` 去断言"N+1 消失了"会得到假阴性 —— 实测踩过这个坑。
+// ⚠️ `queries` 与 `roundTrips` 回答两个不同问题，别混用：前者是准备好的 SQL 条数（查查询计划），后者是
+// 数据库**往返次数**（查会不会随数据量线性变慢）。`batch([...N 条...])` 会记 N 条 queries、但只算
+// **1 次**往返，所以拿 `queries.length` 去断言“N+1 消失了”会得到假阴性（实测踩过）。
 import type { D1Database } from '@cloudflare/workers-types';
 
 export interface SqlRecorder {
@@ -46,13 +36,12 @@ export function recordQueries(inner: D1Database): SqlRecorder {
   /**
    * 给 statement 再套一层 Proxy，目的是**把 `bind()` 的结果也认出来**。
    *
-   * 这一步不能省：`prepare(SQL)` 返回一个 statement，`bind(...)` 会返回**另一个新对象**。
-   * 而实际交给 `db.batch()` 的正是 bind 之后那个。如果只跟踪 prepare 的返回值，
-   * batch 里就一条都对不上，往返数会算成"N 条逐条执行 + 1 次 batch" ——
-   * 实测就踩了这个坑（batch 明明生效，计数却仍随 N 增长）。
+   * 这一步不能省：`prepare(SQL)` 返回一个 statement，`bind(...)` 会返回**另一个新对象**，而实际交给
+   * `db.batch()` 的正是 bind 之后那个。若只跟踪 prepare 的返回值，batch 里就一条都对不上，往返数会
+   * 算成"N 条逐条执行 + 1 次 batch" —— 实测踩过（batch 明明生效，计数却仍随 N 增长）。
    *
-   * 注意：proxy 会把 `execute()` 等原样转发给真正的 statement，
-   * 因此 `d1-sqlite.ts` 的 batch 实现不受影响。
+   * 注意：proxy 会把 `execute()` 等原样转发给真正的 statement，因此 `d1-sqlite.ts` 的 batch 实现
+   * 不受影响。
    */
   function trackStatement(statement: object, queryIndex: number): object {
     const proxy = new Proxy(statement, {

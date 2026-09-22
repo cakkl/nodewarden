@@ -1,13 +1,11 @@
 // `src/handlers/folders.ts` 的行为测试
 //
-// 选它的理由（NEXT.md §3.4）：逻辑简单，适合把"handler 级测试能测到什么"这件事示范清楚。
-// 但简单不等于没坑 —— 这里有三处**容易在改动中悄悄坏掉**的行为：
-//
+// 选它的理由：逻辑简单，适合示范"handler 级测试能测到什么"。但简单不等于没坑 —— 三处**容易在改动
+// 中悄悄坏掉**的行为：
 //   ① **删除文件夹会把条目的 `folder_id` 清空**（跨表副作用，不测就看不见）
-//   ② **更新时省略 `name` 表示"不改名"**（与 ciphers 的"省略即清空"**相反** —— 两个端点的
-//      语义确实不同，属于历史约定，用测试固化下来，避免后人"统一"成一种）
-//   ③ **列表支持真正的分页**（`handleGetFolders` 用 `pageSize` + `continuationToken`，
-//      这是正确写法；与 §3.3.5 里管理端那个"形状支持但没实现"的接口形成对比）
+//   ② **更新时省略 `name` 表示"不改名"**（与 ciphers 的"省略即清空"**相反** —— 两个端点语义确实
+//      不同，属历史约定，用测试固化下来，避免后人"统一"成一种）
+//   ③ **列表支持真正的分页**（`handleGetFolders` 用 `pageSize` + `continuationToken`）
 //
 // 运行方式：npm run test:folders-handler
 import assert from 'node:assert/strict';

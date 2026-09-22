@@ -1,17 +1,12 @@
-// 用 node:sqlite 实现 D1Database 的最小接口 —— 供测试在没有 Cloudflare 运行时的情况下
-// 跑**真实 SQL**（D1 本身就是 SQLite，方言一致）。
+// 用 node:sqlite 实现 D1Database 的最小接口 —— 供测试在没有 Cloudflare 运行时的情况下跑**真实 SQL**
+// （D1 本身就是 SQLite，方言一致）。
 //
-// 为什么不直接用 mock：
-//   备份导入走的是「影子表 createShadowTables → 校验计数 → 最后一次性
-//   swapShadowTablesIntoPlace」流程。纯 mock 不真正存数据，只能断言"发了哪些 SQL"，
-//   **无法验证数据是否原样回来** —— 而那正是 round-trip 测试要回答的问题。
+// 不用纯 mock 的原因：备份导入走「影子表 → 校验计数 → 一次性 swap」流程，mock 不真正存数据，只能断言
+// "发了哪些 SQL"，无法验证数据是否原样回来 —— 而那正是 round-trip 测试要回答的问题。
 //
-// 局限（务必知悉）：
-//   node:sqlite 与真实 D1 **不是同一实现**（D1 在其上加了自己的代理层与限制）。
-//   因此本适配器只能证明"读写逻辑在 SQLite 语义下自洽"，**不能替代**在
-//   `wrangler dev` 上跑的真实端到端验证。
-//
-// 已实测可用性：本地 Node 26 = SQLite 3.53.4，CI 的 Node 24.18.0 = 3.53.1，均无需 flag。
+// 局限：node:sqlite 与真实 D1 不是同一实现（D1 另有代理层与限制），只能证明"读写逻辑在 SQLite 语义下
+// 自洽"，**不能替代** `wrangler dev` 上的真实端到端验证。实测：本地 Node 26 = SQLite 3.53.4，
+// CI 的 Node 24.18.0 = 3.53.1，均无需 flag。
 import { DatabaseSync } from 'node:sqlite';
 import type { D1Database, D1Result } from '@cloudflare/workers-types';
 

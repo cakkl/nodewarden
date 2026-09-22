@@ -48,17 +48,14 @@ export interface RemoteBackupFilePutOptions {
 
 // ---------------------------------------------------------------- 远端请求超时
 //
-// 为什么要做：远端目的地不可达时（黑洞 IP、防火墙丢包、容器被暂停、TLS 握手挂住），
-// `fetch()` 可能**永不 settle**。异常永远抛不出来 ⇒ 调用方的 catch 永不执行 ⇒ 请求一直挂着，
-// 最后由平台兜底返回通用 500（`internal error; reference = …`），管理员拿到的信息量为零。
+// 为什么要做：远端目的地不可达时（黑洞 IP、防火墙丢包、TLS 挂住），`fetch()` 可能**永不 settle**
+// ⇒ 异常永远抛不出来、调用方的 catch 永不执行，最后由平台兜底返回通用 500，管理员拿到的信息量为零。
 // 所以超时不是为了“限速”，而是为了让失败**真的成为一次失败**。
 //
-// 为什么要分档：控制类请求（MKCOL / HEAD / DELETE）只传几十字节；而单次传输可能是
-// 100 MiB 的附件（`limits.attachment.maxFileSizeBytes`）或 64 MiB 的归档
-// （`MAX_BACKUP_ARCHIVE_BYTES`），跨境上传远超几秒 ⇒ 传输类按体积估算，
-// 避免把“慢但成功”误杀成失败。
-// 超时消息的形状（构造 + 判定）来自 `shared/backup-timeout-message.ts`：
-// 那句文本同时被前端 `translateServerError()` 解析，两边必须逐字一致。
+// 为什么分档：控制类请求（MKCOL / HEAD / DELETE）只传几十字节，而单次传输可能是 100 MiB 附件或
+// 64 MiB 归档，跨境上传远超几秒 ⇒ 传输类按体积估算，避免把“慢但成功”误杀成失败。
+// 超时消息的形状来自 `shared/backup-timeout-message.ts`：那句文本同时被前端
+// `translateServerError()` 解析，两边必须逐字一致。
 import {
   REMOTE_TIMEOUT_MESSAGE_PATTERN,
   buildRemoteTimeoutMessage,
@@ -161,12 +158,10 @@ function resolveTransferTimeoutMs(byteLength: number | undefined, timeouts: Remo
 /**
  * 在**整段操作**（发送请求 + 读响应体）外包一层超时。
  *
- * 为什么不只包 `fetch()`：`fetch()` 在**收到响应头**时就 resolve 了，
- * 下载类请求还要 `await response.arrayBuffer()` 把 body 读进来 ——
- * 对端“发了头就不再发数据”时，卡住的正是读 body 这一步。
+ * 为什么不只包 `fetch()`：`fetch()` 在**收到响应头**时就 resolve 了，下载类请求还要
+ * `await response.arrayBuffer()` 把 body 读进来 —— 对端“发了头就不再发数据”时，卡住的正是读 body。
  *
- * 传入 `controller` 可复用同一个 AbortSignal：响应头已到达后再 `abort()`
- * 仍能中断 body 读取（下载路径正是这样拆成“首包 + body”两段计时的）。
+ * 传入 `controller` 可复用同一个 AbortSignal：响应头已到达后再 `abort()` 仍能中断 body 读取。
  */
 async function withRemoteTimeout<T>(
   provider: 'WebDAV' | 'S3',

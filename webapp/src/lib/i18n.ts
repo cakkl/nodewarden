@@ -5,9 +5,8 @@
 //
 // Do not call t() at module scope for exported arrays/constants; async init can
 // otherwise leave raw txt_* keys in the rendered UI.
-// 这里用**相对路径**而不是 webapp 惯用的 `@shared` 别名：本模块会被几个后端测试
-// （`scripts/web-crypto-availability.test.ts` 等）在 Node 下间接加载，而那条链用的是
-// 根 tsconfig —— 它没有 `@shared` 别名，运行时（tsx）会报 ERR_MODULE_NOT_FOUND。
+// 这里用**相对路径**而不是 webapp 惯用的 `@shared` 别名：本模块会被几个后端测试在 Node 下间接加载，
+// 而那条链用的是根 tsconfig —— 它没有 `@shared` 别名，运行时（tsx）会报 ERR_MODULE_NOT_FOUND。
 import { REMOTE_TIMEOUT_MESSAGE_PATTERN } from '../../../shared/backup-timeout-message';
 
 export type Locale =

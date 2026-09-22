@@ -111,16 +111,13 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'ALTER TABLE audit_logs ADD COLUMN level TEXT NOT NULL DEFAULT \'info\'',
   // actor_email：操作者邮箱的**行内快照**（写入日志时就把邮箱抄进那一行）。
   //
-  // 为什么必须抄一份：actor_user_id 上挂着 `ON DELETE SET NULL` 外键，而
-  // `DELETE FROM users` 不止恢复时会跑 —— 管理端删除用户
-  //（storage-user-repo.deleteUserById）同样会触发。那一刻该用户**所有历史日志**的
-  // actor_user_id 都会被置成 NULL，而且**不会自愈**：即便用户随后被重新写回
-  //（恢复流程就是这样，id 完全一样），也没有任何代码把这个值算回来。
-  // 后果是日志中心的「操作者」永久显示 `—`、按操作者邮箱搜索永久失效。
+  // 为什么必须抄一份：actor_user_id 挂着 `ON DELETE SET NULL` 外键，而 `DELETE FROM users` 不止恢复
+  // 时会跑（管理端删除用户也会），那一刻该用户**所有历史日志**的 actor_user_id 都被置成 NULL，且
+  // **不会自愈** —— 即便 id 随后被原样写回（恢复流程就是这样），也没代码把它算回来。后果是日志中心的
+  // 「操作者」永久显示 `—`、按邮箱搜索永久失效。
   //
-  // 有了行内快照后，被置空的只剩「编号」这一列，邮箱仍留在同一行里；
-  // 读取端用 COALESCE(actor_email, JOIN) 因此照常显示。
-  // 这与 target 侧早就在用的做法一致（metadata.targetEmail 同样是写入时的快照）。
+  // 有了快照后被置空的只剩「编号」这一列，邮箱仍留在同一行，读取端用
+  // COALESCE(actor_email, JOIN) 照常显示。target 侧早就在用同样做法（metadata.targetEmail）。
   'ALTER TABLE audit_logs ADD COLUMN actor_email TEXT',
   'UPDATE audit_logs SET category = json_extract(metadata, \'$.category\') WHERE json_valid(metadata) AND json_extract(metadata, \'$.category\') IN (\'auth\', \'security\', \'device\', \'data\', \'system\')',
   'UPDATE audit_logs SET level = json_extract(metadata, \'$.level\') WHERE json_valid(metadata) AND json_extract(metadata, \'$.level\') IN (\'info\', \'warn\', \'error\', \'security\')',

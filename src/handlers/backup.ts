@@ -141,8 +141,8 @@ function getBackupDestinationSummary(destination: BackupDestinationRecord | null
 /**
  * 去掉字符串首尾的 `/`。
  *
- * 用循环而不是 `/^\/+|\/+$/g`：语义一致，但不含"尾部量词"，
- * 因此不会命中 CodeQL 的 js/polynomial-redos（它会提示"长串同一字符时可能变慢"）。
+ * 用循环而不是 `/^\/+|\/+$/g`：语义一致，但不含"尾部量词"，因此不会命中 CodeQL 的
+ * js/polynomial-redos。
  */
 function trimSlashes(value: string): string {
   let start = 0;

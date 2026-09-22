@@ -17,9 +17,8 @@ const INTERVAL_HOUR_PRESETS = [1, 6, 12, 24];
 /**
  * 「上次失败」摘要 —— **只**在失败过时渲染，且只显示失败时间与原因。
  *
- * 刻意不显示「上次尝试」与「上次成功」：前者对排障没帮助（本轮的尝试已经在跑或刚跑完），
- * 后者在左侧地点列表里已经有一份，在详情页再重复一遍只是占位置。
- * 真正需要被看见的是「失败了、原因是什么」。
+ * 刻意不显示「上次尝试」与「上次成功」：前者对排障没帮助（本轮的尝试已经在跑或刚跑完），后者在左侧
+ * 地点列表里已经有一份，在详情页再重复一遍只是占位置。真正需要被看见的是「失败了、原因是什么」。
  */
 function renderRuntimeSummary(destination: BackupDestinationRecord) {
   const summary = getDestinationRuntimeSummary(destination.runtime);

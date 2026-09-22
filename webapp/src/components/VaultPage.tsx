@@ -36,6 +36,7 @@ import { computeSshFingerprint, generateDefaultSshKeyMaterial } from '@/lib/ssh'
 import { ChevronLeft } from 'lucide-preact';
 import type { Cipher, CustomFieldType, Folder, VaultDraft, VaultDraftField } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import { ROUTES } from '@/lib/routes';
 
 interface VaultPageProps {
   ciphers: Cipher[];
@@ -545,7 +546,7 @@ export default function VaultPage(props: VaultPageProps) {
         if (url.searchParams.has('cipher')) {
           url.searchParams.delete('cipher');
           const next = `${url.pathname}${url.search}${url.hash}`;
-          window.history.replaceState(null, '', next || '/vault');
+          window.history.replaceState(null, '', next || ROUTES.vault);
         }
       }
       return;

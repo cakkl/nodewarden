@@ -261,14 +261,12 @@ export default function SettingsPage(props: SettingsPageProps) {
         setToken('');
         setTotpRealSecret(null);
         if (props.totpEnabled) {
-          // 已启用：必须显示**服务端保存的真值**。
-          // 过去这里显示的是前端新生成的随机密钥（与库里那把毫无关系），会让人误以为
-          // 「密钥被改成了一个全新的」—— 这是排查恢复/TOTP 问题时的著名陷阱。
+          // 已启用：必须显示**服务端保存的真值**。过去这里显示的是前端新生成的随机密钥（与库里那把毫无
+          // 关系），会让人误以为「密钥被改成了一个全新的」—— 这是排查恢复/TOTP 问题时的著名陷阱。
           //
-          // 但**无论能否取到真值，弹窗都要打开**：「停用 TOTP」是应用内停用两步验证的
-          // **唯一**入口，而按钮就在这个弹窗里。早期版本在这里直接 return，于是
-          // 「库里存着不可用密钥」的用户被彻底堵在门外 —— 提示让他「在下方先停用」，
-          // 可那个按钮他永远看不到，只能去登录页用恢复码自救。
+          // 但**无论能否取到真值，弹窗都要打开**：「停用 TOTP」是应用内停用两步验证的**唯一**入口，而
+          // 按钮就在这个弹窗里。早期版本在这里直接 return，于是「库里存着不可用密钥」的用户被彻底堵在门
+          // 外 —— 提示让他「在下方先停用」，可那个按钮他永远看不到，只能去登录页用恢复码自救。
           try {
             const current = await props.onGetTotpAuthenticatorSecret(masterPassword);
             if (current.enabled && current.key) {

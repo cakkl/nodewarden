@@ -7,6 +7,7 @@ import NetworkStatusBadge from '@/components/NetworkStatusBadge';
 import ThemeSwitch from '@/components/ThemeSwitch';
 import type { AppMainRoutesProps } from '@/components/AppMainRoutes';
 import { t } from '@/lib/i18n';
+import { DIRECT_ALIASES, ROUTES } from '@/lib/routes';
 import type { Profile } from '@/lib/types';
 
 interface AppAuthenticatedShellProps {
@@ -16,8 +17,6 @@ interface AppAuthenticatedShellProps {
   currentPageTitle: string;
   showSidebarToggle: boolean;
   sidebarToggleTitle: string;
-  settingsAccountRoute: string;
-  importRoute: string;
   isImportRoute: boolean;
   darkMode: boolean;
   themeToggleTitle: string;
@@ -60,15 +59,13 @@ function isAdminProfile(profile: Profile | null): boolean {
   return String(profile?.role || '').toLowerCase() === 'admin';
 }
 
-const DEVICE_MANAGEMENT_ROUTE = '/settings/security/device-management';
-const LEGACY_DEVICE_MANAGEMENT_ROUTE = '/security/devices';
-
 export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps) {
-  const routeAnimationKey = props.isImportRoute ? props.importRoute : props.location;
-  const isDomainRulesRoute = props.location === '/settings/domain-rules';
-  const isLogRoute = props.location === '/logs';
+  const routeAnimationKey = props.isImportRoute ? ROUTES.importExport : props.location;
+  const isDomainRulesRoute = props.location === ROUTES.settingsDomainRules;
+  const isLogRoute = props.location === ROUTES.logs;
   const isAdmin = isAdminProfile(props.profile);
-  const deviceManagementActive = props.location === DEVICE_MANAGEMENT_ROUTE || props.location === LEGACY_DEVICE_MANAGEMENT_ROUTE;
+  const deviceManagementActive = props.location === ROUTES.deviceManagement
+    || props.location === DIRECT_ALIASES.deviceManagementLegacy;
   const [expandedGroups, setExpandedGroups] = useState<ExpandedGroups>(readExpandedGroups);
 
   function toggleGroup(group: NavGroup): void {
@@ -130,17 +127,17 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
 
   const groupedNav = (
     <>
-      {renderSideLink('/vault', props.location === '/vault', <KeyRound size={16} />, t('nav_vault_items'))}
-      {renderSideLink('/sends', props.location === '/sends', <SendIcon size={16} />, t('nav_sends'))}
+      {renderSideLink(ROUTES.vault, props.location === ROUTES.vault, <KeyRound size={16} />, t('nav_vault_items'))}
+      {renderSideLink(ROUTES.sends, props.location === ROUTES.sends, <SendIcon size={16} />, t('nav_sends'))}
       {renderNavGroup(
         'tools',
         t('nav_group_tools'),
         <Sparkles size={16} />,
         <>
-          {renderSubLink('/vault/totp', props.location === '/vault/totp', t('txt_verification_code'))}
-          {renderSubLink('/generator', props.location === '/generator', t('nav_generator'))}
-          {renderSubLink('/security/password-health', props.location === '/security/password-health', t('nav_password_security'))}
-          {renderSubLink(props.importRoute, props.isImportRoute, t('nav_import_export'))}
+          {renderSubLink(ROUTES.vaultTotp, props.location === ROUTES.vaultTotp, t('txt_verification_code'))}
+          {renderSubLink(ROUTES.generator, props.location === ROUTES.generator, t('nav_generator'))}
+          {renderSubLink(ROUTES.passwordHealth, props.location === ROUTES.passwordHealth, t('nav_password_security'))}
+          {renderSubLink(ROUTES.importExport, props.isImportRoute, t('nav_import_export'))}
         </>
       )}
       {renderNavGroup(
@@ -148,9 +145,9 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
         t('txt_settings'),
         <SettingsIcon size={16} />,
         <>
-          {renderSubLink(props.settingsAccountRoute, props.location === props.settingsAccountRoute, t('nav_account_settings'))}
-          {renderSubLink(DEVICE_MANAGEMENT_ROUTE, deviceManagementActive, t('nav_device_management'))}
-          {renderSubLink('/settings/domain-rules', props.location === '/settings/domain-rules', t('nav_domain_rules'))}
+          {renderSubLink(ROUTES.settingsAccount, props.location === ROUTES.settingsAccount, t('nav_account_settings'))}
+          {renderSubLink(ROUTES.deviceManagement, deviceManagementActive, t('nav_device_management'))}
+          {renderSubLink(ROUTES.settingsDomainRules, props.location === ROUTES.settingsDomainRules, t('nav_domain_rules'))}
         </>
       )}
       {isAdmin &&
@@ -159,9 +156,9 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
           t('nav_group_system_management'),
           <ShieldUser size={16} />,
           <>
-            {renderSubLink('/backup', props.location === '/backup', t('nav_backup_strategy'))}
-            {renderSubLink('/admin', props.location === '/admin', t('nav_admin_panel'))}
-            {renderSubLink('/logs', props.location === '/logs', t('nav_log_center'))}
+            {renderSubLink(ROUTES.backup, props.location === ROUTES.backup, t('nav_backup_strategy'))}
+            {renderSubLink(ROUTES.admin, props.location === ROUTES.admin, t('nav_admin_panel'))}
+            {renderSubLink(ROUTES.logs, props.location === ROUTES.logs, t('nav_log_center'))}
           </>
         )}
     </>
@@ -223,23 +220,23 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
         </div>
 
         <nav className="mobile-tabbar" aria-label={t('txt_menu')}>
-          <Link href="/vault" className={`mobile-tab ${props.mobilePrimaryRoute === '/vault' ? 'active' : ''}`}>
+          <Link href={ROUTES.vault} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.vault ? 'active' : ''}`}>
             <KeyRound size={18} />
             <span>{t('nav_my_vault')}</span>
           </Link>
-          <Link href="/vault/totp" className={`mobile-tab ${props.mobilePrimaryRoute === '/vault/totp' ? 'active' : ''}`}>
+          <Link href={ROUTES.vaultTotp} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.vaultTotp ? 'active' : ''}`}>
             <Clock3 size={18} />
             <span>{t('txt_verification_code')}</span>
           </Link>
-          <Link href="/generator" className={`mobile-tab ${props.mobilePrimaryRoute === '/generator' ? 'active' : ''}`}>
+          <Link href={ROUTES.generator} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.generator ? 'active' : ''}`}>
             <Sparkles size={18} />
             <span>{t('nav_generator')}</span>
           </Link>
-          <Link href="/sends" className={`mobile-tab ${props.mobilePrimaryRoute === '/sends' ? 'active' : ''}`}>
+          <Link href={ROUTES.sends} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.sends ? 'active' : ''}`}>
             <SendIcon size={18} />
             <span>{t('nav_sends')}</span>
           </Link>
-          <Link href="/settings" className={`mobile-tab ${props.mobilePrimaryRoute === '/settings' ? 'active' : ''}`}>
+          <Link href={ROUTES.settings} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.settings ? 'active' : ''}`}>
             <SettingsIcon size={18} />
             <span>{t('txt_settings')}</span>
           </Link>

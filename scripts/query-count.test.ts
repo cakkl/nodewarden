@@ -1,13 +1,10 @@
 // 查询数不随返回行数增长（防 N+1 回归）
 //
-// 为什么需要它：第 5 轮用"按缩进找 `for (...) { await ... }`"的方式扫过全仓库，
-// 结论是"11 处批量分块（正确）+ 7 处逐条串行"。但那个扫法**看不见**
-// `Promise.all(x.map(async …))` —— 它没有 for 循环，却是实打实的 N+1：
-// N 次 await 往返，只是没有 await 写在循环里。
+// 为什么需要：用"按缩进找 `for (...) { await ... }`"的方式扫源码**看不见**
+// `Promise.all(x.map(async …))` —— 它没有 for 循环，却是实打实的 N+1。
 //
-// 所以本文件不用"数源码里有几个 await"，而是**数运行时的数据库往返次数**，
-// 并断言：**行数变了、查询数不变**。这个断言与实现完全无关 ——
-// 无论用 `Promise.all`、`for` 还是将来别的写法，只要是 N+1 就会失败。
+// 所以这里不数源码里的 await，而是**数运行时的数据库往返次数**，断言：**行数变了、查询数不变**。
+// 该断言与实现无关 —— 无论用 `Promise.all`、`for` 还是别的写法，只要是 N+1 就会失败。
 //
 // 运行方式：npm run test:query-count
 import assert from 'node:assert/strict';
@@ -27,13 +24,12 @@ const REQUEST_URL = 'https://vault.example.test/api/admin/users';
 /**
  * 在**随机数被钉住**的前提下跑一段测量。
  *
- * 为什么必须这么做：仓库里有几处**概率门控**的低频清理挂在普通操作上，例如
- * `writeAuditEvent` → `maybePruneAuditLogs()`（`Math.random() > 概率` 才跑，
- * 一跑就多出约 2 条查询）。不清掉这个随机性，同一个用例的查询数会时多时少 ——
- * 实测就出现过"2 台时 5 次、8 台时 3 次"这种方向都反了的比较。
+ * 为什么必须：仓库里有几处**概率门控**的低频清理挂在普通操作上，例如 `writeAuditEvent` →
+ * `maybePruneAuditLogs()`（`Math.random() > 概率` 才跑，一跑就多出约 2 条查询）。不清掉这个随机性，
+ * 同一用例的查询数会时多时少 —— 实测出现过"2 台时 5 次、8 台时 3 次"这种方向都反了的比较。
  *
- * 钉成 1 表示**门永远不开**（`1 > 概率` 恒真），于是计数得到的是确定的下界 ——
- * 这正是本文件要断言的东西："查询数不随行数增长"。
+ * 钉成 1 表示**门永远不开**（`1 > 概率` 恒真），于是计数得到确定的下界 —— 这正是本文件要断言的
+ * 东西："查询数不随行数增长"。
  */
 async function withDeterministicRandom<T>(run: () => Promise<T>): Promise<T> {
   const original = Math.random;
@@ -135,11 +131,10 @@ test('管理员列用户：响应里能正确标出「哪些用户启用了双�
 // ---------------------------------------------------------------- 待处理的登录请求
 
 /**
- * 造 `requestCount` 条来自**不同设备**的待处理登录请求，跑一次
- * `handleListPendingAuthRequests`，返回响应条数与查询条数。
+ * 造 `requestCount` 条来自**不同设备**的待处理登录请求，跑一次 `handleListPendingAuthRequests`，
+ * 返回响应条数与查询条数。
  *
- * 用不同设备是必需的：原实现是「每个请求去查一次该设备」，若请求都来自同一个设备，
- * N+1 就会被去重逻辑掩盖，测不出来。
+ * 用不同设备是必需的：原实现「每个请求去查一次该设备」，若请求都来自同一设备，N+1 会被去重逻辑掩盖。
  */
 async function measurePendingAuthRequests(requestCount: number): Promise<{ items: number; queries: number }> {
   const handle = await createSchemaDatabase();

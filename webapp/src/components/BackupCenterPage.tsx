@@ -322,13 +322,10 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
 
   useEffect(() => {
     if (!savedSelectedDestination) return;
-    // 「尚未配置」不等于「错误」。
-    // 新建 / 迁移时会自动生成一个 baseUrl 为空的目标（见 shared/backup-schema.ts 的
-    // createDefaultBackupSettings）。若进入页面就自动列举远端目录，服务端会因
-    // 「WebDAV server URL is required」返回 409，前端随即把它当错误弹出，
-    // 用户每次进页都会看到「请填写 WebDAV 服务地址。」。
-    // 因此这里对未配置的目标直接跳过；用户主动点「刷新」或保存后触发的加载不受影响，
-    // 仍会执行并如实报出真实错误。
+    // 「尚未配置」不等于「错误」：新建 / 迁移时会自动生成一个 baseUrl 为空的目标（见
+    // `createDefaultBackupSettings`）。若进页面就自动列举远端目录，服务端会因「WebDAV server URL is
+    // required」返回 409，前端随即当错误弹出，用户每次进页都看到「请填写 WebDAV 服务地址。」。
+    // 因此未配置的目标直接跳过；用户主动点「刷新」或保存后触发的加载不受影响，仍会如实报出真实错误。
     if (!isBackupDestinationConfigured(savedSelectedDestination)) return;
     const destinationId = savedSelectedDestination.id;
     const path = remoteBrowserPathByDestination[destinationId] || '';
@@ -338,14 +335,12 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
     if (isStale) {
       void loadRemoteBrowser(destinationId, path, { force: true });
     }
-    // 依赖只列「目标 id」+「访问配置指纹」：
-    //   - id 变了 = 切换到别的目标；
-    //   - 指纹变了 = 同一个目标改了地址 / 账号 / 根路径并保存。
-    //     （原先只列 id，于是「把地址从空填成有效值再保存」时 id 没变，
-    //     这里不会重跑，而下方保存逻辑已把该目标的缓存清空 ⇒ 列表一直空着。）
-    // 其余被读到的值刻意不进依赖：loadRemoteBrowser 每次都会以 `{ ...current }` 造新对象
-    // 写回 pathByDestination / refreshedAt，对象引用永不相等，一旦列入依赖，
-    // 加载失败时（catch 分支不写 refreshedAt）就会无限重试。指纹是字符串，值比较，故可列入。
+    // 依赖只列「目标 id」+「访问配置指纹」：id 变了 = 切换到别的目标；指纹变了 = 同一个目标改了地址 /
+    // 账号 / 根路径并保存。（原先只列 id，于是「把地址从空填成有效值再保存」时 id 没变，这里不会重跑，
+    // 而下方保存逻辑已把该目标的缓存清空 ⇒ 列表一直空着。）
+    // 其余被读到的值刻意不进依赖：loadRemoteBrowser 每次都会以 `{ ...current }` 造新对象写回
+    // pathByDestination / refreshedAt，对象引用永不相等，一旦列入依赖，加载失败时（catch 分支不写
+    // refreshedAt）就会无限重试。指纹是字符串，值比较，故可列入。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedSelectedDestination?.id, savedDestinationAccessFingerprint]);
 

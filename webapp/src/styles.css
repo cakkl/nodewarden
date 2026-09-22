@@ -544,14 +544,12 @@ h4 {
 
 /* 弹窗按钮的尺寸。
  *
- * 为什么放在入口层、且只用 0-1-0 的 `.dialog-btn`：
- *   · 组件层 overlays.css 原本写的是 @apply h-[50px] text-xl，但与本文件上方的
- *     `.btn { height: 38px; font-size: 14px }` 同为 0-1-0，而本文件位于所有 @import 之后
- *     ⇒ 那两个尺寸声明被静默压掉（实测恒为 38px / 14px，**从未生效**）。
- *   · 在这里用 0-1-0：压得过上面的 .btn（同权重、更靠前），
- *     又不会压过任何 0-2-0 的组件级规则（如 vault.css 的
- *     `.totp-scan-actions .dialog-btn { mt-0 text-base }`，那是扫码弹窗要的小号按钮）。
- *   · 移动端覆盖也必须放这里：写进 responsive.css 会先加载，被本规则盖住。
+ * 为什么放在入口层、且只用 0-1-0 的 `.dialog-btn`：组件层 overlays.css 原本写的是
+ * `@apply h-[50px] text-xl`，但与本文件上方的 `.btn { height: 38px; font-size: 14px }` 同为 0-1-0，
+ * 而本文件位于所有 @import 之后 ⇒ 那两个尺寸声明被静默压掉（实测恒为 38px / 14px，**从未生效**）。
+ * 用 0-1-0 既压得过上面的 `.btn`，又不会压过 0-2-0 的组件级规则（如 vault.css 的
+ * `.totp-scan-actions .dialog-btn { mt-0 text-base }`）。移动端覆盖也必须放这里 —— 写进
+ * responsive.css 会先加载、被本规则盖住。
  */
 .dialog-btn {
   height: 50px;

@@ -1,9 +1,9 @@
 // `src/handlers/identity.ts` 的行为测试 —— 认证入口
 //
-// 为什么这个 handler 最该测：它是**唯一签发凭据的地方**。这里出错的后果与其他 handler
-// 不同量级 —— 不是"某个列表少一条"，而是"凭据发给了不该发的人"或"合法用户进不来"。
+// 为什么这个 handler 最该测：它是**唯一签发凭据的地方**。这里出错的后果与其他 handler 不同量级 ——
+// 不是"某个列表少一条"，而是"凭据发给了不该发的人"或"合法用户进不来"。
 //
-// 覆盖重点（按 NEXT.md §3.4 的规划）：
+// 覆盖重点：
 //   ① 密码校验的**失败路径**：每种失败都必须**不签发任何凭据**
 //   ② 防用户枚举：prelogin 对不存在的用户必须返回**与真实用户相同的响应形状**
 //   ③ **凭据用途隔离**：access token 不能被当成 refresh token 用
@@ -270,19 +270,12 @@ test('token：被封禁（banned）的账号无法登录，且不签发凭据', 
 
 // 下面这条**记录既有行为，不是缺陷判定**，请勿当成"期望行为"照抄。
 //
-// 背景：`mapUserRow`（storage-user-repo.ts）只有一行
-//     status: row.status === 'banned' ? 'banned' : 'active'
-// 即**只认 'banned'，其余一切值都归为 'active'** —— 而 `handleToken` 的门是
-// `user.status !== 'active'`，所以只有 'banned' 能拦住登录。
+// `mapUserRow`（storage-user-repo.ts）只认 `'banned'`、其余一切值都归为 `'active'`，而
+// `handleToken` 的门是 `user.status !== 'active'` —— 所以只有 'banned' 能拦住登录。
 //
-// 为什么现在不算缺陷：`users.status` 的**唯一**非 active 写入方是管理端的
-// `handleAdminUpdateUserStatus`，它做了白名单（`status must be active or banned`，其余 400）。
-// 也就是说系统自己永远不会产生第三个值。
-//
-// 但这是个"宽容映射"（fail-open）：手工执行
-// `UPDATE users SET status = 'suspended'` 之类会被**静默当作正常账号**。
-// 本用例把这一点固定下来，将来若有人把映射改成 fail-closed，这里会红，
-// 从而强制做一次有意识的决策（而不是无声漂移）。
+// 现在不算缺陷：`users.status` 唯一的非 active 写入方是管理端的 `handleAdminUpdateUserStatus`，
+// 它做了白名单。但这是个宽容映射（fail-open）—— 手工 `UPDATE ... status = 'suspended'` 会被静默
+// 当作正常账号。本用例把它固定下来：将来若有人改成 fail-closed，这里会红，强制做一次有意识的决策。
 test('记录既有行为：状态映射只认 banned，其余值一律当作 active（fail-open）', async () => {
   const h = await createHarness();
   await seedUserWithPassword(h, { status: 'suspended' });
