@@ -21,6 +21,7 @@ import type {
 } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { dispatchBackupProgress } from '@/lib/backup-restore-progress';
+import { ROUTES } from '@/lib/routes';
 
 type Notify = (type: 'success' | 'error' | 'warning', text: string) => void;
 type StateSetter<T> = (next: T[] | ((prev: T[]) => T[])) => void;
@@ -632,13 +633,13 @@ export const DEMO_ADMIN_USERS: AdminUser[] = [
 export const DEMO_ADMIN_INVITES: AdminInvite[] = [
   {
     code: 'DEMO-INVITE-2026',
-    inviteLink: '/register?invite=DEMO-INVITE-2026',
+    inviteLink: `${ROUTES.register}?invite=DEMO-INVITE-2026`,
     status: 'active',
     expiresAt: '2026-05-11T08:00:00.000Z',
   },
   {
     code: 'USED-DEMO',
-    inviteLink: '/register?invite=USED-DEMO',
+    inviteLink: `${ROUTES.register}?invite=USED-DEMO`,
     status: 'used',
     expiresAt: '2026-05-01T08:00:00.000Z',
   },
@@ -1751,7 +1752,7 @@ export function createDemoMainRoutesProps(base: AppMainRoutesProps, notify: Noti
       const expiresAt = new Date(Date.now() + Math.max(1, Number(hours || 168)) * 3600_000).toISOString();
       state.setInvites((prev) => [{
         code,
-        inviteLink: `/register?invite=${code}`,
+        inviteLink: `${ROUTES.register}?invite=${code}`,
         status: 'active',
         expiresAt,
       }, ...prev]);

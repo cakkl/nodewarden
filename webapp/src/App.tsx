@@ -69,6 +69,13 @@ import { APP_NOTIFY_EVENT, type AppNotifyDetail } from '@/lib/app-notify';
 import { dispatchBackupProgress, type BackupProgressDetail } from '@/lib/backup-restore-progress';
 import { clearOfflineUnlockRecord } from '@/lib/offline-auth';
 import { clearPasswordSecurityCache } from '@/lib/password-security-cache';
+import {
+  DIRECT_ALIASES,
+  IMPORT_EXPORT_ROUTE_ALIASES,
+  PUBLIC_SEND_PATH_PATTERN,
+  ROUTES,
+  isKnownRoutePath,
+} from '@/lib/routes';
 import { decryptSends, decryptVaultCore } from '@/lib/vault-decrypt';
 import { decryptSendsInWorker, decryptVaultCoreInWorker } from '@/lib/vault-worker';
 import {
@@ -97,43 +104,6 @@ function isBackupProgressDetail(value: unknown): value is BackupProgressDetail {
     && typeof detail.step === 'string'
     && typeof detail.fileName === 'string'
   );
-}
-
-const IMPORT_ROUTE = '/backup/import-export';
-const IMPORT_ROUTE_PATHS = [IMPORT_ROUTE, '/tools/import', '/tools/import-export', '/tools/import-data', '/import', '/import-export'] as const;
-const IMPORT_ROUTE_ALIASES: ReadonlySet<string> = new Set(IMPORT_ROUTE_PATHS.filter((path) => path !== IMPORT_ROUTE));
-const SETTINGS_HOME_ROUTE = '/settings';
-const SETTINGS_ACCOUNT_ROUTE = '/settings/account';
-const SETTINGS_DOMAIN_RULES_ROUTE = '/settings/domain-rules';
-const DEVICE_MANAGEMENT_ROUTE = '/settings/security/device-management';
-const LEGACY_DEVICE_MANAGEMENT_ROUTE = '/security/devices';
-const AUTH_ROUTE_PATHS = ['/', '/login', '/register', '/lock', '/recover-2fa'] as const;
-const APP_ROUTE_PATHS = [
-  '/',
-  '/vault',
-  '/vault/totp',
-  '/security/password-health',
-  '/generator',
-  '/sends',
-  '/admin',
-  '/logs',
-  LEGACY_DEVICE_MANAGEMENT_ROUTE,
-  DEVICE_MANAGEMENT_ROUTE,
-  '/backup',
-  '/settings',
-  SETTINGS_ACCOUNT_ROUTE,
-  SETTINGS_DOMAIN_RULES_ROUTE,
-  '/help',
-  ...IMPORT_ROUTE_PATHS,
-] as const;
-const AUTH_ROUTES: ReadonlySet<string> = new Set(AUTH_ROUTE_PATHS);
-const APP_ROUTES: ReadonlySet<string> = new Set(APP_ROUTE_PATHS);
-
-/** 公开的 Send 链接（`/send/<id>`）不在两张表里，但同样算“已知入口”。 */
-const PUBLIC_SEND_PATH_PATTERN = /^\/send(?:\/|$)/i;
-
-function isKnownRoutePath(path: string): boolean {
-  return AUTH_ROUTES.has(path) || APP_ROUTES.has(path) || PUBLIC_SEND_PATH_PATTERN.test(path);
 }
 
 function isAdminProfile(profile: Profile | null): profile is Profile {
@@ -350,9 +320,9 @@ export default function App() {
     if (!inviteCodeFromUrl) return;
     if (phase === 'locked' || phase === 'app') return;
     setPhase('register');
-    if (location !== '/register') navigate('/register');
+    if (location !== ROUTES.register) navigate(ROUTES.register);
     if (typeof window !== 'undefined' && typeof window.history?.replaceState === 'function') {
-      window.history.replaceState(null, '', '/register');
+      window.history.replaceState(null, '', ROUTES.register);
     }
     setInviteCodeFromUrl('');
   }, [inviteCodeFromUrl, phase, location, navigate]);
@@ -495,7 +465,7 @@ export default function App() {
       setProfile(null);
       setPhase('login');
       setUnlockPreparing(false);
-      if (!isDemoPublicSendRoute && location !== '/login') navigate('/login');
+      if (!isDemoPublicSendRoute && location !== ROUTES.login) navigate(ROUTES.login);
       return;
     }
 
@@ -532,7 +502,7 @@ export default function App() {
         setUnlockPreparing(false);
         setLockedSessionRefreshError('');
         setPhase('login');
-        if (location !== '/login') navigate('/login');
+        if (location !== ROUTES.login) navigate(ROUTES.login);
         return;
       }
       setSession(result.session);
@@ -597,8 +567,8 @@ export default function App() {
     setPasskeyPassword('');
     setUnlockPassword('');
     setPhase('app');
-    if (location === '/' || location === '/login' || location === '/register' || location === '/lock') {
-      navigate('/vault');
+    if (location === ROUTES.home || location === ROUTES.login || location === ROUTES.register || location === ROUTES.lock) {
+      navigate(ROUTES.vault);
     }
     void (async () => {
       try {
@@ -777,7 +747,7 @@ export default function App() {
         return;
       }
       pushToast('error', t('txt_recovered_but_auto_login_failed_please_sign_in'));
-      navigate('/login');
+      navigate(ROUTES.login);
     } catch (error) {
       pushToast('error', error instanceof Error ? error.message : t('txt_recover_2fa_failed'));
     }
@@ -788,7 +758,7 @@ export default function App() {
     if (IS_DEMO_MODE) {
       pushToast('warning', t('txt_demo_readonly_message'));
       setPhase('login');
-      navigate('/login');
+      navigate(ROUTES.login);
       return;
     }
     if (!registerValues.email || !registerValues.password) {
@@ -819,7 +789,7 @@ export default function App() {
       }
       setLoginValues({ email: registerValues.email.toLowerCase(), password: '' });
       setPhase('login');
-      navigate('/login');
+      navigate(ROUTES.login);
       pushToast('success', t('txt_registration_succeeded_please_sign_in'));
     } finally {
       setPendingAuthAction(null);
@@ -940,7 +910,7 @@ export default function App() {
     setUnlockPreparing(false);
     setLockedSessionRefreshError('');
     setPhase('locked');
-    navigate('/lock');
+    navigate(ROUTES.lock);
   }
 
   function handleLock() {
@@ -961,7 +931,7 @@ export default function App() {
     setPendingTotp(null);
     setPendingTotpMode(null);
     setPhase('login');
-    navigate('/login');
+    navigate(ROUTES.login);
   }
 
   function handleLogout() {
@@ -1134,7 +1104,7 @@ export default function App() {
   const sendsQuery = useQuery({
     queryKey: sendsQueryKey,
     queryFn: () => getSends(authedFetch),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && !!session?.symEncKey && !!session?.symMacKey && location === '/sends' && !encryptedSendsFromSync,
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && !!session?.symEncKey && !!session?.symMacKey && location === ROUTES.sends && !encryptedSendsFromSync,
     staleTime: 30_000,
   });
   const encryptedSends = sendsQuery.data || encryptedSendsFromSync;
@@ -1957,7 +1927,7 @@ export default function App() {
   const hashPathOnly = String(hashPath || '').split('?')[0].split('#')[0];
   const trimmedHashPath = hashPathOnly.replace(/^\/+/, '').replace(/\/+$/, '');
   const normalizedHashPath = trimmedHashPath ? `/${trimmedHashPath}` : '/';
-  const isImportHashRoute = IMPORT_ROUTE_ALIASES.has(normalizedHashPath);
+  const isImportHashRoute = IMPORT_EXPORT_ROUTE_ALIASES.has(normalizedHashPath);
   const normalizedLocation = normalizeRoutePath(location);
   // hash 形式的路径（`#/vault`）是给旧客户端 / 旧书签的兼容入口，**只在它指向一个已知路由时**
   // 才优先。否则 `#` 只是个普通锚点：`/vault#/some-anchor` 不该被当成未注册路径、
@@ -1968,15 +1938,17 @@ export default function App() {
     : normalizedLocation;
   const effectiveLocation = routeLocation;
   const publicSendMatch = effectiveLocation.match(/^\/send\/([^/]+)(?:\/([^/]+))?\/?$/i);
-  const isRecoverTwoFactorRoute = effectiveLocation === '/recover-2fa';
+  const isRecoverTwoFactorRoute = effectiveLocation === ROUTES.recoverTwoFactor;
   const isPublicSendRoute = !!publicSendMatch;
   const isMalformedSendRoute = PUBLIC_SEND_PATH_PATTERN.test(effectiveLocation) && !publicSendMatch;
-  const isKnownAuthRoute = AUTH_ROUTES.has(routeLocation) || isPublicSendRoute || isRecoverTwoFactorRoute;
-  const isKnownAppRoute = APP_ROUTES.has(routeLocation) || isPublicSendRoute || isImportHashRoute;
-  const isUnknownRoute = isMalformedSendRoute || (phase === 'app' ? !isKnownAppRoute : !isKnownAuthRoute && !APP_ROUTES.has(routeLocation));
-  const isImportRoute = routeLocation === IMPORT_ROUTE || IMPORT_ROUTE_ALIASES.has(routeLocation);
-  const showSidebarToggle = mobileLayout && location === '/sends';
-  const sidebarToggleTitle = location === '/vault' ? t('txt_folders') : t('txt_type');
+  // `isKnownRoutePath` 已合并「登录前可达 / 登录后可达 / send 链接」三类；
+  // hash 形式的 import 别名是唯一例外 —— 它由下面的 effect 跳到规范路径，所以也算已知。
+  const isKnownRoute = isKnownRoutePath(routeLocation);
+  const isUnknownRoute = isMalformedSendRoute
+    || (phase === 'app' ? !isKnownRoute && !isImportHashRoute : !isKnownRoute);
+  const isImportRoute = routeLocation === ROUTES.importExport || IMPORT_EXPORT_ROUTE_ALIASES.has(routeLocation);
+  const showSidebarToggle = mobileLayout && location === ROUTES.sends;
+  const sidebarToggleTitle = location === ROUTES.vault ? t('txt_folders') : t('txt_type');
   const demoDomainRules = useMemo<DomainRules>(() => ({
     equivalentDomains: [
       ['nodewarden.example', 'nw.example'],
@@ -1995,62 +1967,62 @@ export default function App() {
     object: 'domains',
   }), []);
   const mobilePrimaryRoute =
-    location === '/sends'
-      ? '/sends'
-      : location === '/generator'
-        ? '/generator'
-      : location === '/vault/totp'
-        ? '/vault/totp'
-        : location === '/vault'
-          ? '/vault'
-          : '/settings';
+    location === ROUTES.sends
+      ? ROUTES.sends
+      : location === ROUTES.generator
+        ? ROUTES.generator
+      : location === ROUTES.vaultTotp
+        ? ROUTES.vaultTotp
+        : location === ROUTES.vault
+          ? ROUTES.vault
+          : ROUTES.settings;
   const currentPageTitle = (() => {
-    if (location === '/security/password-health') return t('txt_password_security');
-    if (location === '/vault/totp') return t('txt_verification_code');
-    if (location === '/generator') return t('txt_password_generator');
-    if (location === '/sends') return t('nav_sends');
-    if (location === '/admin') return t('nav_admin_panel');
-    if (location === '/logs') return t('nav_log_center');
-    if (location === LEGACY_DEVICE_MANAGEMENT_ROUTE || location === DEVICE_MANAGEMENT_ROUTE) return t('nav_device_management');
-    if (location === SETTINGS_DOMAIN_RULES_ROUTE) return t('nav_domain_rules');
-    if (location === '/backup') return t('nav_backup_strategy');
+    if (location === ROUTES.passwordHealth) return t('txt_password_security');
+    if (location === ROUTES.vaultTotp) return t('txt_verification_code');
+    if (location === ROUTES.generator) return t('txt_password_generator');
+    if (location === ROUTES.sends) return t('nav_sends');
+    if (location === ROUTES.admin) return t('nav_admin_panel');
+    if (location === ROUTES.logs) return t('nav_log_center');
+    if (location === ROUTES.deviceManagement || location === DIRECT_ALIASES.deviceManagementLegacy) return t('nav_device_management');
+    if (location === ROUTES.settingsDomainRules) return t('nav_domain_rules');
+    if (location === ROUTES.backup) return t('nav_backup_strategy');
     if (isImportRoute) return t('nav_import_export');
-    if (location === SETTINGS_ACCOUNT_ROUTE) return t('nav_account_settings');
-    if (location === SETTINGS_HOME_ROUTE) return t('txt_settings');
+    if (location === ROUTES.settingsAccount) return t('nav_account_settings');
+    if (location === ROUTES.settings) return t('txt_settings');
     return t('nav_my_vault');
   })();
 
   useEffect(() => {
     if (phase !== 'app') return;
     if (!hashPath.startsWith('/')) return;
-    if (normalizedHashPath !== DEVICE_MANAGEMENT_ROUTE && normalizedHashPath !== LEGACY_DEVICE_MANAGEMENT_ROUTE) return;
+    if (normalizedHashPath !== ROUTES.deviceManagement && normalizedHashPath !== DIRECT_ALIASES.deviceManagementLegacy) return;
     if (typeof window !== 'undefined' && typeof window.history?.replaceState === 'function') {
-      window.history.replaceState(null, '', DEVICE_MANAGEMENT_ROUTE);
+      window.history.replaceState(null, '', ROUTES.deviceManagement);
     }
-    if (location !== DEVICE_MANAGEMENT_ROUTE) navigate(DEVICE_MANAGEMENT_ROUTE);
+    if (location !== ROUTES.deviceManagement) navigate(ROUTES.deviceManagement);
   }, [phase, hashPath, normalizedHashPath, location, navigate]);
 
   useEffect(() => {
-    if (phase === 'register' && (location === '/' || location === '/login') && !isPublicSendRoute) {
-      navigate('/register');
+    if (phase === 'register' && (location === ROUTES.home || location === ROUTES.login) && !isPublicSendRoute) {
+      navigate(ROUTES.register);
     }
   }, [phase, location, isPublicSendRoute, navigate]);
 
   useEffect(() => {
-    if (phase === 'app' && isImportHashRoute && location !== IMPORT_ROUTE) {
-      navigate(IMPORT_ROUTE);
+    if (phase === 'app' && isImportHashRoute && location !== ROUTES.importExport) {
+      navigate(ROUTES.importExport);
     }
   }, [phase, isImportHashRoute, location, navigate]);
 
   useEffect(() => {
-    if (phase === 'app' && !isAdminProfile(profile) && (location === '/backup' || location === '/logs') && !profileQuery.isFetching) {
-      navigate('/vault');
+    if (phase === 'app' && !isAdminProfile(profile) && (location === ROUTES.backup || location === ROUTES.logs) && !profileQuery.isFetching) {
+      navigate(ROUTES.vault);
     }
   }, [phase, profile?.role, profileQuery.isFetching, location, navigate]);
 
   useEffect(() => {
-    if (phase === 'app' && !mobileLayout && location === SETTINGS_HOME_ROUTE) {
-      navigate(SETTINGS_ACCOUNT_ROUTE);
+    if (phase === 'app' && !mobileLayout && location === ROUTES.settings) {
+      navigate(ROUTES.settingsAccount);
     }
   }, [phase, mobileLayout, location, navigate]);
 
@@ -2061,9 +2033,6 @@ export default function App() {
     mobileLayout,
     mobileSidebarToggleKey,
     themePreference,
-    importRoute: IMPORT_ROUTE,
-    settingsHomeRoute: SETTINGS_HOME_ROUTE,
-    settingsAccountRoute: SETTINGS_ACCOUNT_ROUTE,
     decryptedCiphers,
     decryptedFolders,
     decryptedSends,
@@ -2283,7 +2252,7 @@ export default function App() {
           onSubmit={() => void handleRecoverTwoFactorSubmit()}
           onCancel={() => {
             setRecoverValues({ email: '', password: '', recoveryCode: '' });
-            navigate('/login');
+            navigate(ROUTES.login);
           }}
         />
         {renderPassiveOverlays()}
@@ -2325,7 +2294,7 @@ export default function App() {
             setPendingPasskeyPassword(null);
             setPasskeyPassword('');
             setPhase('login');
-            navigate('/login');
+            navigate(ROUTES.login);
           }}
           onGotoRegister={() => {
             if (IS_DEMO_MODE) {
@@ -2338,7 +2307,7 @@ export default function App() {
             setPendingPasskeyPassword(null);
             setPasskeyPassword('');
             setPhase('register');
-            navigate('/register');
+            navigate(ROUTES.register);
           }}
           onLogout={logoutNow}
           onTogglePasswordHint={() => void handleTogglePasswordHint()}
@@ -2376,7 +2345,7 @@ export default function App() {
             setPendingTotpMode(null);
             setTotpCode('');
             setRememberDevice(true);
-            navigate('/recover-2fa');
+            navigate(ROUTES.recoverTwoFactor);
           }}
           totpSubmitting={totpSubmitting}
           disableTotpOpen={false}
@@ -2399,8 +2368,6 @@ export default function App() {
         currentPageTitle={currentPageTitle}
         showSidebarToggle={showSidebarToggle}
         sidebarToggleTitle={sidebarToggleTitle}
-        settingsAccountRoute={SETTINGS_ACCOUNT_ROUTE}
-        importRoute={IMPORT_ROUTE}
         isImportRoute={isImportRoute}
         darkMode={resolvedTheme === 'dark'}
         themeToggleTitle={resolvedTheme === 'dark' ? t('txt_switch_to_light_mode') : t('txt_switch_to_dark_mode')}

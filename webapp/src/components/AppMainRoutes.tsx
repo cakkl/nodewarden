@@ -12,6 +12,7 @@ import type { CiphersImportPayload } from '@/lib/api/vault';
 import { t } from '@/lib/i18n';
 import type { AccountPasskeyCredential, AdminInvite, AdminUser, AuditLogListResult, AuditLogSettings, AuthRequest, AuthorizedDevice, Cipher, CustomEquivalentDomain, DomainRules, Folder as VaultFolder, Profile, Send, SendDraft, SessionState, TwoFactorPasskeySettings, VaultDraft, YubiKeyOtpSettings } from '@/lib/types';
 import type { ExportRequest } from '@/lib/export-formats';
+import { DEVICE_MANAGEMENT_ROUTE_PATHS, IMPORT_EXPORT_ROUTE_PATHS, ROUTES } from '@/lib/routes';
 
 const VaultPage = lazy(() => import('@/components/VaultPage'));
 const SendsPage = lazy(() => import('@/components/SendsPage'));
@@ -33,7 +34,7 @@ function RouteContentFallback() {
 function LegacyBackupRedirect(props: { onNavigate: (path: string) => void }) {
   const navigate = props.onNavigate;
   useEffect(() => {
-    navigate('/backup');
+    navigate(ROUTES.backup);
   }, [navigate]);
   return null;
 }
@@ -48,7 +49,7 @@ function LegacyBackupRedirect(props: { onNavigate: (path: string) => void }) {
 function HomeRedirect(props: { onNavigate: (path: string) => void }) {
   const navigate = props.onNavigate;
   useEffect(() => {
-    navigate('/vault');
+    navigate(ROUTES.vault);
   }, [navigate]);
   return <RouteContentFallback />;
 }
@@ -75,9 +76,6 @@ export interface AppMainRoutesProps {
   mobileLayout: boolean;
   mobileSidebarToggleKey: number;
   themePreference: 'system' | 'light' | 'dark';
-  importRoute: string;
-  settingsHomeRoute: string;
-  settingsAccountRoute: string;
   decryptedCiphers: Cipher[];
   decryptedFolders: VaultFolder[];
   decryptedSends: Send[];
@@ -210,8 +208,8 @@ export interface AppMainRoutesProps {
 }
 
 export default function AppMainRoutes(props: AppMainRoutesProps) {
-  const importRoutePaths = [props.importRoute, '/tools/import', '/tools/import-export', '/tools/import-data', '/import', '/import-export'] as const;
-  const deviceManagementRoutePaths = ['/security/devices', '/settings/security/device-management'] as const;
+  const importRoutePaths = IMPORT_EXPORT_ROUTE_PATHS;
+  const deviceManagementRoutePaths = DEVICE_MANAGEMENT_ROUTE_PATHS;
   const isAdmin = String(props.profile?.role || '').toLowerCase() === 'admin';
   const importPageContent = (
     <Suspense fallback={<RouteContentFallback />}>
@@ -230,7 +228,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
     <div className="stack">
       {props.mobileLayout && (
         <div className="mobile-settings-subhead">
-          <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(props.settingsHomeRoute)}>
+          <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(ROUTES.settings)}>
             <span className="btn-icon" aria-hidden="true">{"<"}</span>
             {t('txt_back')}
           </button>
@@ -244,14 +242,14 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
     <ErrorBoundary>
       {/* 包在 Switch 外层：页面组件报错时不会连带导航栏一起消失 */}
       <Switch>
-      <Route path="/">
+      <Route path={ROUTES.home}>
         <HomeRedirect onNavigate={props.onNavigate} />
       </Route>
-      <Route path="/security/password-health">
+      <Route path={ROUTES.passwordHealth}>
         <div className="stack">
           {props.mobileLayout && (
             <div className="mobile-settings-subhead">
-              <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(props.settingsHomeRoute)}>
+              <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(ROUTES.settings)}>
                 <span className="btn-icon" aria-hidden="true">{"<"}</span>
                 {t('txt_back')}
               </button>
@@ -262,12 +260,12 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           </Suspense>
         </div>
       </Route>
-      <Route path="/generator">
+      <Route path={ROUTES.generator}>
         <Suspense fallback={<RouteContentFallback />}>
           <PasswordGeneratorPage />
         </Suspense>
       </Route>
-      <Route path="/sends">
+      <Route path={ROUTES.sends}>
         <Suspense fallback={<RouteContentFallback />}>
           <SendsPage
             sends={props.decryptedSends}
@@ -284,12 +282,12 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           />
         </Suspense>
       </Route>
-      <Route path="/vault/totp">
+      <Route path={ROUTES.vaultTotp}>
         <Suspense fallback={<RouteContentFallback />}>
           <TotpCodesPage ciphers={props.decryptedCiphers} loading={props.ciphersLoading} onNotify={props.onNotify} />
         </Suspense>
       </Route>
-      <Route path="/vault">
+      <Route path={ROUTES.vault}>
         <Suspense fallback={<RouteContentFallback />}>
           <VaultPage
             ciphers={props.decryptedCiphers}
@@ -324,12 +322,12 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           />
         </Suspense>
       </Route>
-      <Route path={props.settingsAccountRoute}>
+      <Route path={ROUTES.settingsAccount}>
         {props.profile ? (
           <div className="stack">
             {props.mobileLayout && (
               <div className="mobile-settings-subhead">
-                <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(props.settingsHomeRoute)}>
+                <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(ROUTES.settings)}>
                   <span className="btn-icon" aria-hidden="true">{"<"}</span>
                   {t('txt_back')}
                 </button>
@@ -378,17 +376,17 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           <LoadingState card lines={5} />
         ) : null}
       </Route>
-      <Route path="/settings">
+      <Route path={ROUTES.settings}>
         {props.profile ? (
           <section className="card mobile-settings-card settings-home-card">
             <div className="settings-home-section">
               <h3>{t('nav_group_tools')}</h3>
               <div className="mobile-settings-links">
-                <Link href="/security/password-health" className="mobile-settings-link">
+                <Link href={ROUTES.passwordHealth} className="mobile-settings-link">
                   <ShieldCheck size={18} />
                   <span>{t('nav_password_security')}</span>
                 </Link>
-                <Link href={props.importRoute} className="mobile-settings-link">
+                <Link href={ROUTES.importExport} className="mobile-settings-link">
                   <ArrowUpDown size={18} />
                   <span>{t('nav_import_export')}</span>
                 </Link>
@@ -397,15 +395,15 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
             <div className="settings-home-section">
               <h3>{t('txt_settings')}</h3>
               <div className="mobile-settings-links">
-                <Link href={props.settingsAccountRoute} className="mobile-settings-link">
+                <Link href={ROUTES.settingsAccount} className="mobile-settings-link">
                   <SettingsIcon size={18} />
                   <span>{t('nav_account_settings')}</span>
                 </Link>
-                <Link href="/settings/security/device-management" className="mobile-settings-link">
+                <Link href={ROUTES.deviceManagement} className="mobile-settings-link">
                   <Shield size={18} />
                   <span>{t('nav_device_management')}</span>
                 </Link>
-                <Link href="/settings/domain-rules" className="mobile-settings-link">
+                <Link href={ROUTES.settingsDomainRules} className="mobile-settings-link">
                   <Globe2 size={18} />
                   <span>{t('nav_domain_rules')}</span>
                 </Link>
@@ -415,15 +413,15 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
               <div className="settings-home-section">
                 <h3>{t('nav_group_system_management')}</h3>
                 <div className="mobile-settings-links">
-                  <Link href="/backup" className="mobile-settings-link">
+                  <Link href={ROUTES.backup} className="mobile-settings-link">
                     <Cloud size={18} />
                     <span>{t('nav_backup_strategy')}</span>
                   </Link>
-                  <Link href="/admin" className="mobile-settings-link">
+                  <Link href={ROUTES.admin} className="mobile-settings-link">
                     <ShieldUser size={18} />
                     <span>{t('nav_admin_panel')}</span>
                   </Link>
-                  <Link href="/logs" className="mobile-settings-link">
+                  <Link href={ROUTES.logs} className="mobile-settings-link">
                     <FileClock size={18} />
                     <span>{t('nav_log_center')}</span>
                   </Link>
@@ -445,7 +443,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           <div className="stack">
             {props.mobileLayout && (
               <div className="mobile-settings-subhead">
-                <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(props.settingsHomeRoute)}>
+                <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(ROUTES.settings)}>
                   <span className="btn-icon" aria-hidden="true">{"<"}</span>
                   {t('txt_back')}
                 </button>
@@ -476,11 +474,11 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           </div>
         </Route>
       ))}
-      <Route path="/settings/domain-rules">
+      <Route path={ROUTES.settingsDomainRules}>
         <div className="stack domain-rules-route">
           {props.mobileLayout && (
             <div className="mobile-settings-subhead">
-              <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(props.settingsHomeRoute)}>
+              <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(ROUTES.settings)}>
                 <span className="btn-icon" aria-hidden="true">{"<"}</span>
                 {t('txt_back')}
               </button>
@@ -498,11 +496,11 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           </Suspense>
         </div>
       </Route>
-      <Route path="/admin">
+      <Route path={ROUTES.admin}>
         <div className="stack">
           {props.mobileLayout && (
             <div className="mobile-settings-subhead">
-              <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(props.settingsHomeRoute)}>
+              <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(ROUTES.settings)}>
                 <span className="btn-icon" aria-hidden="true">{"<"}</span>
                 {t('txt_back')}
               </button>
@@ -526,7 +524,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           </Suspense>
         </div>
       </Route>
-      <Route path="/logs">
+      <Route path={ROUTES.logs}>
         {isAdmin ? (
           <div className="stack">
             <Suspense fallback={<RouteContentFallback />}>
@@ -537,7 +535,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onClearLogs={props.onClearAuditLogs}
                 onNotify={props.onNotify}
                 mobileLayout={props.mobileLayout}
-                onMobileBack={() => props.onNavigate(props.settingsHomeRoute)}
+                onMobileBack={() => props.onNavigate(ROUTES.settings)}
               />
             </Suspense>
           </div>
@@ -548,15 +546,15 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
           {renderImportPageRoute()}
         </Route>
       ))}
-      <Route path="/help">
+      <Route path={ROUTES.help}>
         <LegacyBackupRedirect onNavigate={props.onNavigate} />
       </Route>
-      <Route path="/backup">
+      <Route path={ROUTES.backup}>
         {isAdmin ? (
           <div className="stack">
             {props.mobileLayout && (
               <div className="mobile-settings-subhead">
-                <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(props.settingsHomeRoute)}>
+                <button type="button" className="btn btn-secondary small mobile-settings-back" onClick={() => props.onNavigate(ROUTES.settings)}>
                   <span className="btn-icon" aria-hidden="true">{"<"}</span>
                   {t('txt_back')}
                 </button>
