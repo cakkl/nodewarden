@@ -1,22 +1,12 @@
-// §3.3 查询计划审计：主要列表/分页查询到底用不用得上索引？
+// 查询计划审计：主要列表/分页查询到底用不用得上索引？
 //
-// 为什么必须用「运行时采集 + EXPLAIN QUERY PLAN」而不是靠人读代码：
-//   "建了索引" ≠ "索引被用上"。列的**顺序**、`WHERE` 里的函数包裹、`ORDER BY` 的方向、
-//   `LIKE` 前缀 —— 任何一项不对，SQLite 就会默默退化成全表扫描。代码看起来完全正常，
-//   只有在数据量上来之后才表现为"越用越慢"。
-//
-// 本文件做的事：
-//   ① 按**生产同样的方式**建库（迁移建表 → `StorageService.initializeDatabase()` 补索引）
-//   ② 用 Proxy 采集被测代码**实际发出**的 SQL（见 scripts/lib/sql-recorder.ts）
-//   ③ 对每条 SQL 跑 EXPLAIN QUERY PLAN，判定规则见下
-//   ④ 每次运行都打印完整报告，供人工复核
+// 必须运行时采集 + EXPLAIN QUERY PLAN，不能靠人读代码 ——“建了索引” ≠ “索引被用上”：列顺序、`WHERE`
+// 里的函数包裹、`ORDER BY` 方向、`LIKE` 前缀任一项不对，SQLite 就静默退化成全表扫描。做法：按生产同样
+// 的方式建库 → 采集实际发出的 SQL → 逐条跑 EXPLAIN QUERY PLAN。
 //
 // 判定规则（刻意保守，避免假警报）：
-//   ✗ 硬失败：`SCAN <表>` —— **不带** `USING`。这是真·全表逐行读。
-//   ✓ 通过　：`SCAN <表> USING INDEX ...` —— 全索引扫描。常常是**最优**解：配合
-//              `ORDER BY ... LIMIT` 可以顺着索引顺序取前 N 行并提前终止，比
-//              "用 WHERE 索引 + 临时 B 树排序"更快。因此只报告、不判失败。
-//   ✓ 通过　：`SEARCH <表> USING ...` —— 按索引/主键定位。
+//   ✗ 硬失败：`SCAN <表>`（不带 USING）—— 真·全表逐行读。
+//   ✓ 通过　：`SCAN <表> USING INDEX`、`SEARCH <表> USING ...`（按索引/主键定位）。
 //   仅报告　：`USE TEMP B-TREE`（额外排序）。
 //
 // 运行方式：npm run test:query-plan
@@ -37,9 +27,8 @@ const USER = 'plan-user';
 /**
  * 允许出现裸 `SCAN` 的表 → 理由。
  *
- * 只允许放**确实没有更好解**的情况。不要为了"让测试通过"往这里加东西 ——
- * 先判断是不是缺索引。本方集会顺带校验**没有过期条目**（若某张表已不再被裸扫，
- * 说明可以删掉这一行），避免它变成"技术债墓地"。
+ * 只允许放**确实没有更好解**的情况，不要为了"让测试通过"往这里加东西 —— 先判断是不是缺索引。本集合
+ * 会顺带校验**没有过期条目**（某张表已不再被裸扫说明可以删掉这一行），避免它变成"技术债墓地"。
  */
 const ALLOWED_BARE_SCANS: Record<string, string> = {
   // 键取的是计划文本里的标识符：`audit_logs` 在语句里被别名为 `l`，
@@ -257,10 +246,9 @@ async function driveReadPaths(storage: StorageService, env: Env): Promise<void> 
 /**
  * 确定性驱动所有"周期性清理"路径。
  *
- * 这些清理藏在普通操作里，且用 `Math.random() < 0.05` 做概率门控 ——
- * 不干预的话它们十次里跑不到一次，审计就会"看起来没问题"。
- * 把 `Math.random` 临时钉成 0 即可让所有门控必开（区间判定用的是**真实**时间，不受影响）。
- * 清理类 DELETE 是**周期性全表跑**的，缺索引时代价会随表增长线性上升，最该被审计。
+ * 这些清理藏在普通操作里、用 `Math.random() < 0.05` 做概率门控，不干预的话十次里跑不到一次，审计就会
+ * "看起来没问题"。把 `Math.random` 临时钉成 0 即可让所有门控必开（区间判定用的是**真实**时间，不受
+ * 影响）。清理类 DELETE 是**周期性全表跑**的，缺索引时代价随表增长线性上升，最该被审计。
  */
 async function driveCleanupPaths(storage: StorageService, env: Env): Promise<void> {
   const originalRandom = Math.random;

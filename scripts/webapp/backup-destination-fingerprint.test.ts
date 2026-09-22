@@ -1,18 +1,14 @@
 // 备份目标「访问配置」指纹的测试。
 //
-// 背景：备份中心里「远端目录自动刷新」的 effect 原先只以**目标 id** 为触发条件，
-// 于是「同一个目标把 WebDAV 地址从空填成有效值并保存」时 id 没变 ⇒ effect 不重跑 ⇒
-// 列表空着，要用户手动点一次「刷新」。现在触发条件改为「目标 id + 访问配置指纹」，
-// 保存后「要不要作废缓存」也改用同一个指纹判断。
+// 背景：远端目录自动刷新的 effect 原先只以**目标 id** 为触发条件 ⇒「同一目标把 WebDAV 地址从空填成
+// 有效值并保存」时 id 没变、effect 不重跑，列表空着要用户手动刷一次。现在触发条件是「目标 id + 访问
+// 配置指纹」，保存后「要不要作废缓存」也用同一个指纹判断。
 //
-// 这里测两个**纯函数**（组件只负责调用它们），盯住几件容易静默出错的事：
-//   `getBackupDestinationAccessFingerprint()`
-//   ① 指纹只能对「访问配置」敏感 —— 改名 / 改调度 / 跑过一次备份都不该变，
-//      否则每次保存设置都白跑一次远端列举（还得过一次网络往返）；
-//   ② 指纹里**不能**含密码 / secretAccessKey —— 比较变更而已，没必要把密钥复制一份；
-//   ③ 用 JSON 编码相邻字段，避免 `username` 的尾巴与 `remotePath` 的头互相顶替。
-//   `shouldInvalidateRemoteBrowserCache()`
-//   ④ 只改名字 / 调度时**不能**清缓存 —— 清了列表会空着，而 effect 不会重载。
+// 测两个**纯函数**，盯住容易静默出错的事：
+//   `getBackupDestinationAccessFingerprint()` —— ① 只对「访问配置」敏感（改名 / 改调度 / 跑过一次备份
+//   都不该变，否则每次保存都白跑一次远端列举）；② **不含**密码 / secretAccessKey。
+//   `shouldInvalidateRemoteBrowserCache()` —— ③ 只改名字 / 调度时**不能**清缓存（清了列表会空着，而
+//   effect 不会重载）。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';

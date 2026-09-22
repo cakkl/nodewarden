@@ -19,9 +19,9 @@ function normalizeEmail(email: string | null | undefined): string {
 /**
  * 离线解锁记录里保存的 profile 采用**白名单**字段（与 `api/auth.ts` 的 `stripProfileSecrets` 一致）。
  *
- * 只保留渲染离线界面必需的字段，密钥一律清空；**未知字段直接丢弃** —— 否则将来某个字段
- * 带上敏感内容时会被顺手写进 localStorage（CodeQL `js/clear-text-storage-of-sensitive-data`
- * 报的正是这条链路）。`key` 保留为可覆盖属性：离线解锁成功后会由 `profileKey` 填回。
+ * 只保留渲染离线界面必需的字段，密钥一律清空；**未知字段直接丢弃** —— 否则将来某个字段带上敏感内容
+ * 时会被顺手写进 localStorage（CodeQL `js/clear-text-storage-of-sensitive-data` 报的正是这条链路）。
+ * `key` 保留为可覆盖属性：离线解锁成功后会由 `profileKey` 填回。
  */
 function stripOfflineProfile(profile: Profile): Profile {
   return {

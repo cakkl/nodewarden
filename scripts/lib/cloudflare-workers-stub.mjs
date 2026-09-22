@@ -1,13 +1,10 @@
 // `cloudflare:workers` 的本地桩（测试专用）
 //
-// 背景：`src/durable/notifications-hub.ts` 从 `cloudflare:workers` 导入 `DurableObject`
-// 与 `waitUntil`。这是 Workers 运行时的虚拟模块，**Node 无法解析**
-// （报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`），于是任何间接引用该模块的 handler 都无法在
-// Node 测试里被导入。
+// 背景：`src/durable/notifications-hub.ts` 从 `cloudflare:workers` 导入 `DurableObject` 与
+// `waitUntil`。这是 Workers 运行时的虚拟模块，**Node 无法解析**
+// （`ERR_UNSUPPORTED_ESM_URL_SCHEME`），于是任何间接引用该模块的 handler 都无法在 Node 测试里导入。
 //
-// 本文件配合 `register-cloudflare-stub.mjs` 使用：由 Node 的模块解析钩子把
-// `cloudflare:workers` 重定向到这里。
-//
+// 配合 `register-cloudflare-stub.mjs` 使用：由模块解析钩子把 `cloudflare:workers` 重定向到这里。
 // 刻意保持最小：只提供被实际导入的两个符号，避免"看起来很真但行为不同"的假象。
 
 /** 仅满足 `class X extends DurableObject` 的语法需求；测试不实例化 DO */

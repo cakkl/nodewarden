@@ -64,17 +64,15 @@ small {
 
 /* 键盘焦点指示器。
  *
- * 为什么用 outline 而不是只靠 box-shadow（原实现）：
- *   组件样式里有大量 `box-shadow: none` 的**普通规则**（`.btn { box-shadow: none }`、
- *   `.side-link, .side-sub-link, .side-group-trigger, .tree-btn, .nav-layout-* { box-shadow: none }` 等）。
- *   它们与 `:focus-visible` 同为 0-1-0 权重、且位于其后 ⇒ 会把 box-shadow 焦点环整体压掉。
- *   实测后果：Tab 聚焦时 `:focus-visible` 确实匹配，但 `box-shadow` 计算值为 `none`，
- *   且聚焦/失焦截图逐字节一致 —— 即 **按钮与链接完全没有可见焦点指示**（WCAG 2.4.7 失败）。
- *   outline 不受这些 box-shadow 规则影响。
+ * 为什么用 outline 而不是只靠 box-shadow（原实现）：组件样式里有大量 `box-shadow: none` 的**普通
+ * 规则**（`.btn { box-shadow: none }`、`.side-link, .side-sub-link, .side-group-trigger, .tree-btn,
+ * .nav-layout-* { box-shadow: none }` 等），它们与 `:focus-visible` 同为 0-1-0 权重、且位于其后 ⇒
+ * 会把 box-shadow 焦点环整体压掉。实测后果：Tab 聚焦时 `:focus-visible` 确实匹配，但 `box-shadow`
+ * 计算值为 `none` —— 即**按钮与链接完全没有可见焦点指示**（WCAG 2.4.7 失败）。outline 不受影响。
  *
- * 为什么不会让“已有自备焦点环”的组件变成双环：
- *   .search-clear-btn / .mobile-vault-filter-trigger / .toast-close / .generator-stepper 等
- *   显式写了 `outline: none` 或自己的 outline，那些规则更具体且在后，仍然胜出。
+ * 为什么不会让“已有自备焦点环”的组件变成双环：`.search-clear-btn` / `.mobile-vault-filter-trigger` /
+ * `.toast-close` / `.generator-stepper` 等显式写了 `outline: none` 或自己的 outline，那些规则更具体
+ * 且在后，仍然胜出。
  */
 :focus-visible {
   outline: 2px solid color-mix(in srgb, var(--primary) 70%, transparent);

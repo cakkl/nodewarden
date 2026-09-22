@@ -1,12 +1,10 @@
 // 备份目标地址主机策略回归测试
 //
-// 契约：备份目标（WebDAV / S3 endpoint）由管理员在设置页填写，服务端会以
-// Worker 身份向其发起出站请求。因此必须拒绝一切指向内网、回环、云元数据与
-// 保留地址的目标，避免形成 SSRF 通道。
+// 契约：备份目标（WebDAV / S3 endpoint）由管理员在设置页填写，服务端会以 Worker 身份向其发起出站
+// 请求。因此必须拒绝一切指向内网、回环、云元数据与保留地址的目标，避免形成 SSRF 通道。
 //
-// 本测试用宽覆盖面（约 70 条）锁定 `normalizeBackupEndpointUrl` 的行为，
-// 覆盖常见的地址编码绕过手法（十进制/八进制/十六进制 IPv4、IPv6 压缩与
-// IPv4-mapped、尾部点号、DNS rebinding 域名等）。
+// 本测试用宽覆盖面（约 70 条）锁定 `normalizeBackupEndpointUrl` 的行为，覆盖常见的地址编码绕过手法
+// （十进制/八进制/十六进制 IPv4、IPv6 压缩与 IPv4-mapped、尾部点号、DNS rebinding 域名等）。
 //
 // 注意：本文件不得写入任何文件（早期版本会往仓库根目录写 PoC JSON）。
 import assert from 'node:assert/strict';
@@ -126,13 +124,10 @@ test('备份目标拒绝带凭据、查询串或片段的地址', () => {
 });
 
 test('备份目标拒绝非 http(s) 协议与非法 URL', () => {
-  // 下面数组里的非加密 WebSocket 地址是**故意放的负向用例**：本测试断言非 http(s)
-  // 协议必须被拒绝，即它验证的正是「不安全的 WebSocket 不会被接受」。
-  //
-  // 该地址的协议名用字符串拼接构造，而不是写成字面量：semgrep 的
-  // detect-insecure-websocket 是**文本级规则**，连注释里的字面量都会命中，而且实测
-  // `nosemgrep` 对它无效（放在命中行上也不生效）—— 只能让那个字面量根本不出现。
-  // 请勿"顺手"把它改回字面量：那会让 PR 上的 `Semgrep OSS` 检查重新变红。
+  // 下面的非加密 WebSocket 地址是**故意放的负向用例**：本测试断言的正是「不安全的 WebSocket 会被
+  // 拒绝」。协议名用字符串拼接而非字面量 —— semgrep 的 detect-insecure-websocket 是**文本级规则**，
+  // 连注释里的字面量都会命中，且实测 `nosemgrep` 对它无效。请勿"顺手"改回字面量：那会让
+  // `Semgrep OSS` 检查重新变红。
   const insecureWebSocketUrl = 'ws' + '://example.com';
   for (const url of ['ftp://example.com', 'file:///etc/passwd', insecureWebSocketUrl, 'not a url', '']) {
     assert.throws(() => normalized(url), Error, `应当拒绝：${url}`);

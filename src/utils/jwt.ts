@@ -234,10 +234,9 @@ export async function verifyAttachmentUploadToken(
     const payload: AttachmentUploadClaims = JSON.parse(new TextDecoder().decode(base64UrlDecode(payloadB64)));
     // 同上：显式拒绝访问令牌，保持用途隔离为显式契约。
     //
-    // 这里同时看 `sstamp` 与 `sub`：访问令牌两者都有，但 `sstamp` 来自
-    // `users.security_stamp`（库定义是 `TEXT NOT NULL`，**并不排除空串**），
-    // 只查它会在 securityStamp 为空时漏掉。`sub` 恒为用户 id、不可能为空，
-    // 因此与 `verifyFileDownloadToken` 保持一致地两样都查。
+    // 这里同时看 `sstamp` 与 `sub`：访问令牌两者都有，但 `sstamp` 来自 `users.security_stamp`
+    //（库定义是 `TEXT NOT NULL`，**并不排除空串**），只查它会在 securityStamp 为空时漏掉。`sub` 恒为
+    // 用户 id、不可能为空，因此与 `verifyFileDownloadToken` 保持一致地两样都查。
     // 上行令牌的声明里没有 `sub`（见 AttachmentUploadClaims），不会误伤合法令牌。
     const rawUploadClaims = payload as unknown as Record<string, unknown>;
     if (rawUploadClaims.sstamp || rawUploadClaims.sub) return null;

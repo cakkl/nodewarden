@@ -1,15 +1,11 @@
 // 「系统必须始终有一个能用的管理员」这条不变量的行为测试。
 //
-// 背景（docs/TODO.md 第 5 条）：
-//   `isAdmin()` 要求 `role === 'admin'` **且** `status === 'active'`，但兜底逻辑
-//   `ensureAdminUserExists()` 原先只查 `role = 'admin'` —— 两处口径不一致 ⇒
-//   「唯一的管理员被 ban 掉」会被当成"已经有管理员"，从此**再也不兜底**（只能手工改库）。
-//   同一个不一致还让兜底把 **banned 用户**提权成管理员（提权后 `isAdmin()` 仍为 false）。
+// 背景：`isAdmin()` 要求 `role === 'admin'` **且** `status === 'active'`，但兜底
+// `ensureAdminUserExists()` 原先只查 `role = 'admin'` —— 口径不一致 ⇒「唯一管理员被 ban」会被
+// 当成"已经有管理员"、从此再也不兜底（只能手工改库）；同一个不一致还让兜底把 banned 用户提权。
 //
-// 本文件覆盖三块：
-//   ① 计数口径：countActiveAdmins 只数「role=admin 且 status=active」
-//   ② 兜底口径：banned 管理员不再卡住兜底；提权对象必须是可登录用户
-//   ③ 最后一个管理员的守卫 + 陈旧操作者快照（15 s 缓存窗口）必须被 403 拦下
+// 覆盖三块：① 计数口径只数「role=admin 且 status=active」；② 兜底不再被 banned 管理员卡住、且提权
+// 对象必须可登录；③ 最后一个管理员的守卫与陈旧操作者快照必须被 403 拦下。
 //
 // 运行方式：npm run test:admin-last-admin
 import assert from 'node:assert/strict';

@@ -695,12 +695,12 @@ export interface TwoFactorAuthenticatorSecret {
 /**
  * 读取**服务端实际保存的** TOTP 密钥。
  *
- * 为什么需要它：设置页的「验证器」弹窗过去直接用前端 `randomBase32Secret()` 生成的随机值
- * 当作密钥和二维码来源，与库里那把毫无关系 —— 用户会发现「密钥变成了一个全新的」，
- * 进而误以为恢复备份改了密钥。这里改成向服务端要真实值。
+ * 为什么需要它：设置页的「验证器」弹窗过去直接用前端 `randomBase32Secret()` 生成的随机值当作密钥和
+ * 二维码来源，与库里那把毫无关系 —— 用户会发现「密钥变成了一个全新的」，进而误以为恢复备份改了密钥。
+ * 这里改成向服务端要真实值。
  *
- * ⚠️ 服务端在库里没有密钥时会**现场生成一把随机值**返回（`enabled: false`），
- * 所以调用方必须同时判断 `enabled`。
+ * ⚠️ 服务端在库里没有密钥时会**现场生成一把随机值**返回（`enabled: false`），所以调用方必须同时判断
+ * `enabled`。
  */
 export async function getTwoFactorAuthenticatorSecret(
   authedFetch: AuthedFetch,

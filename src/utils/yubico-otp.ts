@@ -11,9 +11,9 @@ const MODHEX_RE = /^[cbdefghijklnrtuv]+$/;
 /**
  * 外发请求超时预算。
  *
- * Yubico 的两个端点都在交互路径上：一个是登录的二步验证，一个是管理员启用 YubiKey 时
- * 取 API 凭据。两处原先都没有超时 —— 对端「连上但不回包」时请求会一直挂着，
- * 最后由平台兜底返回通用 500：用户既登不进去，也看不到原因。
+ * Yubico 的两个端点都在交互路径上：一个是登录的二步验证，一个是管理员启用 YubiKey 时取 API 凭据。
+ * 两处原先都没有超时 —— 对端「连上但不回包」时请求会一直挂着，最后由平台兜底返回通用 500：用户既
+ * 登不进去，也看不到原因。
  */
 const YUBICO_API_KEY_REQUEST_TIMEOUT_MS = 5_000;
 const YUBICO_VALIDATION_REQUEST_TIMEOUT_MS = 5_000;

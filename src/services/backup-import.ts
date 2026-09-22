@@ -243,10 +243,9 @@ export interface BackupRestoreProgressEvent {
 }
 
 /**
- * 恢复进度回调。**必须**自行吞掉异常（`handlers/backup.ts` 的实现会先 `touchLease()`，
- * 那一步**会抛**）；即便如此，内部上报也必须走 `reportProgress()`，见
- * `services/backup-progress.ts` 的 CONTRACT —— 本文件所有调用点都遵守它，
- * 那正是 H3「恢复成功却对外报 500」事故的修法所在。
+ * 恢复进度回调。**必须**自行吞掉异常（`handlers/backup.ts` 的实现会先 `touchLease()`，那一步**会抛**）；
+ * 即便如此，内部上报也必须走 `reportProgress()`，见 `services/backup-progress.ts` 的 CONTRACT —— 本文件
+ * 所有调用点都遵守它。
  */
 export type BackupRestoreProgressReporter = (event: BackupRestoreProgressEvent) => Promise<void> | void;
 
@@ -430,9 +429,8 @@ async function runInsertBatch(db: D1Database, table: string, statements: D1Prepa
 /**
  * 恢复写入的批大小。
  *
- * 过去是**整表一次** `db.batch()`：一个 3 万行的库里同一批会有 3 万条语句，
- * 内存峰值随库大小线性增长，也白白撞 D1 对单次 batch 规模的限制。
- * 分批后峰值只与批大小有关，与库大小无关。
+ * 过去是**整表一次** `db.batch()`：一个 3 万行的库里同一批会有 3 万条语句，内存峰值随库大小线性增长，
+ * 也白白撞 D1 对单次 batch 规模的限制。分批后峰值只与批大小有关，与库大小无关。
  */
 const RESTORE_INSERT_BATCH_SIZE = 200;
 

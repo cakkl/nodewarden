@@ -154,9 +154,9 @@ export interface DeviceKeyUpdate {
 /**
  * 批量更新多台设备的密钥，返回实际改动的行数。
  *
- * 为什么需要它：调用方原来在 handler 里逐台 `await updateDeviceKeys(...)`，
- * 等待轮数 = 设备数。而这个列表来自**客户端请求体**，没有天然上界 ——
- * 1000 个条目就是 1000 次串行往返。改成一条 batch 后等待轮数恒为 1。
+ * 为什么需要它：调用方原来在 handler 里逐台 `await updateDeviceKeys(...)`，等待轮数 = 设备数。而这个
+ * 列表来自**客户端请求体**，没有天然上界 —— 1000 个条目就是 1000 次串行往返。改成一条 batch 后等待
+ * 轮数恒为 1。
  *
  * 调用方需自行保证 `updates.length` 有上界（见 LIMITS.device.maxBulkIdentifiers）。
  */
@@ -363,8 +363,7 @@ export async function deleteTrustedTwoFactorTokensByUserId(db: D1Database, userI
  * 一次删掉多台设备的"记住此设备"令牌。
  *
  * 为什么需要它：`handleUntrustDevices` 原来对每台设备 `await deleteTrustedTwoFactorTokensByDevice(...)`，
- * 等待轮数 = 请求体里的设备数 —— 而那个列表是客户端可控的。
- * 改用一条 `IN (...)` 后等待轮数恒为 1。
+ * 等待轮数 = 请求体里的设备数 —— 而那个列表是客户端可控的。改用一条 `IN (...)` 后等待轮数恒为 1。
  *
  * `sqlChunkSize` 用于遵守 D1 的单语句变量上限（同 `deleteStoredSends` 等函数）。
  */

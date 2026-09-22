@@ -41,12 +41,11 @@ const MAX_BACKUP_PATH_SEGMENT_LENGTH = 128;
 /**
  * 内联导出（本地下载 zip）时，`db.json` + 全部附件解压后的**总字节**上限。
  *
- * 内联导出会把每个附件整块读进内存，`zipSync` 再产出等大的一份，
- * 峰值内存约为该总量的 **2 倍**；Worker 每 isolate 内存上限 128 MB，
- * 因此取 32 MiB（峰值 ≈ 64 MiB），为同 isolate 内的其他数据留出一半余量。
+ * 内联导出会把每个附件整块读进内存，`zipSync` 再产出等大的一份，峰值内存约为该总量的 **2 倍**；Worker
+ * 每 isolate 内存上限 128 MB，因此取 32 MiB（峰值 ≈ 64 MiB），为同 isolate 内的其他数据留出一半余量。
  *
- * 注意：这**收紧了**原先的实际能力（旧代码按附件 ≤ 64 MiB 放行，峰值可达 128 MB）。
- * 要放宽只需调大写这里的值，但必须同时复核峰值内存 ≈ 2 倍总量。
+ * 注意：这**收紧了**原先的实际能力（旧代码按附件 ≤ 64 MiB 放行，峰值可达 128 MB）。要放宽只需调大这里
+ * 的值，但必须同时复核峰值内存 ≈ 2 倍总量。
  */
 const MAX_BACKUP_INLINE_TOTAL_BYTES = 32 * 1024 * 1024;
 
@@ -107,11 +106,11 @@ export interface BuildBackupArchiveOptions {
    * 把附件 blob 内联进归档（zip 内 `attachments/<cipherId>/<attachmentId>.bin`）。
    *
    * 默认为 false，因为**远端备份依赖外部增量上传**：`handlers/backup.ts` 用
-   * `manifest.attachmentBlobs` 枚举待上传项、按 size 与远端已有对象比对去重，
-   * 附件字节**不**进归档。若默认内联，会破坏该设计并把附件重复存一份。
+   * `manifest.attachmentBlobs` 枚举待上传项、按 size 与远端已有对象比对去重，附件字节**不**进归档。
+   * 若默认内联，会破坏该设计并把附件重复存一份。
    *
-   * 本地导出（用户下载 zip）必须置 true —— 否则归档声称 `includes.attachments: true`
-   * 却没有任何附件字节，且会被本地导入以 `missing required file` 拒绝。
+   * 本地导出（用户下载 zip）必须置 true —— 否则归档声称 `includes.attachments: true` 却没有任何附件
+   * 字节，且会被本地导入以 `missing required file` 拒绝。
    */
   inlineAttachmentBlobs?: boolean;
   /**
@@ -337,32 +336,25 @@ const MISSING_ATTACHMENT_FILES_MESSAGE =
   'Backup archive has no attachment files; restore it from the remote destination instead';
 
 /**
- * 内联导出体积超限的文案前缀。
- *
- * 完整文案带具体字节数（数字随体积变化），无法用精确查表本地化，
- * 因此前端用「前缀 + 数字」正则匹配（`webapp/src/lib/i18n.ts` →
- * `txt_backup_error_archive_export_too_large`）；修改前缀时必须同步更新该正则。
+ * 内联导出体积超限的文案前缀。完整文案带具体字节数，无法用精确查表本地化，因此前端用「前缀 + 数字」
+ * 正则匹配（`webapp/src/lib/i18n.ts` → `txt_backup_error_archive_export_too_large`）；改前缀必须
+ * 同步改该正则。
  */
 export const TOO_LARGE_TO_EXPORT_MESSAGE_PREFIX = 'Backup archive is too large to export';
 
 /**
- * 导出侧 `db.json` 超限的文案前缀。
- *
- * 完整文案带具体字节数，前端同样用「前缀 + 数字」正则匹配
- * （`webapp/src/lib/i18n.ts` → `txt_backup_error_archive_db_payload_too_large`）；
- * 修改前缀时必须同步更新该正则。
+ * 导出侧 `db.json` 超限的文案前缀。前端同样用「前缀 + 数字」正则匹配（`webapp/src/lib/i18n.ts` →
+ * `txt_backup_error_archive_db_payload_too_large`）；改前缀必须同步改该正则。
  */
 export const TOO_LARGE_DB_PAYLOAD_MESSAGE_PREFIX = 'Backup database payload is too large to restore';
 
 /**
  * 导出的 `db.json` 必须落在**恢复侧**能接受的上限内，否则产出的归档谁都无法恢复。
  *
- * 恢复侧按「单条目」判定 `db.json`（`createBackupUnzipFilter` / `parseBackupArchive`，
- * 上限 `MAX_BACKUP_DB_JSON_BYTES`）。导出侧过去**只**在"内联附件"分支里做体积预检，
- * 因此以下路径会产出无法恢复的归档：
- * - 远端 / 定时备份（`inlineAttachmentBlobs` 恒为 false）
- * - 本地导出但**不勾选**附件
- * 现在把这个预检放在所有导出路径的唯一汇聚点（`buildBackupArchive`），一处覆盖全部。
+ * 恢复侧按「单条目」判定（`createBackupUnzipFilter` / `parseBackupArchive`，上限
+ * `MAX_BACKUP_DB_JSON_BYTES`）。导出侧过去**只**在"内联附件"分支里做体积预检，于是远端 / 定时
+ * 备份（`inlineAttachmentBlobs` 恒为 false）与"本地导出但不勾选附件"都会产出无法恢复的归档。现在
+ * 把预检放在所有导出路径的唯一汇聚点（`buildBackupArchive`），一处覆盖全部。
  *
  * `limitBytes` 仅供测试注入更小的上限以覆盖拒绝分支；生产调用方必须省略。
  */
@@ -379,12 +371,12 @@ export function assertBackupDbPayloadRestorable(
 /**
  * 内联导出时附件允许占用的字节预算（`db.json` 已从总量上限中扣除）。
  *
- * 必须**同时**满足两条约束，缺一就会产出「导出成功、但本地导入必然失败」的归档：
- * 1. **内存**：内联导出的峰值内存约为「解压后总量」的 2 倍，见 `MAX_BACKUP_INLINE_TOTAL_BYTES`；
- * 2. **可恢复性**：恢复侧按「所有条目解压后总字节」判定上限，见 `createBackupUnzipFilter`。
+ * 必须**同时**满足两条约束，缺一就会产出「导出成功、但本地导入必然失败」的归档：① **内存** —— 内联
+ * 导出的峰值内存约为「解压后总量」的 2 倍（见 `MAX_BACKUP_INLINE_TOTAL_BYTES`）；② **可恢复性** ——
+ * 恢复侧按「所有条目解压后总字节」判定上限（见 `createBackupUnzipFilter`）。
  *
- * 返回值可能为负：说明 `db.json` 自身已超出恢复侧的**单条目**上限
- * （`MAX_BACKUP_DB_JSON_BYTES`），此时任何附件都不允许内联。
+ * 返回值可能为负：说明 `db.json` 自身已超出恢复侧的**单条目**上限（`MAX_BACKUP_DB_JSON_BYTES`），
+ * 此时任何附件都不允许内联。
  */
 export function resolveInlineAttachmentBudgetBytes(dbPayloadBytes: number): number {
   return (

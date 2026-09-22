@@ -44,6 +44,12 @@ function addSearchIndexHeaders(request: Request, response: Response): Response {
   });
 }
 
+/**
+ * `[assets] not_found_handling = "single-page-application"` 会把缺失的 `/assets/*` 也变成
+ * `index.html` + `200 OK`，浏览器把它当 ES module 解析就会失败。这里还原成真 404。
+ */
+const ASSET_PATH_PREFIX = '/assets/';
+
 async function maybeServeAsset(request: Request, env: Env): Promise<Response | null> {
   if (!env.ASSETS) return null;
   if (request.method !== 'GET' && request.method !== 'HEAD') return null;
@@ -51,6 +57,17 @@ async function maybeServeAsset(request: Request, env: Env): Promise<Response | n
   if (isBackendRequestPath(url.pathname)) return null;
 
   const response = await env.ASSETS.fetch(request);
+
+  if (url.pathname.startsWith(ASSET_PATH_PREFIX) && response.status === 200) {
+    const contentType = String(response.headers.get('Content-Type') || '').toLowerCase();
+    if (contentType.includes('text/html')) {
+      return new Response('Not found', {
+        status: 404,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+  }
+
   return addSearchIndexHeaders(request, response);
 }
 

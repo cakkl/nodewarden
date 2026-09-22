@@ -1,16 +1,13 @@
 // 「敏感数据落盘」这条链路的断言（CodeQL js/clear-text-storage-of-sensitive-data ×5）。
 //
-// 背景：CodeQL 报了 5 条 high —— localStorage 里被写入了"来自登录流程/profile 的敏感数据"。
-// 逐个核实后的结论是「设计如此 + 误报」：
-//   · 会话只存 `{ email, authMode }`，**不存** access/refresh token（历史版本存过，`loadSession`
-//     里专门有一段迁移逻辑把它们清掉）；
-//   · profile 快照走 `stripProfileSecrets` 白名单，`key` 置空、`privateKey` 置 null；
-//   · 离线解锁必须存一份"加密后的用户密钥"（EncString）与 KDF 迭代数 —— 否则断开网络就无法解锁。
-// 但"核实过"不等于"以后不会退化"，所以把三条结论写成断言：
-//   **任何写进 localStorage 的内容都不得出现这些明文标记**。
+// 那 5 条 high 逐个核实后是「设计如此 + 误报」：会话只存 `{ email, authMode }`、**不存** token（
+// `loadSession` 里还专门有清理旧值的迁移逻辑）；profile 快照走 `stripProfileSecrets` 白名单（`key`
+// 置空、`privateKey` 置 null）；离线解锁必须存加密后的用户密钥（EncString）与 KDF 迭代数，否则断网
+// 就无法解锁。但“核实过”不等于“以后不会退化”，所以把结论写成断言：**写进 localStorage 的内容都不得
+// 出现这些明文标记**。
 //
-// 注意：Node 里没有可靠的 localStorage（版本差异大），因此这里注入一个内存桩，
-// 既避免依赖运行时行为，也顺便能读到"到底写了什么"。
+// Node 里没有可靠的 localStorage（版本差异大），因此注入内存桩 —— 既避免依赖运行时行为，也顺便能读到
+// “到底写了什么”。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';

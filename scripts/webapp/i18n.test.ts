@@ -1,12 +1,11 @@
-// webapp 纯逻辑测试：i18n 插值与「服务端错误串 → 文案」的映射（§3.5 方案 A）
+// webapp 纯逻辑测试：i18n 插值与「服务端错误串 → 文案」的映射
 //
-// 为什么值得测：这两件事都是**静默失败**型的 ——
-//   · 插值缺参数会变成空字符串，页面上就是一个说不通的句子，而不是报错；
-//   · `translateServerError` 映射不到时会**回退成原始英文串**，于是非英文用户
-//     会突然看到一句英文。这类问题很难在 UI 走查里发现（除非恰好用非英文界面复现那条错误）。
+// 为什么值得测：这两件事都是**静默失败**型的 —— 插值缺参数会变成空字符串（页面上是一句说不通的
+// 话，而不是报错）；`translateServerError` 映射不到时会**回退成原始英文串**，非英文用户会突然看到
+// 一句英文。这类问题很难在 UI 走查里发现（除非恰好用非英文界面复现那条错误）。
 //
-// 注意：`webapp/src/lib/i18n.ts` 在模块加载时就把 `activeMessages` 初始化为英文语言包，
-// 且 locale 探测包在 try/catch 里，因此**在 Node 里可直接使用，无需 DOM 桩、无需 initI18n()**。
+// 注意：`webapp/src/lib/i18n.ts` 在模块加载时就把 `activeMessages` 初始化为英文语言包，且 locale
+// 探测包在 try/catch 里，因此**在 Node 里可直接使用，无需 DOM 桩、无需 initI18n()**。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';
@@ -111,10 +110,9 @@ test('translateServerError：前后空白会被裁掉后再查表', () => {
 // ---------------------------------------------------------------- 远端备份超时
 //
 // 为什么值得测：后端把远端超时消息写成「WebDAV upload timed out after 15000 ms」这种**毫秒**形态，
-// 映射不到时管理员会直接看到这串英文（非英文界面下尤其刺眼），
-// 而“毫秒 / 秒”换算写错时界面会出现「15000 秒」这种读数 —— 两者都是静默失败。
-// ⚠️ 样例**必须**用共享构造器生成（`shared/backup-timeout-message.ts`）：
-// 手写字符串的话，后端改措辞时这里会继续绿，而用户那边已经退回英文原文。
+// 映射不到时管理员会直接看到这串英文；而“毫秒 / 秒”换算写错时界面会出现「15000 秒」—— 都是静默失败。
+// ⚠️ 样例**必须**用共享构造器 `buildRemoteTimeoutMessage()` 生成：手写字符串的话，后端改措辞时这里
+// 会继续绿，而用户那边已经退回英文原文。
 test('translateServerError：远端超时消息被换算成秒并落到本地化文案', () => {
   assert.equal(
     translateServerError(buildRemoteTimeoutMessage('WebDAV', 'upload', 15000), 'fallback'),

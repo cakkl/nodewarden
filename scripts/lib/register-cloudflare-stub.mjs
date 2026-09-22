@@ -3,10 +3,12 @@
 // 用法（必须用 --import 预加载）：
 //   NODE_OPTIONS="--import=./scripts/lib/register-cloudflare-stub.mjs" npx tsx --test ...
 //
-// 原因：`cloudflare:workers`（DO / waitUntil）与 `cloudflare:sockets`（SMTP 客户端）
-// 都是 Workers 虚拟模块，Node 无法解析，报 `ERR_UNSUPPORTED_ESM_URL_SCHEME`。
+// 为什么需要：`cloudflare:workers` 与 `cloudflare:sockets` 都是 Workers 运行时的虚拟模块，Node 无法
+// 解析（`ERR_UNSUPPORTED_ESM_URL_SCHEME`）—— 前者供 notifications-hub（DO / waitUntil），后者供
+// SMTP 客户端。没有它，所有间接引用这些模块的 handler（ciphers、folders、sends、identity…）
+// 都无法在 Node 测试里导入。
 //
-// 本文件刻意写成 .mjs：由 Node 直接加载，不经过 tsx 转译。
+// 刻意写成 .mjs：由 Node 直接加载，不经过 tsx 转译。
 import { registerHooks } from 'node:module';
 
 const STUB_URL = new URL('./cloudflare-workers-stub.mjs', import.meta.url).href;

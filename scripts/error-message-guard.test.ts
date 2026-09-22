@@ -1,25 +1,14 @@
 // 「把异常原文回给客户端」的源码护栏
 //
-// 背景（docs/TODO.md 第 4 条）：后端大量使用
-//   catch (error) { return errorResponse(error.message, 500); }
-// 这个模式。**今天**是安全的 —— 逐条审计下来，这些消息要么是刻意给用户看的业务文案
-// （正是前端 i18n 映射表覆盖的那些），要么只插值 HTTP 状态码 / 存档内的业务标识，
-// 没有主机名、路径或堆栈。但它**默认不安全**：将来只要有人在 catch 里包一层低层调用
-// （D1 / WebCrypto / fetch），error.message 就可能变成
-//   `D1_ERROR: no such table: users`、`TypeError: fetch failed`（含 host:port）
-// 然后直接回给客户端，而**没有任何测试会红**。
+// 背景：后端大量使用 `catch (error) { return errorResponse(error.message, 500); }`。今天安全
+// （这些消息要么是刻意给用户看的业务文案，要么只插值状态码 / 业务标识），但将来有人在 catch 里包一层
+// D1 / WebCrypto / fetch，`error.message` 就可能带上表名或 host:port 直接回给客户端，而没有测试会红。
 //
-// 本文件把这条不变量钉住：**消息实参要么是可静态证明"固定文本"的形状，要么必须显式登记**。
-//
-// 算安全的形状（都是静态可证，不是命名约定）：
-//   ① 字符串字面量；
-//   ② 模板里只有数学运算 —— `${Math.floor(x / 1024)}` 这类，Math.* 的返回值一定是 number；
-//   ③ 三元的两个分支都是字面量 —— 条件只是判断，不会回给客户端；
-//   ④ 同一个文件里被声明为 `const NAME = '<字面量>'` 的常量（判定的是**声明**）。
-// 其余一切（error.message、变量、函数调用、拼接、未核实常量）⇒ 必须登记，并写明理由。
-// 新增一处动态来源 ⇒ 强制一次人工判断；登记项失效或数量对不上 ⇒ 测试红，
-// 避免白名单腐烂成"什么都放行"。
-// 零运行时改动 —— 纯静态扫描。
+// 规则：消息实参要么是可静态证明“固定文本”的形状，要么必须显式登记到白名单。
+// 算安全的形状：① 字符串字面量；② 模板里只有数学运算（`${Math.floor(x / 1024)}`）；③ 三元的两个分支
+// 都是字面量；④ 同文件里 `const NAME = '<字面量>'` 的常量（判定声明）。其余（error.message、变量、
+// 函数调用、拼接、未核实常量）一律必须登记并写明理由。登记项失效或数量对不上 ⇒ 测试红，
+// 避免白名单腐烂成“什么都放行”。
 //
 // 运行方式：npm run test:error-message-guard
 import assert from 'node:assert/strict';
@@ -42,9 +31,9 @@ const NUMERIC_BUILTINS = new Set(['Math', 'Number', 'Infinity', 'NaN']);
 /**
  * 取出 `callee(第一个实参)` 的原文。
  *
- * 为什么不用正则一把梭：实参里可能嵌套括号、逗号、对象字面量与带引号的字符串
- * （例如 `errorResponse(\`Maximum size is ${MB}MB\`, 413)`）。所以这里做一个小扫描器：
- * 跟踪括号深度、跳过字符串与转义，在深度 0 处的逗号或配对的 `)` 停下。
+ * 不用正则一把梭：实参里可能嵌套括号、逗号、对象字面量与带引号的字符串（例如
+ * `errorResponse(\`Maximum size is ${MB}MB\`, 413)`），所以这里做一个小扫描器：跟踪括号深度、跳过
+ * 字符串与转义，在深度 0 处的逗号或配对的 `)` 停下。
  */
 function findMessageArguments(source: string, callees: string[]): Array<{ line: number; callee: string; argument: string }> {
   const found: Array<{ line: number; callee: string; argument: string }> = [];

@@ -51,21 +51,6 @@ function isCacheableResponse(response) {
   return response && response.ok && (response.type === 'basic' || response.type === 'default');
 }
 
-async function refreshNavigationCache(request) {
-  const cache = await caches.open(APP_SHELL_CACHE);
-  try {
-    const response = await fetch(request);
-    if (isCacheableResponse(response)) {
-      await cache.put('/', response.clone());
-      await cache.put('/index.html', response.clone());
-      await warmStaticDependencies(response.clone());
-    }
-    return response;
-  } catch {
-    return null;
-  }
-}
-
 async function warmStaticDependencies(response) {
   try {
     const html = await response.text();
@@ -90,6 +75,25 @@ async function warmStaticDependencies(response) {
 async function appShellNavigation(request) {
   const cache = await caches.open(APP_SHELL_CACHE);
   const url = new URL(request.url);
+
+  // 必须 network-first：缓存的 index.html 记着的是一整套旧 chunk 名，部署后那些文件
+  // 全部不存在，用它渲染会白屏。离线时才回退到缓存。
+  if (navigator.onLine !== false) {
+    try {
+      const response = await fetch(request);
+      if (isCacheableResponse(response)) {
+        const shellCopy = response.clone();
+        await cache.put('/index.html', response.clone());
+        await cache.put('/', response.clone());
+        // 依赖预热是 best-effort，不能阻塞导航
+        void warmStaticDependencies(shellCopy);
+        return response;
+      }
+    } catch {
+      // 落到下面的缓存分支
+    }
+  }
+
   return (
     (await cache.match(request, { ignoreSearch: true }))
     || (await cache.match(url.pathname, { ignoreSearch: true }))
@@ -175,10 +179,8 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
+    // 缓存写入已包含在 appShellNavigation 内部，不再额外发一次请求
     event.respondWith(appShellNavigation(request));
-    if (navigator.onLine !== false) {
-      event.waitUntil(refreshNavigationCache(request));
-    }
     return;
   }
 
@@ -237,14 +239,12 @@ function pwaServiceWorkerPlugin(isDemo: boolean): Plugin {
 }
 
 /**
- * demo 模式没有 wrangler 后端（8787），但前端仍会发探活请求
- * （`/api/web-bootstrap?statusProbe=…`）。既不挂代理、SPA fallback 又不覆盖
- * `Accept: application/json` 的请求，于是浏览器控制台会刷 404 —— 纯噪音，
- * 却极易被误读成业务代码出错（这就是本插件存在的理由）。
+ * demo 模式没有 wrangler 后端（8787），但前端仍会发探活请求（`/api/web-bootstrap?statusProbe=…`）。
+ * 既不挂代理、SPA fallback 又不覆盖 `Accept: application/json` 的请求，于是浏览器控制台会刷 404 ——
+ * 纯噪音，却极易被误读成业务代码出错（这就是本插件存在的理由）。
  *
- * 这里给 demo 装一个最小应答器：`/api/**` 一律返回 200 + 空 JSON。
- * 探针只要拿到任何同源响应就判定“服务可达”，语义也是对的：
- * demo 的“服务端”本来就是前端自己。
+ * 这里给 demo 装一个最小应答器：`/api/**` 一律返回 200 + 空 JSON。探针只要拿到任何同源响应就判定
+ * “服务可达”，语义也是对的：demo 的“服务端”本来就是前端自己。
  */
 function demoApiStubPlugin(): Plugin {
   return {
