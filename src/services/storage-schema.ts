@@ -18,7 +18,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT, master_password_hint TEXT, master_password_hash TEXT NOT NULL, ' +
   'key TEXT NOT NULL, private_key TEXT, public_key TEXT, kdf_type INTEGER NOT NULL, ' +
   'kdf_iterations INTEGER NOT NULL, kdf_memory INTEGER, kdf_parallelism INTEGER, ' +
-  'security_stamp TEXT NOT NULL, role TEXT NOT NULL DEFAULT \'user\', status TEXT NOT NULL DEFAULT \'active\', verify_devices INTEGER NOT NULL DEFAULT 0, totp_secret TEXT, totp_recovery_code TEXT, yubikey_key1 TEXT, yubikey_key2 TEXT, yubikey_key3 TEXT, yubikey_key4 TEXT, yubikey_key5 TEXT, yubikey_nfc INTEGER NOT NULL DEFAULT 0, api_key TEXT, email_verified INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)',
+  'security_stamp TEXT NOT NULL, role TEXT NOT NULL DEFAULT \'user\', status TEXT NOT NULL DEFAULT \'active\', verify_devices INTEGER NOT NULL DEFAULT 0, totp_secret TEXT, totp_recovery_code TEXT, yubikey_key1 TEXT, yubikey_key2 TEXT, yubikey_key3 TEXT, yubikey_key4 TEXT, yubikey_key5 TEXT, yubikey_nfc INTEGER NOT NULL DEFAULT 0, api_key TEXT, email_verified INTEGER NOT NULL DEFAULT 0, locale TEXT, auto_locale INTEGER NOT NULL DEFAULT 0, timezone TEXT, auto_timezone INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)',
   'ALTER TABLE users ADD COLUMN master_password_hint TEXT',
   'ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT \'user\'',
   'ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT \'active\'',
@@ -34,6 +34,13 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'ALTER TABLE users ADD COLUMN api_key TEXT',
   // 邮箱是否已由用户自己验证。默认 0：未验证的邮箱不接收任何通知邮件。
   'ALTER TABLE users ADD COLUMN email_verified INTEGER NOT NULL DEFAULT 0',
+
+  // 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）。
+  // auto_* = 1 是自动检测来的（登录时可按浏览器刷新）；0 = 用户自己选定，永不被自动改写。
+  'ALTER TABLE users ADD COLUMN locale TEXT',
+  'ALTER TABLE users ADD COLUMN auto_locale INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE users ADD COLUMN timezone TEXT',
+  'ALTER TABLE users ADD COLUMN auto_timezone INTEGER NOT NULL DEFAULT 0',
 
   // 邮箱验证码。`user_id` 作主键 ⇒ 每个用户同时只有一个待用码（新码覆盖旧码）。
   // 存 `email` 是为了让「发码后用户改了邮箱」的旧码立即失效。
@@ -219,6 +226,16 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'jti TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)',
   // 清理用：`DELETE FROM used_attachment_download_tokens WHERE expires_at < ?`
   'CREATE INDEX IF NOT EXISTS idx_used_attachment_download_tokens_expires ON used_attachment_download_tokens(expires_at)',
+
+  // ── 一次性数据迁移（必须放在所有 ALTER 之后）────────────────────────────────
+  // 把管理员真实设定过的全局邮件语言/时区落到已有用户行（兼顾从未登录过的用户）。
+  // `EXISTS` 是关键：只有 config 里确实存在该键时才迁移，否则会把「未设定」变成
+  // 「已设定成 en/UTC」，让自动设定与邮件提示句永久失效（见 docs/TODO/MAIL-PREFS.md）。
+  // 迁移值标 auto_* = 1（只是兜底，不是用户的选择）⇒ 一登录就按浏览器刷新。
+  "UPDATE users SET locale = (SELECT value FROM config WHERE key = 'globalSettings__mail__locale'), auto_locale = 1 WHERE locale IS NULL AND EXISTS (SELECT 1 FROM config WHERE key = 'globalSettings__mail__locale')",
+  "UPDATE users SET timezone = (SELECT value FROM config WHERE key = 'globalSettings__mail__timezone'), auto_timezone = 1 WHERE timezone IS NULL AND EXISTS (SELECT 1 FROM config WHERE key = 'globalSettings__mail__timezone')",
+  // 删掉全局键，避免以后再次生效（此后 `EXISTS` 恒为假，天然幂等）。
+  "DELETE FROM config WHERE key IN ('globalSettings__mail__locale', 'globalSettings__mail__timezone')",
 ];
 
 async function executeSchemaStatement(db: D1Database, statement: string): Promise<void> {

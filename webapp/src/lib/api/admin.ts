@@ -167,8 +167,6 @@ function normalizeMailSettings(raw: unknown): MailSettings {
     username: String(body.username ?? body.Username ?? ''),
     fromAddress: String(body.fromAddress ?? body.FromAddress ?? ''),
     fromName: String(body.fromName ?? body.FromName ?? ''),
-    locale: String(body.locale ?? body.Locale ?? 'en'),
-    timezone: String(body.timezone ?? body.Timezone ?? 'UTC'),
     passwordConfigured: !!(body.passwordConfigured ?? body.PasswordConfigured),
     configured: !!(body.configured ?? body.Configured),
   };

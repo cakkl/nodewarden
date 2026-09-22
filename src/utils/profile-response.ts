@@ -30,7 +30,7 @@ export function buildProfileResponse(user: User, env?: Env): ProfileResponse {
     forcePasswordReset: false,
     avatarColor: null,
     creationDate: user.createdAt,
-    // New-device verification is not supported without an email delivery channel.
+    // New-device verification is not implemented yet.
     // Always report disabled so clients do not present a false security posture.
     verifyDevices: false,
     role: user.role,

@@ -970,12 +970,6 @@ export async function getEmailVerificationStatus(authedFetch: AuthedFetch): Prom
   return normalizeEmailVerification(await parseJson<any>(resp));
 }
 
-/** 取消验证，回到未验证状态。目前仅供本地调试使用。 */
-export async function cancelEmailVerification(authedFetch: AuthedFetch): Promise<void> {
-  const resp = await authedFetch('/api/accounts/email-verification', { method: 'DELETE' });
-  if (!resp.ok) throw await emailVerificationError(resp);
-}
-
 export async function sendEmailVerificationCode(
   authedFetch: AuthedFetch
 ): Promise<{ email: string; expiresAt: string | null }> {

@@ -675,13 +675,6 @@ export function formatTotp(code: string): string {
   return code.replace(/(.{3})(?=.)/g, '$1 ');
 }
 
-export function formatHistoryTime(value: string | null | undefined): string {
-  if (!value) return t('txt_dash');
-  const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return value;
-  return date.toLocaleString();
-}
-
 export function parseAttachmentSizeBytes(attachment: CipherAttachment): number {
   const raw = attachment?.size;
   if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) return raw;

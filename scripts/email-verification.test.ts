@@ -20,7 +20,6 @@ import {
   verifyEmailCode,
 } from '../src/services/email-verification';
 import {
-  handleCancelEmailVerification,
   handleGetEmailVerificationStatus,
   handleSendEmailVerificationCode,
   handleVerifyEmailCode,
@@ -261,22 +260,6 @@ test('没有待用码时提交返回 400', async () => {
   const resp = await handleVerifyEmailCode(post('/api/accounts/verify-email', { code: '123456' }), env, user);
   assert.equal(resp.status, 400);
   assert.equal((await resp.json() as Record<string, unknown>).reason, 'no-code');
-});
-
-test('取消验证清空状态与待用码', async () => {
-  const { handle, user, env } = await setup();
-  await issueVerificationCode(handle.db, USER_ID, USER_EMAIL, TEST_JWT_SECRET);
-  const verified = { ...user, emailVerified: true };
-  const resp = await handleCancelEmailVerification(
-    new Request('https://vault.example.test/api/accounts/email-verification', { method: 'DELETE' }),
-    env,
-    verified
-  );
-  assert.equal(resp.status, 200);
-  const row = handle.connection.prepare('SELECT email_verified FROM users WHERE id = ?').get(USER_ID) as { email_verified: number };
-  assert.equal(row.email_verified, 0);
-  const tokens = handle.connection.prepare('SELECT COUNT(*) AS count FROM email_verification_tokens').get() as { count: number };
-  assert.equal(tokens.count, 0);
 });
 
 test('清除验证码是幂等的', async () => {

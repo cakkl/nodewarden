@@ -8,8 +8,11 @@ import {
   isBackupDestinationConfigured,
 } from '@shared/backup-schema';
 import type { RemoteBackupBrowserResponse, RemoteBackupItem } from './api/backup';
+import { DEFAULT_DATE_TIME_PREFS, detectBrowserTimeZone, formatDateTimeInPrefs, type DateTimePrefs } from './datetime';
 
 export { isBackupDestinationConfigured };
+// 时区检测的唯一实现在 `lib/datetime.ts`；这里转发导出，既有 import 路径不变。
+export { detectBrowserTimeZone };
 import { t, translateServerError } from './i18n';
 
 export interface PersistedRemoteBrowserState {
@@ -47,14 +50,6 @@ export const WEEKDAY_OPTIONS = [
   { value: 0, label: 'txt_backup_weekday_sunday' },
 ] as const;
 
-export function detectBrowserTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    return 'UTC';
-  }
-}
-
 function createLocalizedDestinationName(type: BackupDestinationType, index: number): string {
   if (type === 's3') return t('txt_backup_destination_name_default_s3', { index: String(index) });
   return t('txt_backup_destination_name_default_webdav', { index: String(index) });
@@ -73,11 +68,13 @@ export function createDraftBackupSettings(): BackupSettings {
   });
 }
 
-export function formatDateTime(value: string | null | undefined): string {
+export function formatDateTime(
+  value: string | null | undefined,
+  prefs: DateTimePrefs = DEFAULT_DATE_TIME_PREFS
+): string {
   if (!value) return t('txt_backup_never');
-  const parsed = new Date(value);
-  if (!Number.isFinite(parsed.getTime())) return value;
-  return parsed.toLocaleString();
+  // 解析失败时保留原样回显（对排障比一个占位符有用）
+  return formatDateTimeInPrefs(value, prefs) ?? value;
 }
 
 export function formatBytes(value: number | null | undefined): string {
@@ -114,7 +111,10 @@ function parseTimestampMs(value: string | null | undefined): number | null {
  * 失败原因走 `translateServerError()`：后端文案是英文（如 `WebDAV upload timed out after 30000 ms`），
  * 命中映射表就本地化，未命中则**保留英文原文** —— 刻意不回落到通用文案，具体原因才是排障线索。
  */
-export function getDestinationRuntimeSummary(runtime: BackupRuntimeState): DestinationRuntimeSummary {
+export function getDestinationRuntimeSummary(
+  runtime: BackupRuntimeState,
+  prefs: DateTimePrefs = DEFAULT_DATE_TIME_PREFS
+): DestinationRuntimeSummary {
   const reason = String(runtime.lastErrorMessage || '').trim();
   if (!reason) return { failedAt: null, failureReason: null };
 
@@ -125,7 +125,7 @@ export function getDestinationRuntimeSummary(runtime: BackupRuntimeState): Desti
   }
 
   return {
-    failedAt: t('txt_backup_destination_failed_at', { time: formatDateTime(runtime.lastErrorAt) }),
+    failedAt: t('txt_backup_destination_failed_at', { time: formatDateTime(runtime.lastErrorAt, prefs) }),
     failureReason: translateServerError(reason, reason),
   };
 }

@@ -11,7 +11,7 @@ import type { AuditLogFilters } from '@/lib/api/admin';
 import type { CiphersImportPayload } from '@/lib/api/vault';
 import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { t } from '@/lib/i18n';
-import type { AccountPasskeyCredential, AdminInvite, AdminUser, AuditLogListResult, AuditLogSettings, AuthRequest, AuthorizedDevice, Cipher, CustomEquivalentDomain, DomainRules, Folder as VaultFolder, MailSettings, MailSettingsInput, MailTestResult, Profile, Send, SendDraft, SessionState, TwoFactorPasskeySettings, VaultDraft, YubiKeyOtpSettings } from '@/lib/types';
+import type { AccountPasskeyCredential, AdminInvite, AdminUser, AuditLogListResult, AuditLogSettings, AuthRequest, AuthorizedDevice, Cipher, CustomEquivalentDomain, DomainRules, Folder as VaultFolder, MailPreferences, MailPreferencesUpdate, MailSettings, MailSettingsInput, MailTestResult, Profile, Send, SendDraft, SessionState, TwoFactorPasskeySettings, VaultDraft, YubiKeyOtpSettings } from '@/lib/types';
 import type { ExportRequest } from '@/lib/export-formats';
 import { DEVICE_MANAGEMENT_ROUTE_PATHS, IMPORT_EXPORT_ROUTE_PATHS, ROUTES } from '@/lib/routes';
 
@@ -156,10 +156,12 @@ export interface AppMainRoutesProps {
   onLoadEmailVerification: () => Promise<EmailVerificationStatus>;
   onSendEmailVerificationCode: () => Promise<unknown>;
   onSubmitEmailVerificationCode: (code: string) => Promise<void>;
-  onCancelEmailVerification: () => Promise<void>;
   onLoadMailSettings: () => Promise<MailSettings>;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
+  /** 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md） */
+  mailPreferences: MailPreferences | null;
+  onSaveMailPreferences: (update: MailPreferencesUpdate) => Promise<MailPreferences>;
   onListAccountPasskeys: () => Promise<AccountPasskeyCredential[]>;
   onCreateAccountPasskey: (name: string, masterPassword: string, directUnlock: boolean) => Promise<AccountPasskeyCredential | null>;
   onEnableAccountPasskeyDirectUnlock: (id: string, masterPassword: string) => Promise<void>;
@@ -363,10 +365,11 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onLoadEmailVerification={props.onLoadEmailVerification}
                 onSendEmailVerificationCode={props.onSendEmailVerificationCode}
                 onSubmitEmailVerificationCode={props.onSubmitEmailVerificationCode}
-                onCancelEmailVerification={props.onCancelEmailVerification}
                 onLoadMailSettings={props.onLoadMailSettings}
                 onSaveMailSettings={props.onSaveMailSettings}
                 onSendTestMail={props.onSendTestMail}
+                mailPreferences={props.mailPreferences}
+                onSaveMailPreferences={props.onSaveMailPreferences}
                 onListAccountPasskeys={props.onListAccountPasskeys}
                 onCreateAccountPasskey={props.onCreateAccountPasskey}
                 onEnableAccountPasskeyDirectUnlock={props.onEnableAccountPasskeyDirectUnlock}

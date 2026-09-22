@@ -19,6 +19,9 @@ const es: MailCopy = {
     expiresLabel: 'Este código caduca el',
     outro: 'Si no solicitaste esto, ignora este mensaje. Tu dirección quedará sin confirmar y no se enviarán notificaciones.',
   },
+  preferencesNote: {
+    timezone: 'Nota: aún no has configurado una zona horaria, por lo que las horas se muestran en {timezone}. Configúrala en Configuración → Preferencias.',
+  },
   footer: 'Enviado automáticamente por NodeWarden. No se atienden respuestas a esta dirección.',
 };
 

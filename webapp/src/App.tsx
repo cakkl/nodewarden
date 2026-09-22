@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { useLocation } from 'wouter';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import AppAuthenticatedShell from '@/components/AppAuthenticatedShell';
+import DateTimePrefsProvider from '@/components/DateTimePrefsProvider';
 import AppGlobalOverlays, { type AppConfirmState } from '@/components/AppGlobalOverlays';
 import AuthRequestApprovalDialog from '@/components/AuthRequestApprovalDialog';
 import AuthViews from '@/components/AuthViews';
@@ -12,7 +13,6 @@ import JwtWarningPage from '@/components/JwtWarningPage';
 import {
   createAuthedFetch,
   getEmailVerificationStatus,
-  cancelEmailVerification,
   sendEmailVerificationCode,
   submitEmailVerificationCode,
   deriveLoginHash,
@@ -69,7 +69,9 @@ import useAdminMailActions from '@/hooks/useAdminMailActions';
 import useBackupActions from '@/hooks/useBackupActions';
 import useVaultSendActions from '@/hooks/useVaultSendActions';
 import { useToastManager } from '@/hooks/useToastManager';
-import { t } from '@/lib/i18n';
+import { detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import { detectPreferences, savePreferences } from '@/lib/api/preferences';
+import { detectBrowserTimeZone } from '@/lib/datetime';
 import { APP_NOTIFY_EVENT, type AppNotifyDetail } from '@/lib/app-notify';
 import { dispatchBackupProgress, type BackupProgressDetail } from '@/lib/backup-restore-progress';
 import { clearOfflineUnlockRecord } from '@/lib/offline-auth';
@@ -98,7 +100,7 @@ import {
   createDemoMainRoutesProps,
 } from '@/lib/demo';
 import type { AdminBackupSettings } from '@/lib/api/backup';
-import type { AdminInvite, AdminUser, AppPhase, AuditLogSettings, AuthRequest, AuthorizedDevice, Cipher, CustomEquivalentDomain, DomainRules, Folder as VaultFolder, Profile, Send, SessionState } from '@/lib/types';
+import type { AdminInvite, AdminUser, AppPhase, AuditLogSettings, AuthRequest, AuthorizedDevice, Cipher, CustomEquivalentDomain, DomainRules, Folder as VaultFolder, MailPreferencesUpdate, Profile, Send, SessionState } from '@/lib/types';
 import type { VaultCoreSnapshot } from '@/lib/vault-cache';
 
 function isBackupProgressDetail(value: unknown): value is BackupProgressDetail {
@@ -1126,6 +1128,41 @@ export default function App() {
     setProfile(profileQuery.data);
   }, [profileQuery.data]);
 
+  /**
+   * 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）。
+   *
+   * queryFn 顺带调 `detect`：每次登录都上报浏览器检测值，由服务端条件写
+   *（只在未设定或自动档时才写），因此重复调用安全；返回值即最新偏好。
+   */
+  const preferencesQuery = useQuery({
+    queryKey: ['preferences', vaultCacheKey || session?.email],
+    queryFn: () =>
+      detectPreferences(authedFetch, {
+        locale: detectBrowserLocale(),
+        timezone: detectBrowserTimeZone(),
+      }),
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken,
+    staleTime: 30_000,
+  });
+  const mailPreferences = preferencesQuery.data ?? null;
+
+  /** 时间格式化偏好（语言 + 时区）；用 useMemo 稳定引用，避免每次渲染都让消费方重渲。 */
+  const dateTimePrefs = useMemo(
+    () => ({
+      locale: mailPreferences?.locale ?? null,
+      timezone: mailPreferences?.timezone ?? null,
+    }),
+    [mailPreferences?.locale, mailPreferences?.timezone]
+  );
+
+  // 服务端偏好是语言的**权威来源**（换设备登录后界面语言也跟着走）。
+  // 只在确实不同时才切换：切完 localStorage 就与它一致，不会来回刷新。
+  useEffect(() => {
+    const serverLocale = mailPreferences?.locale;
+    if (!serverLocale || serverLocale === getLocale()) return;
+    void setLocale(serverLocale as Locale).then(() => window.location.reload());
+  }, [mailPreferences?.locale]);
+
   const isAdmin = isAdminProfile(profile);
   const usersQuery = useQuery({
     queryKey: ['admin-users', vaultCacheKey],
@@ -2090,10 +2127,15 @@ export default function App() {
     onLoadMailSettings: adminMailActions.loadMailSettings,
     onSaveMailSettings: adminMailActions.saveMailSettings,
     onSendTestMail: adminMailActions.sendTestMail,
+    mailPreferences,
+    onSaveMailPreferences: async (update: MailPreferencesUpdate) => {
+      const next = await savePreferences(authedFetch, update);
+      await preferencesQuery.refetch();
+      return next;
+    },
     onLoadEmailVerification: () => getEmailVerificationStatus(authedFetch),
     onSendEmailVerificationCode: () => sendEmailVerificationCode(authedFetch),
     onSubmitEmailVerificationCode: (code: string) => submitEmailVerificationCode(authedFetch, code),
-    onCancelEmailVerification: () => cancelEmailVerification(authedFetch),
     onListAccountPasskeys: accountSecurityActions.listAccountPasskeys,
     onCreateAccountPasskey: accountSecurityActions.createAccountPasskey,
     onEnableAccountPasskeyDirectUnlock: accountSecurityActions.enableAccountPasskeyDirectUnlock,
@@ -2344,7 +2386,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <DateTimePrefsProvider prefs={dateTimePrefs}>
       <AppAuthenticatedShell
         profile={profile}
         location={location}
@@ -2421,6 +2463,6 @@ export default function App() {
           setAuthRequestDialogDismissedId(authRequestDialogRequest?.id || null);
         }}
       />
-    </>
+    </DateTimePrefsProvider>
   );
 }

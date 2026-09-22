@@ -19,6 +19,9 @@ const sv: MailCopy = {
     expiresLabel: 'Koden gäller till',
     outro: 'Om du inte begärde detta kan du ignorera meddelandet. Adressen förblir obekräftad och inga aviseringar skickas.',
   },
+  preferencesNote: {
+    timezone: 'Obs: ingen tidszon har angetts ännu, så tiderna visas i {timezone}. Ange din i inställningarna.',
+  },
   footer: 'Skickat automatiskt av NodeWarden. Svar till denna adress läses inte.',
 };
 

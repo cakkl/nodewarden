@@ -19,6 +19,9 @@ const zhCN: MailCopy = {
     expiresLabel: '验证码有效期至',
     outro: '如果你没有发起这个操作，忽略本邮件即可。该邮箱会保持未确认状态，不会收到任何通知。',
   },
+  preferencesNote: {
+    timezone: '提示：你还没有设定时区，邮件里的时间按 {timezone} 显示。请到「设置 → 偏好」设定你的时区。',
+  },
   footer: '由 NodeWarden 自动发送。此地址不接收回复。',
 };
 

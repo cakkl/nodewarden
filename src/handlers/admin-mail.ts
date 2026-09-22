@@ -18,6 +18,7 @@ import {
   inferEncryption,
   normalizeMailSettingsInput,
   readStoredMailPassword,
+  resolveMailRenderPreferences,
   saveMailSettings,
 } from '../services/mail-settings';
 import { SmtpDeliveryError, sendSmtpMail } from '../services/smtp-client';
@@ -196,7 +197,8 @@ export async function handleAdminSendTestMail(
         encryption: connection.encryption,
         sentAt: new Date(),
       },
-      { locale: input.locale, timezone: input.timezone }
+      // 测试邮件发给管理员**自己**，所以用他自己的偏好（未设定则回退英文/UTC）
+      resolveMailRenderPreferences(actorUser)
     );
     const result = await sendSmtpMail(connection, { to: recipient, ...mail });
     await writeAdminMailAudit(

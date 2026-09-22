@@ -45,6 +45,14 @@ CREATE TABLE IF NOT EXISTS users (
   api_key TEXT,
   -- 邮箱是否已由用户自己验证。默认 0：未验证的邮箱不接收任何通知邮件。
   email_verified INTEGER NOT NULL DEFAULT 0,
+  -- 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）。
+  -- 值与「来源」分开存：auto_* = 1 表示该值是自动检测来的（登录时可按浏览器刷新）；
+  -- 0 表示用户自己选定（或一次性迁移写入），永不被自动改写。
+  -- NULL = 未设定：邮件回退到英文 / UTC，并在正文追加一句提示。
+  locale TEXT,
+  auto_locale INTEGER NOT NULL DEFAULT 0,
+  timezone TEXT,
+  auto_timezone INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

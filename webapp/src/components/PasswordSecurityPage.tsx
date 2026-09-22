@@ -4,6 +4,7 @@ import { Link } from 'wouter';
 import { maskSecret } from '@/components/vault/vault-page-helpers';
 import { getPasswordSecurityState, readPasswordSecurityState, startPasswordSecurityScan, subscribePasswordSecurityState } from '@/lib/password-security-cache';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 import type { Cipher } from '@/lib/types';
 
 interface PasswordSecurityPageProps {
@@ -22,11 +23,10 @@ function vaultFingerprint(ciphers: Cipher[]): string {
   })));
 }
 
-function formatCheckedAt(value: number): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(value);
-}
-
 export default function PasswordSecurityPage(props: PasswordSecurityPageProps) {
+  const { format } = useDateTimeFormat();
+  const formatCheckedAt = (value: number): string =>
+    format(value, { dateStyle: 'medium', timeStyle: 'short' }) ?? t('txt_dash');
   const fingerprint = vaultFingerprint(props.ciphers);
   const [securityState, setSecurityState] = useState(() => getPasswordSecurityState(fingerprint));
   const [filter, setFilter] = useState<PasswordSecurityFilter>('all');

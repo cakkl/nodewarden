@@ -377,3 +377,57 @@ test('无管理员时 bootstrap 会把最早注册的用户提权，并写入审
 
   handle.close();
 });
+
+test('迁移：管理员设过全局邮件语言/时区 ⇒ 落到已有用户行并标记为自动，随后删除全局键', async () => {
+  const handle = freshDatabase();
+  seedRows(handle.connection);
+  // 模拟「管理员当年保存过邮件设置」：这两个键**只有** saveMailSettings 会写入
+  handle.connection
+    .prepare('INSERT INTO config (key, value) VALUES (?,?)')
+    .run('globalSettings__mail__locale', 'zh-CN');
+  handle.connection
+    .prepare('INSERT INTO config (key, value) VALUES (?,?)')
+    .run('globalSettings__mail__timezone', 'Asia/Shanghai');
+  degradeToLegacyShape(handle.connection);
+
+  await ensureStorageSchema(handle.db);
+
+  const row = handle.connection
+    .prepare('SELECT locale, auto_locale, timezone, auto_timezone FROM users WHERE id = ?')
+    .get('user-1') as Record<string, unknown>;
+  assert.deepStrictEqual(
+    { ...row },
+    { locale: 'zh-CN', auto_locale: 1, timezone: 'Asia/Shanghai', auto_timezone: 1 },
+    '迁移值必须落库并标记为「自动」—— 它只是给从未登录过的用户兜底，用户一登录就按浏览器刷新'
+  );
+
+  const remaining = plain(
+    handle.connection
+      .prepare("SELECT key FROM config WHERE key LIKE 'globalSettings__mail\\_%' ESCAPE '\\'")
+      .all() as Array<{ key: string }>
+  );
+  assert.deepStrictEqual(remaining, [], '迁移后必须删掉全局键，否则以后会再次生效');
+
+  handle.close();
+});
+
+test('迁移：管理员从未设过（config 无这两个键）⇒ 用户列保持 NULL，自动设定与邮件提示句才不会被静默掉', async () => {
+  const handle = freshDatabase();
+  seedRows(handle.connection);
+  degradeToLegacyShape(handle.connection);
+
+  await ensureStorageSchema(handle.db);
+
+  const row = handle.connection
+    .prepare('SELECT locale, auto_locale, timezone, auto_timezone FROM users WHERE id = ?')
+    .get('user-1') as Record<string, unknown>;
+  // 回归点：若迁移漏了 `EXISTS (...)` 判断，这里会变成 'en'/'UTC' + auto_* = 1，
+  // 等于把「未设定」写成「已设定」⇒ 自动设定与「请去设定语言/时区」的邮件提示句**永久失效**。
+  assert.deepStrictEqual(
+    { ...row },
+    { locale: null, auto_locale: 0, timezone: null, auto_timezone: 0 },
+    '没有全局值可继承时必须保持「未设定」'
+  );
+
+  handle.close();
+});

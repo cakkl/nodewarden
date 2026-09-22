@@ -19,6 +19,9 @@ const fr: MailCopy = {
     expiresLabel: 'Ce code expire le',
     outro: 'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message. Votre adresse restera non confirmée et aucune notification ne sera envoyée.',
   },
+  preferencesNote: {
+    timezone: 'Remarque : aucun fuseau horaire n\'a encore été défini, les heures sont donc affichées en {timezone}. Définissez le vôtre dans Paramètres → Préférences.',
+  },
   footer: 'Envoyé automatiquement par NodeWarden. Les réponses à cette adresse ne sont pas lues.',
 };
 

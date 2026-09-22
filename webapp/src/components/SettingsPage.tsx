@@ -3,10 +3,12 @@ import { Clipboard, KeyRound, RefreshCw, Send, ShieldCheck, ShieldOff, Trash2 } 
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { calcTotpNow } from '@/lib/crypto';
 import qrcode from 'qrcode-generator';
-import type { AccountPasskeyCredential, MailEncryption, MailSettings, MailSettingsInput, MailTestResult, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
+import type { AccountPasskeyCredential, MailEncryption, MailPreferences, MailPreferencesUpdate, MailSettings, MailSettingsInput, MailTestResult, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
 import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { describeMailFailure } from '@/hooks/useAdminMailActions';
-import { AVAILABLE_LOCALES, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import { AVAILABLE_LOCALES, detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
+import { detectBrowserTimeZone } from '@/lib/datetime';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface SettingsPageProps {
@@ -39,11 +41,13 @@ interface SettingsPageProps {
   onLoadMailSettings: () => Promise<MailSettings>;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
+  /** 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）；未提供时偏好页不显示时区块。 */
+  mailPreferences?: MailPreferences | null;
+  onSaveMailPreferences?: (update: MailPreferencesUpdate) => Promise<MailPreferences>;
   // 邮箱验证。未提供时账户选项卡不显示该模块。
   onLoadEmailVerification?: () => Promise<EmailVerificationStatus>;
   onSendEmailVerificationCode?: () => Promise<unknown>;
   onSubmitEmailVerificationCode?: (code: string) => Promise<void>;
-  onCancelEmailVerification?: () => Promise<void>;
   onListAccountPasskeys: () => Promise<AccountPasskeyCredential[]>;
   onCreateAccountPasskey: (name: string, masterPassword: string, directUnlock: boolean) => Promise<AccountPasskeyCredential | null>;
   onEnableAccountPasskeyDirectUnlock: (id: string, masterPassword: string) => Promise<void>;
@@ -79,13 +83,12 @@ const LOCK_TIMEOUT_OPTIONS = [
 
 const EMPTY_YUBIKEY_KEYS: [string, string, string, string, string] = ['', '', '', '', ''];
 
-/** 浏览器所在时区；拿不到就回退 UTC。 */
-function detectBrowserTimezone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
-  } catch {
-    return 'UTC';
-  }
+/** 语言 / 时区下拉里「自动」那一项的取值（与真实值不冲突） */
+const AUTO_OPTION = 'auto';
+
+/** 把语言代码显示成下拉里的标签；认不出就原样显示 */
+function localeLabel(value: string): string {
+  return AVAILABLE_LOCALES.find((option) => option.value === value)?.label ?? value;
 }
 
 function formatStoredYubiKey(value: string): string {
@@ -129,13 +132,6 @@ function clearLegacyTotpSetupSecrets(): void {
   for (const key of keys) {
     window.localStorage.removeItem(key);
   }
-}
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return t('txt_dash');
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return t('txt_dash');
-  return date.toLocaleString();
 }
 
 export default function SettingsPage(props: SettingsPageProps) {
@@ -185,6 +181,8 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [masterPasswordPrompt, setMasterPasswordPrompt] = useState<MasterPasswordPromptAction | null>(null);
   const [masterPasswordPromptValue, setMasterPasswordPromptValue] = useState('');
   const [masterPasswordPromptSubmitting, setMasterPasswordPromptSubmitting] = useState(false);
+  const { format } = useDateTimeFormat();
+  const formatDateTime = (value: string | null | undefined): string => format(value) ?? t('txt_dash');
   const [selectedLocale, setSelectedLocale] = useState<Locale>(() => getLocale());
   const [activeSection, setActiveSection] = useState<SettingsSection>('preferences');
 
@@ -279,8 +277,6 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [mailPassword, setMailPassword] = useState('');
   const [mailFromAddress, setMailFromAddress] = useState('');
   const [mailFromName, setMailFromName] = useState('');
-  const [mailLocale, setMailLocale] = useState('en');
-  const [mailTimezone, setMailTimezone] = useState('UTC');
   const [mailSubmitting, setMailSubmitting] = useState(false);
   const [mailPromptAction, setMailPromptAction] = useState<'save' | 'disable' | null>(null);
   const [mailMasterPassword, setMailMasterPassword] = useState('');
@@ -308,8 +304,6 @@ export default function SettingsPage(props: SettingsPageProps) {
     username: mailUsername.trim(),
     fromAddress: mailFromAddress.trim(),
     fromName: mailFromName.trim(),
-    locale: mailLocale,
-    timezone: mailTimezone,
     ...(mailPassword ? { password: mailPassword } : {}),
   };
 
@@ -325,8 +319,14 @@ export default function SettingsPage(props: SettingsPageProps) {
   }, []);
 
   /**
+   * 「自动」档在下拉里显示**实际生效值**（如「自动（简体中文）」），而不是「按浏览器」字样：
+   * 用户要看的是现在到底用的是什么。服务端还没有值时用本机检测值兜底。
+   */
+  const autoLocaleValue = props.mailPreferences?.locale ?? detectBrowserLocale();
+  const autoTimezoneValue = props.mailPreferences?.timezone ?? detectBrowserTimeZone();
+
+  /**
    * 表单被改动 ⇒ 之前的测试结果作废，保存重新变为不可用。
-   * 语言与时区也走这里：它们会影响邮件正文，改了同样要重新测试。
    */
   function touchMailForm(): void {
     setMailTested(false);
@@ -340,15 +340,6 @@ export default function SettingsPage(props: SettingsPageProps) {
     setMailUsername(settings.username);
     setMailFromAddress(settings.fromAddress);
     setMailFromName(settings.fromName);
-    // 从未配置过 ⇒ 用浏览器环境自动填：界面语言 + 本机时区。
-    // 已经存过值就尊重它，不覆盖（否则会悄悄改掉管理员的显式选择）。
-    if (settings.host) {
-      setMailLocale(settings.locale);
-      setMailTimezone(settings.timezone);
-    } else {
-      setMailLocale(getLocale());
-      setMailTimezone(detectBrowserTimezone());
-    }
     // 口令永不回显：留空表示「保持原口令不变」
     setMailPassword('');
     setMailTested(false);
@@ -584,11 +575,31 @@ export default function SettingsPage(props: SettingsPageProps) {
     return t('txt_prf_not_supported');
   }
 
-  async function changeLocale(next: Locale): Promise<void> {
-    if (next === getLocale()) return;
-    setSelectedLocale(next);
-    await setLocale(next);
-    window.location.reload();
+  /**
+   * 切换语言：界面语言与邮件语言是**同一个值**（见 docs/TODO/MAIL-PREFS.md），
+   * 既立刻应用到界面，也落库给服务端渲染邮件用。
+   * 选「自动」时写当前浏览器语言并标记为自动档，此后每次登录可按浏览器刷新。
+   */
+  async function changeLocale(next: Locale | typeof AUTO_OPTION): Promise<void> {
+    const auto = next === AUTO_OPTION;
+    const effective = auto ? detectBrowserLocale() : next;
+    setSelectedLocale(effective);
+    await props.onSaveMailPreferences?.(
+      auto ? { locale: effective, localeAuto: true } : { locale: effective, localeAuto: false }
+    );
+    if (effective !== getLocale()) {
+      await setLocale(effective);
+      window.location.reload();
+    }
+  }
+
+  /** 时区同理：选「自动」写当前浏览器时区并标记自动档，否则固定为选中的值。 */
+  async function changeTimezone(next: string): Promise<void> {
+    await props.onSaveMailPreferences?.(
+      next === AUTO_OPTION
+        ? { timezone: detectBrowserTimeZone(), timezoneAuto: true }
+        : { timezone: next, timezoneAuto: false }
+    );
   }
 
   function closeTotpManageDialog(): void {
@@ -875,9 +886,12 @@ export default function SettingsPage(props: SettingsPageProps) {
                   <span>{t('txt_display_language')}</span>
                   <select
                     className="input"
-                    value={selectedLocale}
-                    onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale)}
+                    value={props.mailPreferences?.autoLocale ? AUTO_OPTION : selectedLocale}
+                    onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale | typeof AUTO_OPTION)}
                   >
+                    <option value={AUTO_OPTION}>
+                      {t('txt_preferences_auto', { value: localeLabel(autoLocaleValue) })}
+                    </option>
                     {AVAILABLE_LOCALES.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
@@ -887,6 +901,29 @@ export default function SettingsPage(props: SettingsPageProps) {
                   <div className="field-help">{t('txt_display_language_help')}</div>
                 </label>
               </section>
+
+              {props.onSaveMailPreferences && (
+                <section className="settings-submodule">
+                  <label className="field">
+                    <span>{t('txt_timezone')}</span>
+                    <select
+                      className="input"
+                      value={props.mailPreferences?.autoTimezone || !props.mailPreferences?.timezone ? AUTO_OPTION : props.mailPreferences.timezone}
+                      onInput={(e) => void changeTimezone((e.currentTarget as HTMLSelectElement).value)}
+                    >
+                      <option value={AUTO_OPTION}>
+                        {t('txt_preferences_auto', { value: autoTimezoneValue })}
+                      </option>
+                      {timezoneOptions.map((zone) => (
+                        <option key={zone} value={zone}>
+                          {zone}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="field-help">{t('txt_timezone_help')}</div>
+                  </label>
+                </section>
+              )}
 
               <section className="settings-submodule">
                 <div className="session-timeout-fields">
@@ -926,11 +963,14 @@ export default function SettingsPage(props: SettingsPageProps) {
                 <section className="settings-submodule">
                   <div className="settings-module-head">
                     <h3>{t('txt_email')}</h3>
-                    <span className={`two-step-enabled-badge ${emailVerification?.verified ? '' : 'is-danger'}`}>
-                      {emailVerification?.verified
-                        ? t('txt_email_verification_verified_badge')
-                        : t('txt_email_verification_unverified_badge')}
-                    </span>
+                    {/* 只有服务端确实能发信时才显示徽标：否则会显示一个用户无法改变的「未验证」 */}
+                    {emailVerification?.available && (
+                      <span className={`two-step-enabled-badge ${emailVerification.verified ? '' : 'is-danger'}`}>
+                        {emailVerification.verified
+                          ? t('txt_email_verification_verified_badge')
+                          : t('txt_email_verification_unverified_badge')}
+                      </span>
+                    )}
                   </div>
                   <label className="field">
                     <span>{t('txt_current_email')}</span>
@@ -944,19 +984,20 @@ export default function SettingsPage(props: SettingsPageProps) {
                   </div>
                   {/* 间距对齐 management.css 的 .settings-vertical-fields + .btn（按钮组打断了相邻兄弟选择器） */}
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '14px' }}>
+                    {/* 不再加 title：禁用态的按钮多数浏览器不会弹 tooltip，而且
+                        同一句话下面已有可见的说明行，重复一遍是噪音。 */}
                     <button
                       type="button"
                       className="btn btn-danger"
                       disabled
-                      title={t('txt_change_email_unavailable')}
                     >
                       {t('txt_change_email')}
                     </button>
-                    {!emailVerification?.verified && (
+                    {emailVerification?.available && !emailVerification.verified && (
                       <button
                         type="button"
                         className="btn btn-secondary"
-                        disabled={emailVerificationBusy || !emailVerification?.available}
+                        disabled={emailVerificationBusy}
                         onClick={() => void openVerificationDialog()}
                       >
                         {t('txt_verify_email_address')}
@@ -964,14 +1005,13 @@ export default function SettingsPage(props: SettingsPageProps) {
                     )}
                   </div>
                   <p className="field-help">{t('txt_change_email_unavailable')}</p>
-                  {!emailVerification?.available && (
-                    <p className="field-help">{t('txt_email_verification_unavailable_hint')}</p>
-                  )}
                 </section>
               )}
 
               <section className="settings-submodule">
-                <h3>{t('txt_change_master_password')}</h3>
+                {/* 小标题用名词（与「邮箱」「账号通行密钥」等一致）；
+                    「修改主密码」这个动词短语只留给变更前的确认弹窗标题。 */}
+                <h3>{t('txt_master_password')}</h3>
                 <label className="field">
                   <span>{t('txt_current_password')}</span>
                   <input
@@ -1303,44 +1343,6 @@ export default function SettingsPage(props: SettingsPageProps) {
                     />
                   </label>
 
-                  <label className="field">
-                    <span>{t('txt_mail_locale')}</span>
-                    <select
-                      className="input"
-                      value={mailLocale}
-                      onInput={(event) => {
-                        setMailLocale((event.currentTarget as HTMLSelectElement).value);
-                        touchMailForm();
-                      }}
-                    >
-                      {AVAILABLE_LOCALES.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="field-help">{t('txt_mail_locale_help')}</div>
-                  </label>
-
-                  <label className="field">
-                    <span>{t('txt_mail_timezone')}</span>
-                    <select
-                      className="input"
-                      value={mailTimezone}
-                      onInput={(event) => {
-                        setMailTimezone((event.currentTarget as HTMLSelectElement).value);
-                        touchMailForm();
-                      }}
-                    >
-                      {timezoneOptions.map((zone) => (
-                        <option key={zone} value={zone}>
-                          {zone}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="field-help">{t('txt_mail_timezone_help')}</div>
-                  </label>
-
                   <div className="actions">
                     <button
                       type="button"
@@ -1570,7 +1572,7 @@ export default function SettingsPage(props: SettingsPageProps) {
       <ConfirmDialog
         open={yubiKeyDialogOpen}
         title={`${t('txt_two_step_login')} YubiKey`}
-        message={!yubiKeyYubicoConfigured ? '' : yubiKeyEnabled ? t('txt_yubikey_enabled') : t('txt_disabled')}
+        message={!yubiKeyYubicoConfigured ? '' : yubiKeyEnabled ? t('txt_yubikey_enabled') : t('txt_yubikey_disabled')}
         hideConfirm
         hideCancel
         closeButton

@@ -19,6 +19,9 @@ const fi: MailCopy = {
     expiresLabel: 'Koodi vanhenee',
     outro: 'Jos et pyytänyt tätä, jätä viesti huomiotta. Osoite pysyy vahvistamattomana eikä ilmoituksia lähetetä.',
   },
+  preferencesNote: {
+    timezone: 'Huomautus: aikavyöhykettä ei ole vielä asetettu, joten ajat näytetään aikavyöhykkeellä {timezone}. Aseta omasi asetuksissa.',
+  },
   footer: 'NodeWarden lähetti tämän automaattisesti. Tähän osoitteeseen ei vastata.',
 };
 

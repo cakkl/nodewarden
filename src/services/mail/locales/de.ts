@@ -19,6 +19,9 @@ const de: MailCopy = {
     expiresLabel: 'Dieser Code läuft ab am',
     outro: 'Wenn du das nicht angefordert hast, ignoriere diese Nachricht. Deine Adresse bleibt unbestätigt und es werden keine Benachrichtigungen gesendet.',
   },
+  preferencesNote: {
+    timezone: 'Hinweis: Es ist noch keine Zeitzone festgelegt, daher werden die Zeiten in {timezone} angezeigt. Lege deine in den Einstellungen fest.',
+  },
   footer: 'Automatisch von NodeWarden gesendet. Antworten an diese Adresse werden nicht gelesen.',
 };
 

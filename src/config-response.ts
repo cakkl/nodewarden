@@ -39,11 +39,10 @@ export function buildConfigResponse(origin: string) {
       'cipher-key-encryption': LIMITS.compatibility.cipherKeyEncryptionFeatureEnabled,
       'desktop-ui-settings-dialog': true,
       'duo-redirect': true,
-      // 本服务器不提供邮件发送通道：/accounts/register/send-verification-email、
-      // /accounts/verify-email、/api/two-factor/send-email-login 等端点一律返回 501
-      // “Email delivery is not supported by this server.”（见 router-public.ts / router-authenticated.ts）。
-      // 因此不能告诉客户端“支持邮箱验证”，否则客户端会展示相应的设置项并调用注定失败的接口。
-      // 将来接入邮件能力（见 docs/TODO/MAIL.md）时再改回 true。
+      // 这两个 flag 必须保持 false，**即使管理员已配好 SMTP、服务端确实能发信**：
+      // Bitwarden 客户端的邮箱验证走**邮件链接**流程（`register/send-verification-email` +
+      // `verify-email-token`），那两个端点在本服务器仍是 501 —— 这里只实现了验证码流程。
+      // 改成 true 会让客户端展示引导并调用注定失败的接口。
       'email-verification': false,
       'fill-assist-targeting-rules': true,
       'pm-19051-send-email-verification': false,

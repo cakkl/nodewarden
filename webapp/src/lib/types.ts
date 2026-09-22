@@ -439,12 +439,38 @@ export interface MailSettings {
   username: string;
   fromAddress: string;
   fromName: string;
-  /** 邮件正文语言 */
-  locale: string;
-  /** IANA 时区名，决定邮件里时间的显示时区 */
-  timezone: string;
   passwordConfigured: boolean;
   configured: boolean;
+}
+
+/**
+ * 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）。
+ *
+ * `locale` 与界面语言是**同一个值**（合并设置）；`null` = 未设定。
+ * `auto*` 为 true 表示该值是自动检测来的，登录时可按浏览器刷新。
+ */
+export interface MailPreferences {
+  locale: string | null;
+  autoLocale: boolean;
+  timezone: string | null;
+  autoTimezone: boolean;
+}
+
+/** `detect` 的返回：最新偏好 + 本次是否真的写入（false = 已有手动值，未被覆盖）。 */
+export interface MailPreferencesDetectResult extends MailPreferences {
+  localeWritten: boolean;
+  timezoneWritten: boolean;
+}
+
+/**
+ * 保存偏好的入参：省略某个字段 = 不动它；传 `null` = 清空回「未设定」；
+ * `*Auto` = 是否把该字段标为「自动档」（用户在界面上选「自动（按浏览器）」时同时传值与 true）。
+ */
+export interface MailPreferencesUpdate {
+  locale?: string | null;
+  localeAuto?: boolean;
+  timezone?: string | null;
+  timezoneAuto?: boolean;
 }
 
 /** 保存时提交的字段；`password` 留空表示保持原口令不变。 */
@@ -457,8 +483,6 @@ export interface MailSettingsInput {
   username: string;
   fromAddress: string;
   fromName: string;
-  locale?: string;
-  timezone?: string;
   password?: string;
   clearPassword?: boolean;
 }

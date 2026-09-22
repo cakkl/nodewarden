@@ -334,7 +334,7 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
     securityStamp: generateUUID(),
     role: 'user',
     status: 'active',
-    verifyDevices: false, // new-device verification requires email delivery (not available)
+    verifyDevices: false, // new-device verification is not implemented yet
     totpSecret: null,
     totpRecoveryCode: null,
     yubikeyKey1: null,
@@ -539,9 +539,8 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
 }
 
 // PUT/POST /api/accounts/verify-devices
-// New-device verification requires an email delivery channel which NodeWarden
-// does not provide. This endpoint always rejects the request so clients receive
-// clear feedback that the feature is unavailable rather than silently ignoring
+// New-device verification is not implemented yet. This endpoint always rejects the request so
+// clients receive clear feedback that the feature is unavailable rather than silently ignoring
 // the user's preference.
 export async function handleSetVerifyDevices(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
@@ -557,7 +556,7 @@ export async function handleSetVerifyDevices(request: Request, env: Env, userId:
     targetType: 'user',
     targetId: user.id,
     metadata: {
-      reason: 'new-device verification is not supported (no email delivery channel)',
+      reason: 'new-device verification is not implemented yet',
       ...auditRequestMetadata(request),
     },
   });
@@ -841,10 +840,8 @@ function yubiKeyResponse(user: User): Record<string, unknown> {
   };
 }
 
-// New-device verification requires an email delivery channel to send OTP
-// challenges to unknown devices. NodeWarden does not integrate with an email
-// provider, so this feature is intentionally unavailable. The settings
-// response always reports disabled regardless of any legacy DB value.
+// New-device verification is not implemented yet (it needs to email OTP challenges to unknown
+// devices). The settings response always reports disabled regardless of any legacy DB value.
 function deviceVerificationSettingsResponse(_user: User): Record<string, unknown> {
   return {
     Enabled: false,
@@ -956,7 +953,7 @@ export async function handleGetDeviceVerificationSettings(request: Request, env:
 }
 
 // PUT/POST /api/two-factor/device-verification-settings
-// New-device verification is not supported (no email delivery channel).
+// New-device verification is not implemented yet.
 // Reject any attempt to enable it; always return disabled state.
 export async function handlePutDeviceVerificationSettings(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
@@ -982,7 +979,7 @@ export async function handlePutDeviceVerificationSettings(request: Request, env:
     targetId: user.id,
     metadata: {
       requested: rawEnabled,
-      reason: 'new-device verification is not supported (no email delivery channel)',
+      reason: 'new-device verification is not implemented yet',
       // `trigger` 已在白名单且有标签（原键名 `source` 未登记，会被静默丢弃）。
       trigger: 'two-factor.device-verification-settings',
       ...auditRequestMetadata(request),

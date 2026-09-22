@@ -15,7 +15,7 @@ import type { Env, User } from '../types';
 import { jsonResponse, errorResponse } from '../utils/response';
 import { StorageService } from '../services/storage';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
-import { resolveMailConnection, isMailDeliveryAvailable } from '../services/mail-settings';
+import { resolveMailConnection, isMailDeliveryAvailable, resolveMailRenderPreferences } from '../services/mail-settings';
 import { sendSmtpMail, SmtpDeliveryError } from '../services/smtp-client';
 import { renderVerificationEmail } from '../services/mail';
 import { setEmailVerified } from '../services/storage-user-repo';
@@ -140,9 +140,10 @@ export async function handleSendEmailVerificationCode(
   // 先落库再发信：如果发信失败，用户手上那枚旧码已经被新的顶掉了。
   // 这是「安全方向」的失败 —— 宁可让人重发一次，也不要留下两枚同时有效的码。
   const issued = await issueVerificationCode(env.DB, currentUser.id, email, env.JWT_SECRET);
+  // 语言/时区取自**收件人自己**的偏好（未设定则回退英文/UTC，并由模板追加提示句）
   const mail = renderVerificationEmail(
     { code: issued.code, expiresAt: new Date(issued.expiresAt) },
-    connection.render
+    resolveMailRenderPreferences(currentUser)
   );
 
   try {
@@ -213,22 +214,4 @@ export async function handleVerifyEmailCode(
   await setEmailVerified(env.DB, currentUser.id, true);
   await writeEmailVerificationAudit(env, currentUser, 'account.email.verification.confirm', { email }, request);
   return jsonResponse({ object: 'emailVerification', verified: true, email });
-}
-
-/**
- * 取消验证，回到未验证状态。
- *
- * 目前只给本地调试用（界面上的入口由 import.meta.env.DEV 门控）。
- * 邮箱变更落地后，这一步应该并入「改邮箱」的流程 —— 换了地址就必须重新验证。
- */
-// DELETE /api/accounts/email-verification
-export async function handleCancelEmailVerification(
-  request: Request,
-  env: Env,
-  currentUser: User
-): Promise<Response> {
-  await clearVerificationCode(env.DB, currentUser.id);
-  await setEmailVerified(env.DB, currentUser.id, false);
-  await writeEmailVerificationAudit(env, currentUser, 'account.email.verification.cancel', {}, request);
-  return jsonResponse({ object: 'emailVerification', verified: false, email: currentUser.email });
 }

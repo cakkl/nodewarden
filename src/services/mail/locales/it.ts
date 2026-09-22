@@ -19,6 +19,9 @@ const it: MailCopy = {
     expiresLabel: 'Questo codice scade il',
     outro: 'Se non hai richiesto tu questa operazione, ignora questo messaggio. Il tuo indirizzo resterà non confermato e non verranno inviate notifiche.',
   },
+  preferencesNote: {
+    timezone: 'Nota: non hai ancora impostato un fuso orario, quindi gli orari sono mostrati in {timezone}. Impostalo in Impostazioni → Preferenze.',
+  },
   footer: 'Inviato automaticamente da NodeWarden. Le risposte a questo indirizzo non vengono lette.',
 };
 

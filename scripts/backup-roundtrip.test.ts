@@ -77,11 +77,13 @@ const CIPHER_TYPES: ReadonlyArray<readonly [number, string]> = [
 function seedSource(handle: Handle): void {
   const db = handle.connection;
   db.prepare(
-    'INSERT INTO users (id, email, name, master_password_hint, master_password_hash, key, private_key, public_key, kdf_type, kdf_iterations, kdf_memory, kdf_parallelism, security_stamp, role, status, verify_devices, totp_secret, totp_recovery_code, yubikey_key1, yubikey_nfc, api_key, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
+    'INSERT INTO users (id, email, name, master_password_hint, master_password_hash, key, private_key, public_key, kdf_type, kdf_iterations, kdf_memory, kdf_parallelism, security_stamp, role, status, verify_devices, totp_secret, totp_recovery_code, yubikey_key1, yubikey_nfc, api_key, locale, auto_locale, timezone, auto_timezone, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)'
   ).run(
     'user-1', 'alice@example.test', 'Alice', 'hint', 'master-hash', 'wrapped-key',
     'private-key', 'public-key', 0, 600000, 64, 4, 'stamp-1', 'admin', 'active', 1,
-    'totp-secret', 'recovery-code', 'yubi-1', 1, 'API-KEY-MUST-NOT-BE-BACKED-UP', NOW, NOW
+    'totp-secret', 'recovery-code', 'yubi-1', 1, 'API-KEY-MUST-NOT-BE-BACKED-UP',
+    // 语言/时区用**非默认值**：否则「是否随备份往返」这条断言会被 NULL / 0 平凡通过
+    'zh-CN', 1, 'Asia/Shanghai', 0, NOW, NOW
   );
   db.prepare('INSERT INTO domain_settings (user_id, equivalent_domains, custom_equivalent_domains, excluded_global_equivalent_domains, updated_at) VALUES (?,?,?,?,?)')
     .run('user-1', '[[1,[2,3]]]', '["a.test"]', '["b.test"]', NOW);

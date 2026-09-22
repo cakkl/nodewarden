@@ -9,9 +9,10 @@
  * 不做 isolate 内缓存：发信低频，缓存反而引出「改完配置本 isolate 不生效」这类问题。
  */
 import type { Env } from '../types';
+import { isValidTimeZone } from '../utils/timezone';
 import { getConfigValue } from './storage-config-repo';
 import { decryptDomainValue, deriveServerDomainKey, encryptDomainValue } from './server-secret-crypto';
-import { DEFAULT_MAIL_LOCALE, resolveMailCopy } from './mail';
+import { DEFAULT_MAIL_LOCALE, DEFAULT_MAIL_TIMEZONE, matchMailLocale } from './mail';
 import type { SmtpConnectionSettings, SmtpEncryption } from './smtp-client';
 
 export const MAIL_ENABLED_CONFIG_KEY = 'globalSettings__mail__enabled';
@@ -22,8 +23,7 @@ export const MAIL_USERNAME_CONFIG_KEY = 'globalSettings__mail__username';
 export const MAIL_FROM_ADDRESS_CONFIG_KEY = 'globalSettings__mail__fromAddress';
 export const MAIL_FROM_NAME_CONFIG_KEY = 'globalSettings__mail__fromName';
 export const MAIL_SECRET_CONFIG_KEY = 'globalSettings__mail__secret';
-export const MAIL_LOCALE_CONFIG_KEY = 'globalSettings__mail__locale';
-export const MAIL_TIMEZONE_CONFIG_KEY = 'globalSettings__mail__timezone';
+/** 语言 / 时区已改为**用户级**（`users.locale` / `users.timezone`），不再有对应的全局键。 */
 /** 「上一次测试发信」的节流窗口；值是实现细节，仅用于原子认领。 */
 export const MAIL_TEST_THROTTLE_CONFIG_KEY = 'globalSettings__mail__testThrottle';
 
@@ -62,10 +62,6 @@ export interface MailSettingsInput {
   username: string;
   fromAddress: string;
   fromName: string;
-  /** 邮件正文语言（邮件模板支持的语言之一） */
-  locale?: string;
-  /** IANA 时区名，决定邮件里时间的显示时区 */
-  timezone?: string;
   /** 留空 / 省略表示「保持已有口令不变」。 */
   password?: string;
   /** 显式清除已存口令（与 `password` 同时给时以 `password` 为准）。 */
@@ -81,8 +77,6 @@ export interface MailSettingsPublic {
   username: string;
   fromAddress: string;
   fromName: string;
-  locale: string;
-  timezone: string;
   passwordConfigured: boolean;
   /** 参数是否完整到「可以尝试发信」。 */
   configured: boolean;
@@ -96,20 +90,42 @@ export const DEFAULT_MAIL_SETTINGS: MailSettingsPublic = {
   username: '',
   fromAddress: '',
   fromName: '',
-  locale: DEFAULT_MAIL_LOCALE,
-  timezone: 'UTC',
   passwordConfigured: false,
   configured: false,
 };
 
-/** 邮件渲染选项，与 SMTP 连接参数分开（后者不该知道界面语言）。 */
-export interface MailRenderOptions {
+/**
+ * 邮件渲染偏好：语言与时区都取自**收件人自己**的偏好，与 SMTP 连接参数分开。
+ *
+ * `preferencesUnset` 标记「哪一项用的是回退值」，供模板在正文追加提示句。
+ */
+export interface MailRenderPreferences {
   locale: string;
   timezone: string;
+  preferencesUnset: { locale: boolean; timezone: boolean };
+}
+
+/**
+ * 把收件人偏好解析成渲染选项。
+ *
+ * **未设定与值非法都按「未设定」处理**：迁移或历史手工改库可能留下非法值，
+ * 那时邮件实际会回退，若不算作未设定，就会出现「用户收到英文邮件却没有任何提示」。
+ */
+export function resolveMailRenderPreferences(
+  recipient: { locale?: string | null; timezone?: string | null }
+): MailRenderPreferences {
+  const matchedLocale = matchMailLocale(recipient.locale);
+  const timezone = typeof recipient.timezone === 'string' ? recipient.timezone.trim() : '';
+  const timezoneValid = isValidTimeZone(timezone);
+  return {
+    locale: matchedLocale ?? DEFAULT_MAIL_LOCALE,
+    timezone: timezoneValid ? timezone : DEFAULT_MAIL_TIMEZONE,
+    preferencesUnset: { locale: matchedLocale === null, timezone: !timezoneValid },
+  };
 }
 
 export type MailConnectionResolution =
-  | { status: 'ok'; settings: SmtpConnectionSettings; render: MailRenderOptions }
+  | { status: 'ok'; settings: SmtpConnectionSettings }
   | { status: 'not-configured' }
   | { status: 'secret-unreadable' };
 
@@ -133,21 +149,6 @@ function readBoolean(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
   const text = String(value ?? '').trim().toLowerCase();
   return text === 'true' || text === '1' || text === 'yes';
-}
-
-/**
- * 时区必须是 ICU 认得的 IANA 名，否则邮件里的时间会格式化失败。
- * 空值回退 UTC（邮件本来就带 `UTC` 标注，不会歧义）。
- */
-function normalizeTimezone(value: unknown): string {
-  const text = String(value ?? '').trim();
-  if (!text) return DEFAULT_MAIL_SETTINGS.timezone;
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: text });
-    return text;
-  } catch {
-    throw new MailSettingsValidationError(`Unknown time zone: ${text}`);
-  }
 }
 
 /**
@@ -194,9 +195,6 @@ export function normalizeMailSettingsInput(body: unknown): MailSettingsInput {
     username,
     fromAddress,
     fromName,
-    // 未知语言不报错，直接回退到支持的语言（邮件总能发出去）
-    locale: resolveMailCopy(body.locale).locale,
-    timezone: normalizeTimezone(body.timezone),
     password,
     clearPassword: readBoolean(body.clearPassword),
   };
@@ -205,7 +203,7 @@ export function normalizeMailSettingsInput(body: unknown): MailSettingsInput {
 async function readMailConfigMap(db: D1Database): Promise<Map<string, string>> {
   const result = await db
     .prepare(
-      'SELECT key, value FROM config WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'SELECT key, value FROM config WHERE key IN (?, ?, ?, ?, ?, ?, ?, ?)'
     )
     .bind(
       MAIL_ENABLED_CONFIG_KEY,
@@ -215,8 +213,6 @@ async function readMailConfigMap(db: D1Database): Promise<Map<string, string>> {
       MAIL_USERNAME_CONFIG_KEY,
       MAIL_FROM_ADDRESS_CONFIG_KEY,
       MAIL_FROM_NAME_CONFIG_KEY,
-      MAIL_LOCALE_CONFIG_KEY,
-      MAIL_TIMEZONE_CONFIG_KEY,
       MAIL_SECRET_CONFIG_KEY
     )
     .all<{ key: string; value: string }>();
@@ -237,14 +233,6 @@ export async function getMailSettings(db: D1Database): Promise<MailSettingsPubli
   const username = (values.get(MAIL_USERNAME_CONFIG_KEY) || '').trim();
   const fromAddress = (values.get(MAIL_FROM_ADDRESS_CONFIG_KEY) || '').trim();
   const fromName = (values.get(MAIL_FROM_NAME_CONFIG_KEY) || '').trim();
-  const locale = resolveMailCopy(values.get(MAIL_LOCALE_CONFIG_KEY)).locale;
-  const timezone = (() => {
-    try {
-      return normalizeTimezone(values.get(MAIL_TIMEZONE_CONFIG_KEY));
-    } catch {
-      return DEFAULT_MAIL_SETTINGS.timezone;
-    }
-  })();
   const passwordConfigured = (values.get(MAIL_SECRET_CONFIG_KEY) || '').length > 0;
 
   return {
@@ -255,8 +243,6 @@ export async function getMailSettings(db: D1Database): Promise<MailSettingsPubli
     username,
     fromAddress,
     fromName,
-    locale,
-    timezone,
     passwordConfigured,
     configured: isMailSettingsUsable({ host, fromAddress, username, passwordConfigured }),
   };
@@ -319,8 +305,6 @@ export async function saveMailSettings(
     [MAIL_USERNAME_CONFIG_KEY, input.username],
     [MAIL_FROM_ADDRESS_CONFIG_KEY, input.fromAddress],
     [MAIL_FROM_NAME_CONFIG_KEY, input.fromName],
-    [MAIL_LOCALE_CONFIG_KEY, input.locale ?? DEFAULT_MAIL_LOCALE],
-    [MAIL_TIMEZONE_CONFIG_KEY, input.timezone ?? DEFAULT_MAIL_SETTINGS.timezone],
   ].map(([key, value]) =>
     db
       .prepare('INSERT INTO config(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
@@ -373,7 +357,6 @@ export async function resolveMailConnection(
       fromAddress: settings.fromAddress,
       fromName: settings.fromName,
     },
-    render: { locale: settings.locale, timezone: settings.timezone },
   };
 }
 

@@ -26,6 +26,21 @@ export interface MailCopy {
   };
   /** 页脚统一说明 */
   footer: string;
+  /**
+   * 收件人还没设定偏好时的提示句（见 docs/TODO/MAIL-PREFS.md §6）。
+   *
+   * ⚠️ `locale` / `both` **只可能用到英文那一份**：语言未设定 ⇒ 邮件就用默认语言（英文）渲染，
+   * 于是选中的文案也是英文 ⇒ 其余 9 个语言包只需提供 `timezone`（所以那两项是可选的）。
+   * `{timezone}` 由 `DEFAULT_MAIL_TIMEZONE` 填充，**别在文案里写死**。
+   */
+  preferencesNote: {
+    /** 只缺时区（10 个语言包都要有） */
+    timezone: string;
+    /** 只缺语言（仅英文这一份可达） */
+    locale?: string;
+    /** 两个都缺（仅英文这一份可达） */
+    both?: string;
+  };
 }
 
 const en: MailCopy = {
@@ -45,6 +60,14 @@ const en: MailCopy = {
     codeLabel: 'Verification code',
     expiresLabel: 'This code expires at',
     outro: 'If you did not request this, ignore this message. Your address stays unconfirmed and no notifications will be sent.',
+  },
+  preferencesNote: {
+    timezone:
+      'Note: you have not set a timezone yet, so times above are shown in {timezone}. Set yours in Settings → Preferences.',
+    locale:
+      'Note: you have not set your language yet, so this email uses the default language (English). Set it in Settings → Preferences.',
+    both:
+      'Note: you have not set your language or timezone yet, so this email uses the default language (English) and shows times in {timezone}. Set both in Settings → Preferences.',
   },
   footer: 'Sent automatically by NodeWarden. Replies to this address are not monitored.',
 };

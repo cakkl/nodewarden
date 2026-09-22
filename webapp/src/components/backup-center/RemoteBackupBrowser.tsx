@@ -2,6 +2,7 @@ import { Download, FileArchive, FolderOpen, FolderUp, RefreshCw, RotateCcw, Tras
 import type { RemoteBackupBrowserResponse } from '@/lib/api/backup';
 import { formatBytes, formatDateTime, isZipCandidate } from '@/lib/backup-center';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 
 interface RemoteBackupBrowserProps {
   canBrowse: boolean;
@@ -25,6 +26,7 @@ interface RemoteBackupBrowserProps {
 }
 
 export function RemoteBackupBrowser(props: RemoteBackupBrowserProps) {
+  const { prefs } = useDateTimeFormat();
   const getDownloadLabel = (path: string) => {
     if (props.downloadingRemotePath !== path) return t('txt_backup_remote_download');
     return props.downloadingRemotePercent == null
@@ -113,7 +115,7 @@ export function RemoteBackupBrowser(props: RemoteBackupBrowserProps) {
                       <span className="backup-browser-name">{item.name}</span>
                     </button>
                     <span className="backup-browser-meta backup-browser-modified">
-                      {item.modifiedAt ? formatDateTime(item.modifiedAt) : t('txt_backup_remote_unknown_time')}
+                      {item.modifiedAt ? formatDateTime(item.modifiedAt, prefs) : t('txt_backup_remote_unknown_time')}
                     </span>
                     <span className="backup-browser-meta backup-browser-size">
                       {item.isDirectory ? t('txt_backup_remote_folder') : formatBytes(item.size)}

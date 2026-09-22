@@ -4,7 +4,7 @@ type SafeBind = (stmt: D1PreparedStatement, ...values: any[]) => D1PreparedState
 const USER_SELECT_COLUMNS =
   'id, email, name, master_password_hint, master_password_hash, key, private_key, public_key, ' +
   'kdf_type, kdf_iterations, kdf_memory, kdf_parallelism, security_stamp, role, status, verify_devices, ' +
-  'totp_secret, totp_recovery_code, yubikey_key1, yubikey_key2, yubikey_key3, yubikey_key4, yubikey_key5, yubikey_nfc, api_key, email_verified, created_at, updated_at';
+  'totp_secret, totp_recovery_code, yubikey_key1, yubikey_key2, yubikey_key3, yubikey_key4, yubikey_key5, yubikey_nfc, api_key, email_verified, locale, auto_locale, timezone, auto_timezone, created_at, updated_at';
 
 function mapUserRow(row: any): User {
   return {
@@ -34,6 +34,10 @@ function mapUserRow(row: any): User {
     yubikeyNfc: !!row.yubikey_nfc,
     apiKey: row.api_key ?? null,
     emailVerified: row.email_verified == null ? false : !!row.email_verified,
+    locale: row.locale ?? null,
+    autoLocale: row.auto_locale == null ? false : !!row.auto_locale,
+    timezone: row.timezone ?? null,
+    autoTimezone: row.auto_timezone == null ? false : !!row.auto_timezone,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -136,6 +140,91 @@ export async function setEmailVerified(db: D1Database, userId: string, verified:
     .prepare('UPDATE users SET email_verified = ?, updated_at = ? WHERE id = ?')
     .bind(verified ? 1 : 0, new Date().toISOString(), userId)
     .run();
+}
+
+// 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）同样走**专用 UPDATE**，不进 `saveUser`。
+// `auto_* = 1` = 值来自自动检测（登录时可按浏览器刷新）；`0` = 用户自己选定，永不被自动改写。
+
+/**
+ * 用户自己选定：写值（可选）并设置来源标记。
+ *
+ * `locale` / `timezone` 传 `null` = 清空回「未设定」；省略 = 不动该字段。
+ * `*Auto: true` = 标为「自动档」（界面选「自动（按浏览器）」时传），此后登录可按浏览器刷新。
+ */
+export async function saveUserPreferences(
+  db: D1Database,
+  userId: string,
+  update: {
+    locale?: string | null;
+    localeAuto?: boolean;
+    timezone?: string | null;
+    timezoneAuto?: boolean;
+  }
+): Promise<void> {
+  const sets: string[] = [];
+  const values: unknown[] = [];
+  if (update.locale !== undefined) {
+    sets.push('locale = ?');
+    values.push(update.locale);
+  }
+  if (update.localeAuto !== undefined) {
+    sets.push('auto_locale = ?');
+    values.push(update.localeAuto ? 1 : 0);
+  }
+  if (update.timezone !== undefined) {
+    sets.push('timezone = ?');
+    values.push(update.timezone);
+  }
+  if (update.timezoneAuto !== undefined) {
+    sets.push('auto_timezone = ?');
+    values.push(update.timezoneAuto ? 1 : 0);
+  }
+  if (!sets.length) return;
+  sets.push('updated_at = ?');
+  values.push(new Date().toISOString(), userId);
+  await db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id = ?`).bind(...values).run();
+}
+
+/**
+ * 自动填充 / 刷新：**只在「未设定」或「当前是自动档且值真的变了」时才写**。
+ *
+ * 两个条件都必须写在 SQL 里（先写后判）：前端读到状态后、写入到达前，用户可能已在另一个
+ * 标签页选定了具体值，无条件的写会把它静默覆盖（同款先例：`claimConfigValue()`）。
+ * `raw <> ?` 不能省 —— SQLite 把「赋成同一个值」也算改动，否则每次登录都白刷 `updated_at`
+ *（D1 按写入行数计费），返回的 `*Written` 也不再等价于「值变了」。
+ */
+export async function detectUserPreferences(
+  db: D1Database,
+  userId: string,
+  detected: { locale?: string | null; timezone?: string | null }
+): Promise<{ localeWritten: boolean; timezoneWritten: boolean }> {
+  const now = new Date().toISOString();
+
+  let localeWritten = false;
+  if (detected.locale) {
+    const result = await db
+      .prepare(
+        'UPDATE users SET locale = ?, auto_locale = 1, updated_at = ? ' +
+          'WHERE id = ? AND (locale IS NULL OR (auto_locale = 1 AND locale <> ?))'
+      )
+      .bind(detected.locale, now, userId, detected.locale)
+      .run();
+    localeWritten = Number(result.meta.changes ?? 0) > 0;
+  }
+
+  let timezoneWritten = false;
+  if (detected.timezone) {
+    const result = await db
+      .prepare(
+        'UPDATE users SET timezone = ?, auto_timezone = 1, updated_at = ? ' +
+          'WHERE id = ? AND (timezone IS NULL OR (auto_timezone = 1 AND timezone <> ?))'
+      )
+      .bind(detected.timezone, now, userId, detected.timezone)
+      .run();
+    timezoneWritten = Number(result.meta.changes ?? 0) > 0;
+  }
+
+  return { localeWritten, timezoneWritten };
 }
 
 export async function createFirstUser(db: D1Database, safeBind: SafeBind, user: User): Promise<boolean> {

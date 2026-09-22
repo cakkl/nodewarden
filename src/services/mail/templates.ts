@@ -25,21 +25,30 @@ export interface VerificationMailInput {
   expiresAt: Date;
 }
 
-/** 渲染选项：语言与时区都来自邮件设置，不是写死的。 */
+/** 渲染选项：语言与时区都来自**收件人偏好**，不是写死的。 */
 export interface MailRenderContext {
   locale?: string;
   /** IANA 时区名；决定正文里时间的显示时区 */
   timezone?: string;
+  /** 哪一项用的是回退值 —— 模板据此在正文追加提示句（见 `preferencesNoteFor`） */
+  preferencesUnset?: { locale: boolean; timezone: boolean };
 }
 
 /**
- * 按指定时区格式化时间，并带上时区标识（如 `2026-09-21 15:45 GMT+8`）。
+ * 邮件时间的回退时区（收件人未设定时）。
  *
- * 带上标识很重要：收件人未必与该时区一致，只说 `15:45` 会让人误判。
- * 时区名非法时回退 UTC（外层已经校验过，这里是二道防线）。
+ * 定义在本文件而不是 `mail-settings.ts`：那边已经 import `./mail`，反向依赖会形成循环。
+ */
+export const DEFAULT_MAIL_TIMEZONE = 'UTC';
+
+/**
+ * 按指定时区格式化时间。
+ *
+ * 刻意**不带**时区标识（如 `GMT+8`）：时区取自收件人自己的偏好，再标一遍只是噪声。
+ * 时区名非法时回退 UTC（外层已校验过，这里是二道防线）。
  */
 export function formatMailTime(date: Date, timezone?: string): string {
-  const zone = String(timezone || '').trim() || 'UTC';
+  const zone = String(timezone || '').trim() || DEFAULT_MAIL_TIMEZONE;
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
       timeZone: zone,
@@ -49,15 +58,37 @@ export function formatMailTime(date: Date, timezone?: string): string {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
-      timeZoneName: 'short',
     }).formatToParts(date);
     const pick = (type: string): string => parts.find((part) => part.type === type)?.value || '';
-    const stamp = `${pick('year')}-${pick('month')}-${pick('day')} ${pick('hour')}:${pick('minute')}`;
-    const name = pick('timeZoneName');
-    return name ? `${stamp} ${name}` : stamp;
+    return `${pick('year')}-${pick('month')}-${pick('day')} ${pick('hour')}:${pick('minute')}`;
   } catch {
-    return `${date.toISOString().slice(0, 16).replace('T', ' ')} UTC`;
+    return `${date.toISOString().slice(0, 16).replace('T', ' ')} ${DEFAULT_MAIL_TIMEZONE}`;
   }
+}
+
+/** `{timezone}` 用实际回退值填充，免得常量改了文案却不变。 */
+function fillTimezonePlaceholder(template: string): string {
+  return template.replace('{timezone}', DEFAULT_MAIL_TIMEZONE);
+}
+
+/**
+ * 收件人尚未设定偏好时的提示句；没有缺项则返回 `null`。
+ *
+ * 三选一：只缺语言 ⇒ `locale`；只缺时区 ⇒ `timezone`；两个都缺 ⇒ `both`。
+ * `locale` / `both` **只可能是英文**：语言未设定 ⇒ 邮件用默认语言（英文）渲染 ⇒
+ * 其余 9 个语言包只需提供 `timezone`（接口里那两项可选）。
+ * 这里仍写兜底链，避免将来只填一部分时渲染出空行。
+ */
+function preferencesNoteFor(
+  copy: MailCopy,
+  unset?: MailRenderContext['preferencesUnset']
+): string | null {
+  if (!unset) return null;
+  const note = copy.preferencesNote;
+  if (unset.locale && unset.timezone) return fillTimezonePlaceholder(note.both ?? note.locale ?? note.timezone);
+  if (unset.locale) return fillTimezonePlaceholder(note.locale ?? note.timezone);
+  if (unset.timezone) return fillTimezonePlaceholder(note.timezone);
+  return null;
 }
 
 /** 测试邮件：证明发信链路可用，并回显本次使用的连接参数。 */
@@ -70,6 +101,7 @@ export function renderTestMail(
   // 协议名保持英文：它在各国界面里也是这么写的
   const encryption = input.encryption === 'implicit' ? 'Implicit TLS' : 'STARTTLS';
   const sentAt = formatMailTime(input.sentAt, context.timezone);
+  const preferencesNote = preferencesNoteFor(copy, context.preferencesUnset);
   const rows: Array<[string, string]> = [
     [copy.test.labels.server, `${input.host}:${input.port}`],
     [copy.test.labels.encryption, encryption],
@@ -85,7 +117,8 @@ export function renderTestMail(
       bodyHtml:
         mailParagraph(copy.test.intro) +
         mailDetailBlock(copy.test.detailsTitle, rows) +
-        mailParagraph(copy.test.outro, { muted: true }),
+        mailParagraph(copy.test.outro, { muted: true }) +
+        (preferencesNote ? mailParagraph(preferencesNote, { muted: true }) : ''),
       footer: copy.footer,
     }),
     text: [
@@ -97,6 +130,7 @@ export function renderTestMail(
       ...rows.map(([label, value]) => `- ${label}: ${value}`),
       '',
       copy.test.outro,
+      ...(preferencesNote ? ['', preferencesNote] : []),
       '',
       copy.footer,
     ].join('\n'),
@@ -111,6 +145,7 @@ export function renderVerificationMail(
 ): RenderedMail {
   const expiresAt = formatMailTime(input.expiresAt, context.timezone);
   const expiryLine = `${copy.verification.expiresLabel} ${expiresAt}`;
+  const preferencesNote = preferencesNoteFor(copy, context.preferencesUnset);
 
   return {
     subject: copy.verification.subject,
@@ -122,7 +157,8 @@ export function renderVerificationMail(
         mailParagraph(copy.verification.intro) +
         mailCodeBlock(copy.verification.codeLabel, input.code) +
         mailParagraph(expiryLine, { muted: true }) +
-        mailParagraph(copy.verification.outro, { muted: true }),
+        mailParagraph(copy.verification.outro, { muted: true }) +
+        (preferencesNote ? mailParagraph(preferencesNote, { muted: true }) : ''),
       footer: copy.footer,
     }),
     text: [
@@ -134,6 +170,7 @@ export function renderVerificationMail(
       expiryLine,
       '',
       copy.verification.outro,
+      ...(preferencesNote ? ['', preferencesNote] : []),
       '',
       copy.footer,
     ].join('\n'),
