@@ -76,11 +76,8 @@ async function appShellNavigation(request) {
   const cache = await caches.open(APP_SHELL_CACHE);
   const url = new URL(request.url);
 
-  // 在线时必须 network-first，并把最新的 index.html 写回缓存。
-  //
-  // 缓存中的 index.html 记录着一整套带 hash 的 chunk 名。部署新版本后那些文件
-  // 全部不存在，用旧清单渲染会让**所有**页面都加载失败（只剩导航栏、内容区白屏），
-  // 而且应用本身也是被缓存的那份，强制刷新也救不回来。离线时才回退到缓存。
+  // 必须 network-first：缓存的 index.html 记着的是一整套旧 chunk 名，部署后那些文件
+  // 全部不存在，用它渲染会白屏。离线时才回退到缓存。
   if (navigator.onLine !== false) {
     try {
       const response = await fetch(request);

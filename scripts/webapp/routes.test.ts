@@ -1,9 +1,5 @@
-// 路由路径表的护栏：把「路径清单」与「AppMainRoutes 实际注册的 Route」钉成一一对应。
-//
-// 为什么值得测：这两份清单以前是两块独立维护的字符串数组。第 33 项（未匹配路由 → 内容区
-// 渲染 null → 只剩导航栏）就是它们脱节造成的，而当时没有任何测试会红。现在路径只在
-// `webapp/src/lib/routes.ts` 定义，本文件确保「表里有的都注册了」「注册了的都在表里」，
-// 并禁止其它文件再写回裸路径字面量。
+// 路由路径表的护栏：确保「清单里有的都注册了」「注册了的都在清单里」，并禁止其它文件再写回
+// 裸路径字面量（这两份清单脱节曾导致内容区渲染 null、只剩导航栏）。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';
@@ -31,7 +27,7 @@ function readSource(relativePath: string): string {
 }
 
 /** 抽取 `path="…"` 与 `path={…}` 的取值：字面量返回 `"值"`，表达式返回其原文。 */
-export function extractRoutePathTokens(source: string): string[] {
+function extractRoutePathTokens(source: string): string[] {
   const tokens: string[] = [];
   const pattern = /\bpath=(?:"([^"]*)"|\{([^}]*)\})/g;
   let match: RegExpExecArray | null = pattern.exec(source);
@@ -117,8 +113,7 @@ test('AppMainRoutes 不再使用裸路径字面量', () => {
   assert.deepEqual(literals, [], `请改用 ROUTES.*：${literals.join(', ')}`);
 });
 
-// 这一条是补漏：曾经 SHELL_ROUTE_PATHS 只展开了「别名」，漏掉规范路径本身
-// （`/backup/import-export`），直接访问会 404，而当时所有护栏都是绿的。
+// 这一条是补漏：SHELL_ROUTE_PATHS 曾只展开别名、漏掉规范路径本身，而当时护栏全绿。
 test('由 .map() 展开的数组成员必须登记在 SHELL_ROUTE_PATHS 里', () => {
   const declared = new Set<string>(SHELL_ROUTE_PATHS);
   const missing: string[] = [];
@@ -194,9 +189,7 @@ test('公开 Send 链接算作已知入口', () => {
 
 // ---------------------------------------------------------------- 路径规范化
 //
-// 单页应用：路径一律以 pathname 为准。`normalizeRoutePath` 必须丢掉 hash / query 片段，否则带
-// `#` 的 URL 会让「判定层」与「渲染层」（wouter 只看 pathname）分家。旧版客户端用过的
-// `#/xxx` 深链接已不再支持（见 docs/DONE.md 第 40 项）。
+// 单页应用：路径一律以 pathname 为准，`normalizeRoutePath` 必须丢掉 hash / query 片段。
 
 test('normalizeRoutePath：丢掉 hash 与 query 片段', () => {
   assert.equal(normalizeRoutePath('/vault#/tools/import'), '/vault');

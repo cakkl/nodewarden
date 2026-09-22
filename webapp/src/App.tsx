@@ -132,10 +132,8 @@ const SIGNALR_UPDATE_TYPE_BACKUP_RESTORE_PROGRESS = 102;
 const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
 const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
 /**
- * 通知连接要稳定存活这么久，才认为这次重连真的成功了，并把退避计数清零。
- *
- * 不能在 `open` 里直接清零：代理拦掉 `ws://` 升级时会出现「刚连上就断」，
- * 那样退避永远从 1 秒重新开始，变成永不收敛的 1 秒循环。
+ * 通知连接稳定存活这么久才清零退避。不能在 `open` 里直接清零 ——「连上即断」时
+ * 退避会永远从 1 秒重来，形成永不收敛的循环。
  */
 const NOTIFICATION_RECONNECT_STABLE_MS = 30_000;
 
@@ -1917,8 +1915,7 @@ export default function App() {
     await pendingAuthRequestsQuery.refetch();
   };
 
-  // 单页应用：路径一律以 wouter 的 location（pathname + search）为准，**不解析 hash**。
-  // 旧版客户端用过的 `#/xxx` 深链接不再支持 —— 详见 docs/DONE.md 第 40 项。
+  // 单页应用：路径一律以 wouter 的 location 为准，不解析 hash（旧 `#/xxx` 深链接已不支持）。
   const routeLocation = normalizeRoutePath(location);
   const effectiveLocation = routeLocation;
   const publicSendMatch = effectiveLocation.match(/^\/send\/([^/]+)(?:\/([^/]+))?\/?$/i);
@@ -2202,8 +2199,7 @@ export default function App() {
     );
   }
 
-  // 未登录时没有 shell 可回退，只能整页 404；已登录则交给 `AppMainRoutes` 的兜底渲染在
-  // **内容区**里 —— 导航栏还在，用户能自己走回去，而不是被丢在一个孤立页面上。
+  // 未登录没有 shell 可回退，只能整页 404；已登录交给兜底渲染到内容区，保留导航栏。
   if (isUnknownRoute && phase !== 'app') {
     return (
       <>

@@ -107,12 +107,11 @@
       <p class="hint" data-i18n="hint">This page may have been deleted, expired, or the link is incomplete.</p>
       <a href="/" data-i18n="home">Back to home</a>
     </main>
-    <!-- 文案由 scripts/pages-spa-redirects.cjs 在 build:demo 时从
-         webapp/src/lib/i18n/locales/*.ts 注入（语言包是唯一来源）。 -->
+    <!-- 文案由 pages-spa-redirects.cjs 从语言包注入 -->
     <script type="application/json" id="nw-not-found-messages">{}</script>
     <script>
-      // 静态页拿不到应用的 i18n 运行时，所以文案来自上面那块 JSON、按浏览器语言挑选。
-      // 注入失败（JSON 为空）时就沿用 HTML 里写死的英文。
+      // 静态页没有 i18n 运行时：文案来自上面的 JSON，按浏览器语言挑选；
+      // 为空（未注入）时沿用 HTML 里写死的英文。
       (function () {
         var node = document.getElementById('nw-not-found-messages');
         if (!node) return;

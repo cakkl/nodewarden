@@ -15,8 +15,7 @@ if (!fs.existsSync(notFoundFile)) {
   process.exit(1);
 }
 
-// 404 页的文案直接取自语言包，不在静态 HTML 里维护第二份副本。
-// `readLocale()` 就是 i18n-validate 用的那套读法（在 vm 里执行 locale 的 TS，抹掉类型标注）。
+// 404 页文案取自语言包，不在静态 HTML 里维护第二份副本（readLocale 与 i18n-validate 同源）。
 const MESSAGE_SLOTS = { title: 'txt_page_not_found', hint: 'txt_page_not_found_hint', home: 'txt_back_to_home' };
 const messages = {};
 for (const [locale, fileName, variableName] of localeFiles) {
@@ -44,11 +43,8 @@ if (!markerPattern.test(notFoundHtml)) {
 }
 fs.writeFileSync(notFoundFile, notFoundHtml.replace(markerPattern, `$1${payload}$2`), 'utf8');
 
-// 规则**按顺序匹配、第一条命中的生效**，所以 `/assets/*` 必须写在 SPA 回退之前。
-//
-// 原因：`/* /index.html 200` 会把不存在的 chunk 也变成 `200 text/html`，
-// 浏览器把这段 HTML 当 ES module 解析 ⇒ 语法错误 ⇒ `import()` 失败 ⇒ 内容区整块卸载。
-// 真实存在的资源不受影响 —— 静态文件优先于 `_redirects`，规则只对缺失的路径生效。
+// 规则按顺序匹配、第一条生效，所以 `/assets/*` 必须在 SPA 回退之前。
+// 它只对缺失的资源生效（静态文件优先于 `_redirects`）。
 fs.writeFileSync(
   path.join(distDir, '_redirects'),
   ['/assets/* /404.html 404', '/* /index.html 200', ''].join('\n')

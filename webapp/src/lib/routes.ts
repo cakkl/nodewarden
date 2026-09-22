@@ -1,8 +1,6 @@
 /**
- * 路由路径的单一事实来源。
- *
- * 页面路径只在这里定义一次；别名、判定用的「合法路径全集」、`AppMainRoutes` 必须注册的
- * 路径清单都从它推导 —— 以前这些散在三处，改一个路径要在多处同步，漏一处就是白屏或 404。
+ * 路由路径的单一事实来源：路径只在这里定义一次，别名、判定全集、`Switch` 必须注册的
+ * 清单都从它推导。
  */
 
 /** 规范路径。改路径只改这里。 */
@@ -30,8 +28,6 @@ export const ROUTES = {
   logs: '/logs',
   help: '/help',
 } as const;
-
-export type RoutePath = (typeof ROUTES)[keyof typeof ROUTES];
 
 /** 直接注册成 `<Route>` 的旧路径：页面原样渲染，不做跳转。 */
 export const DIRECT_ALIASES = {
@@ -74,8 +70,7 @@ export const SHELL_ROUTE_PATHS = [
   ROUTES.admin,
   ROUTES.logs,
   ROUTES.help,
-  // 这两组由 `AppMainRoutes` 用 `.map()` 展开，各自**都**包含规范路径与别名。
-  // 别只展开别名部分 —— 曾经因此漏掉 `/backup/import-export` 本身，直接访问会 404。
+  // 这两组由 `AppMainRoutes` 用 `.map()` 展开，各自都含规范路径与别名（别只展开别名）。
   ...IMPORT_EXPORT_ROUTE_PATHS,
   ...DEVICE_MANAGEMENT_ROUTE_PATHS,
 ] as const;

@@ -24,8 +24,7 @@ export default function NotFoundPage(props: NotFoundPageProps) {
           <div className="not-found-code">404</div>
           <h1 id="not-found-title">{props.title || t('txt_page_not_found')}</h1>
           <p>{props.message || t('txt_page_not_found_hint')}</p>
-          {/* 必须走 SPA 导航：`<a href>` 是整页刷新，会丢掉内存里的会话密钥
-              （`saveSession` 只持久化 email + authMode）⇒ 用户被迫重新解锁。 */}
+          {/* 用 SPA 导航：`<a href>` 会整页刷新并丢掉内存里的会话密钥。 */}
           <Link className="btn btn-primary not-found-action" href={props.homeHref || '/'}>
             <Home size={14} className="btn-icon" />
             {t('txt_back_to_home')}
