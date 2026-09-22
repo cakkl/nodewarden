@@ -70,6 +70,11 @@
 }
 
 .search-input-wrap .search-input {
+  @apply pr-3.5;
+}
+
+/* 只有真的渲染了清除按钮时才预留那 42px。 */
+.search-input-wrap .search-input.has-clear {
   @apply pr-[42px];
 }
 
@@ -242,6 +247,24 @@ select.input.duplicate-mode-toolbar-select {
 
 .list-head.selection-mode > .btn.small {
   @apply min-w-0 flex-1 justify-center;
+}
+
+/* 列表头的两个分组（桌面态）：避免 flex-wrap 逐个换行把按钮拆散 —— 组内 nowrap、整组换行。
+   搜索组 = 搜索框 + 与它绑定的筛选下拉；动作组 = 排序 / 同步 / 新建。
+   移动态（≤1180px）两组 `display:contents`，子项仍直接参与 `.list-head` 的网格。 */
+.head-search-group {
+  @apply flex min-w-0 items-center gap-2;
+  flex: 1 1 220px;
+  /* 换行阈值由这一条决定：再窄就不如让动作组整体换行 */
+  min-width: 200px;
+}
+
+.head-actions-group {
+  @apply flex items-center gap-2;
+  /* shrink:0 ⇒ 永不压缩（放不下就整组换行）；grow:1 ⇒ 独占一行时铺满整行，按钮靠右与搜索框右缘对齐 */
+  flex: 1 0 auto;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
 }
 
 .list-head .search-input-wrap,
