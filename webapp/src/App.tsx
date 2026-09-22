@@ -129,6 +129,13 @@ const APP_ROUTE_PATHS = [
 const AUTH_ROUTES: ReadonlySet<string> = new Set(AUTH_ROUTE_PATHS);
 const APP_ROUTES: ReadonlySet<string> = new Set(APP_ROUTE_PATHS);
 
+/** 公开的 Send 链接（`/send/<id>`）不在两张表里，但同样算“已知入口”。 */
+const PUBLIC_SEND_PATH_PATTERN = /^\/send(?:\/|$)/i;
+
+function isKnownRoutePath(path: string): boolean {
+  return AUTH_ROUTES.has(path) || APP_ROUTES.has(path) || PUBLIC_SEND_PATH_PATTERN.test(path);
+}
+
 function isAdminProfile(profile: Profile | null): profile is Profile {
   return String(profile?.role || '').toLowerCase() === 'admin';
 }
@@ -158,6 +165,13 @@ const SIGNALR_UPDATE_TYPE_DEVICE_STATUS = 101;
 const SIGNALR_UPDATE_TYPE_BACKUP_RESTORE_PROGRESS = 102;
 const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
 const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
+/**
+ * 通知连接要稳定存活这么久，才认为这次重连真的成功了，并把退避计数清零。
+ *
+ * 不能在 `open` 里直接清零：代理拦掉 `ws://` 升级时会出现「刚连上就断」，
+ * 那样退避永远从 1 秒重新开始，变成永不收敛的 1 秒循环。
+ */
+const NOTIFICATION_RECONNECT_STABLE_MS = 30_000;
 
 type ThemePreference = 'system' | 'light' | 'dark';
 type LockTimeoutMinutes = 0 | 1 | 5 | 15 | 30;
@@ -1661,6 +1675,15 @@ export default function App() {
     let socket: WebSocket | null = null;
     let reconnectTimer: number | null = null;
     let reconnectAttempts = 0;
+    /** 连接「够久」的计时器：到点才清零退避（见 NOTIFICATION_RECONNECT_STABLE_MS）。 */
+    let stableTimer: number | null = null;
+
+    const clearStableTimer = () => {
+      if (stableTimer !== null) {
+        window.clearTimeout(stableTimer);
+        stableTimer = null;
+      }
+    };
 
     const clearReconnectTimer = () => {
       if (reconnectTimer !== null) {
@@ -1712,7 +1735,12 @@ export default function App() {
       };
 
       socket.addEventListener('open', () => {
-        reconnectAttempts = 0;
+        // 只「连上」不算成功：稳定存活够久之后才清零退避。
+        clearStableTimer();
+        stableTimer = window.setTimeout(() => {
+          stableTimer = null;
+          reconnectAttempts = 0;
+        }, NOTIFICATION_RECONNECT_STABLE_MS);
         void refreshAuthorizedDevicesRef.current();
         try {
           socket?.send(`{"protocol":"json","version":1}${SIGNALR_RECORD_SEPARATOR}`);
@@ -1806,6 +1834,7 @@ export default function App() {
       socket.addEventListener('close', () => {
         socket = null;
         clearPingTimer();
+        clearStableTimer();
         void refreshAuthorizedDevicesRef.current();
         scheduleReconnect();
       });
@@ -1828,6 +1857,7 @@ export default function App() {
         notificationRefreshTimerRef.current = null;
       }
       clearReconnectTimer();
+      clearStableTimer();
       if (socket) {
         const s = socket;
         socket = null;
@@ -1929,12 +1959,18 @@ export default function App() {
   const normalizedHashPath = trimmedHashPath ? `/${trimmedHashPath}` : '/';
   const isImportHashRoute = IMPORT_ROUTE_ALIASES.has(normalizedHashPath);
   const normalizedLocation = normalizeRoutePath(location);
-  const routeLocation = hashPath.startsWith('/') ? normalizedHashPath : normalizedLocation;
+  // hash 形式的路径（`#/vault`）是给旧客户端 / 旧书签的兼容入口，**只在它指向一个已知路由时**
+  // 才优先。否则 `#` 只是个普通锚点：`/vault#/some-anchor` 不该被当成未注册路径、
+  // 整页渲染 404（地址栏里随手粘一段带 `#` 的 URL 就会撞上）。
+  const hashRouteCandidate = hashPath.startsWith('/') ? normalizedHashPath : null;
+  const routeLocation = hashRouteCandidate && isKnownRoutePath(hashRouteCandidate)
+    ? hashRouteCandidate
+    : normalizedLocation;
   const effectiveLocation = routeLocation;
   const publicSendMatch = effectiveLocation.match(/^\/send\/([^/]+)(?:\/([^/]+))?\/?$/i);
   const isRecoverTwoFactorRoute = effectiveLocation === '/recover-2fa';
   const isPublicSendRoute = !!publicSendMatch;
-  const isMalformedSendRoute = /^\/send(?:\/|$)/i.test(effectiveLocation) && !publicSendMatch;
+  const isMalformedSendRoute = PUBLIC_SEND_PATH_PATTERN.test(effectiveLocation) && !publicSendMatch;
   const isKnownAuthRoute = AUTH_ROUTES.has(routeLocation) || isPublicSendRoute || isRecoverTwoFactorRoute;
   const isKnownAppRoute = APP_ROUTES.has(routeLocation) || isPublicSendRoute || isImportHashRoute;
   const isUnknownRoute = isMalformedSendRoute || (phase === 'app' ? !isKnownAppRoute : !isKnownAuthRoute && !APP_ROUTES.has(routeLocation));
@@ -1993,10 +2029,6 @@ export default function App() {
     }
     if (location !== DEVICE_MANAGEMENT_ROUTE) navigate(DEVICE_MANAGEMENT_ROUTE);
   }, [phase, hashPath, normalizedHashPath, location, navigate]);
-
-  useEffect(() => {
-    if (phase === 'app' && location === '/' && !isPublicSendRoute) navigate('/vault');
-  }, [phase, location, isPublicSendRoute, navigate]);
 
   useEffect(() => {
     if (phase === 'register' && (location === '/' || location === '/login') && !isPublicSendRoute) {

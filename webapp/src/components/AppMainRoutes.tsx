@@ -5,6 +5,7 @@ import { ArrowUpDown, Cloud, FileClock, Globe2, LogOut, Settings as SettingsIcon
 import type { ImportAttachmentFile, ImportResultSummary } from '@/components/ImportPage';
 import LoadingState from '@/components/LoadingState';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import NotFoundPage from '@/components/NotFoundPage';
 import type { AdminBackupImportResponse, AdminBackupRunResponse, AdminBackupSettings, RemoteBackupBrowserResponse } from '@/lib/api/backup';
 import type { AuditLogFilters } from '@/lib/api/admin';
 import type { CiphersImportPayload } from '@/lib/api/vault';
@@ -30,29 +31,41 @@ function RouteContentFallback() {
 }
 
 function LegacyBackupRedirect(props: { onNavigate: (path: string) => void }) {
+  const navigate = props.onNavigate;
   useEffect(() => {
-    props.onNavigate('/backup');
-  }, [props]);
+    navigate('/backup');
+  }, [navigate]);
   return null;
 }
 
 /**
- * 兜底重定向。
+ * 根路径没有自己的页面，一律送到密码库。
  *
- * `Switch` 里没有匹配的 Route 时会渲染 `null` —— 表现是「只剩导航栏、内容区一片空白」，
- * 且因为与具体页面无关，**所有页面都可能是白的**；刷新后 location 变了又恢复正常。
- * 本组件挂在无 path 的 Route 上，匹配所有剩余情况，把用户送回密码库。
+ * 必须显式声明：`/` 被 `App.tsx` 算作「已知应用路由」，`Switch` 里若没有对应分支
+ * 就只会渲染 `null` ⇒ 内容区空白、只剩导航栏（症状与「路由未匹配」完全一样）。
+ * 重定向发生在 effect 里，首帧用加载态顶上，避免闪一下空白。
  */
-function UnknownRouteRedirect(props: { onNavigate: (path: string) => void }) {
+function HomeRedirect(props: { onNavigate: (path: string) => void }) {
   const navigate = props.onNavigate;
+  useEffect(() => {
+    navigate('/vault');
+  }, [navigate]);
+  return <RouteContentFallback />;
+}
+
+/**
+ * 路由清单漂移的兜底，挂在无 path 的 Route 上（必须放最后）。
+ *
+ * 走到这里说明「`App.tsx` 认为是合法路径、但本文件的 `Switch` 里没有实现」——
+ * 那是代码缺陷，不是用户输错了地址（那种情况在 `App.tsx` 里已渲染 404 页）。
+ * 所以这里**不静默跳转**：留住 URL、显示 404，并打一条 warn 让问题暴露出来。
+ */
+function UnknownRouteMessage() {
   const [location] = useLocation();
   useEffect(() => {
-    // 走到兜底说明有一处导航到了未注册的路径。留痕才能定位源头 ——
-    // 否则现象只有「内容区空白」，无从反推。
-    console.warn('[nodewarden] unmatched route, redirecting to /vault:', location);
-    navigate('/vault');
-  }, [navigate, location]);
-  return null;
+    console.warn('[nodewarden] path registered in APP_ROUTE_PATHS but missing in AppMainRoutes:', location);
+  }, [location]);
+  return <NotFoundPage showBrand={false} />;
 }
 
 export interface AppMainRoutesProps {
@@ -231,6 +244,9 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
     <ErrorBoundary>
       {/* 包在 Switch 外层：页面组件报错时不会连带导航栏一起消失 */}
       <Switch>
+      <Route path="/">
+        <HomeRedirect onNavigate={props.onNavigate} />
+      </Route>
       <Route path="/security/password-health">
         <div className="stack">
           {props.mobileLayout && (
@@ -570,7 +586,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
 
       {/* 无 path ⇒ 匹配所有剩余情况。必须在最后。 */}
       <Route>
-        <UnknownRouteRedirect onNavigate={props.onNavigate} />
+        <UnknownRouteMessage />
       </Route>
       </Switch>
     </ErrorBoundary>
