@@ -382,7 +382,7 @@
 
   .list-head {
     @apply grid items-center gap-1.5;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    /* 列定义在 styles.css 打磨层（按子项数生成列），这里只负责把 flex 换成 grid。 */
   }
 
   /* 移动态两组透明化：子项仍直接参与上面的网格布局。 */
@@ -1024,12 +1024,46 @@
     padding: 12px;
     border-radius: 14px;
   }
+
+  /* 间隔预设原本是 22px 的胶囊（低于 24×24 命中区）、4 个挤在 86px 列里排两行；
+     这里对齐「保存设置」按钮高度（本区间 42px），排成一行、与输入框同排。 */
+  .backup-interval-row {
+    grid-template-columns: minmax(0, 1fr) 190px;
+    align-items: center;
+  }
+
+  .backup-interval-presets {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .backup-interval-preset {
+    height: 42px;
+  }
 }
 
 @media (max-width: 640px) {
   /* 手机区：标题独占一行、按钮组一律单列填满整行 —— 与改动前保持一致。 */
   .section-head {
     @apply flex-col items-start gap-2.5;
+  }
+
+  /* 日志列表栏表头只有「标题 + 页码」，手机上也保持一行（标题左、页码右）。 */
+  .log-list-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* `.muted-inline` 在纵向表头里会靠 `margin-inline: auto` 居中，横向布局下要收掉。 */
+  .log-list-head .muted-inline {
+    margin-inline: 0;
+  }
+
+  /* 用户管理第一张卡只有「用户」标题 + 刷新按钮，保持一行（标题左、刷新右）。 */
+  .admin-users-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
   }
 
   .detail-actions {
@@ -1299,6 +1333,11 @@
     gap: 7px;
   }
 
+  /* 手机上「保存设置」按钮实测 38px（由 `.btn` 生效），预设与之等高。 */
+  .backup-interval-preset {
+    height: 38px;
+  }
+
   .backup-browser-row,
   .field-grid {
     grid-template-columns: 1fr;
@@ -1514,6 +1553,9 @@
   .section-head {
     flex-wrap: wrap;
     row-gap: 10px;
+    /* 基础规则靠 space-between 分开标题与按钮组、本身没有 gap；允许换行后
+       同一行内二者就只剩「列间距 0」，会贴在一起 —— 补上。 */
+    column-gap: 10px;
   }
 
   /* `flex-shrink: 0` ⇒ 按钮保持自然宽度（文字不折行），横向放不下就整组换行；

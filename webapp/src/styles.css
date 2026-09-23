@@ -1133,8 +1133,13 @@ textarea {
     box-shadow: var(--shadow-lg);
   }
 
+  /* 按子项数生成列，不要写死列数：子项少于列数时会留下空 track，
+     空 track 仍占一份 `gap`，整行右缘就比下方整行宽的 `.mobile-vault-filter-row` 缩进一截。
+     ⚠️ 必须写在打磨层：`responsive.css` 里的同名规则会被本层压掉。 */
   .list-head {
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    grid-auto-columns: auto;
   }
 
   .list-panel {
@@ -1454,16 +1459,6 @@ input[type='file'].input::file-selector-button {
     border-spacing: 0 8px;
   }
 
-  /* ⚠️ 空态行必须解除固定高度：打磨层的 `.invite-table td` 写死 `height: 48px`，
-     而移动端 `.table td { display: block }` 让表格布局失效（单元格变块）⇒ `height`
-     从「最小高度」变成**硬高度**；空态 `.invite-table .empty { min-height: 72px }`
-     会撑破它，溢出的 24px 全落在下方，再叠上 `.table td:last-child { padding-bottom: 0 }`
-     的不对称 padding ⇒ 文字掉到单元格底边之外（402px 实测：文字中心 y=1664 > td 底边 1662）
-     ⇒ 视觉上就是「不居中、贴着底边」。空态行的高度交给内容决定即可。 */
-  .invite-table td {
-    height: auto;
-  }
-
   .invite-table tr {
     border-radius: var(--radius-md);
   }
@@ -1506,6 +1501,16 @@ input[type='file'].input::file-selector-button {
   .backup-destination-sidebar,
   .backup-detail-panel {
     width: 100%;
+  }
+}
+
+/* 表格在 ≤1180px 就开始堆叠（`.table td` 变块），此时 `.invite-table td` 的
+   `height: 48px` 从「最小高度」变成硬高度，装不下「`::before` 标签 + 值 + padding」
+   就会溢出（文字贴住分割线、行内按钮越过单元格底边）。行高交给内容决定。
+   ⚠️ 必须写在打磨层，且早于 ≤760px 块。 */
+@media (max-width: 1180px) {
+  .invite-table td {
+    height: auto;
   }
 }
 

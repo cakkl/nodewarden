@@ -1220,21 +1220,11 @@
   @apply m-0 grid gap-2;
 }
 
-@media (max-width: 1120px) {
-  .log-filter-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .log-filter-actions {
-    @apply col-span-2;
-  }
-  /* ⚠️ 这里原本把 `.log-center-grid` 改成「一列两行、上下各占一半」，
-     但 761–1120px（电脑半屏就落在这里）既不是电脑的左右分栏、
-     也不是手机的切页形态（≤760px）—— 上下各半反而两边都用不了。
-     改为继续用上面的两列网格：这个带宽里两列各自还有 370–545px，够用。 */
-}
-
-@media (max-width: 760px) {
+/* 日志中心：≤1180px 一律用「切页」形态（列表 ⇄ 详情，靠顶部「返回」切换）。
+   阈值必须与 App.tsx 的 `mobileLayout`（同为 1180px）一致 —— 不一致会出现
+   「返回按钮已在 DOM 中、CSS 却不显示」，而侧边栏此时已收成抽屉，用户会卡在里面。
+   单栏 + 切页是期望形态，不要改成左右两栏（各自只剩 ~370px，动作名与 meta 会被挤断）。 */
+@media (max-width: 1180px) {
   .route-stage-log-fixed {
     overflow: hidden;
   }
@@ -1242,6 +1232,8 @@
   .log-center-page {
     gap: 8px;
     grid-template-rows: auto auto minmax(0, 1fr);
+    /* 给设置面板当定位参照（见下方 `.log-settings-popover`）。 */
+    position: relative;
   }
 
   .log-center-page.log-mobile-detail-open {
@@ -1262,36 +1254,86 @@
     margin-right: auto;
   }
 
-  .log-mobile-settings-trigger {
+  /* 刷新与设置在这个宽度下都收进 subhead（工具栏那份隐藏，见下方 `.log-filter-actions`）：
+     刷新排在设置左边，两者都是 42×38 的纯图标按钮，触控尺寸一致。 */
+  .log-mobile-settings-trigger,
+  .log-mobile-refresh-trigger {
     width: 42px;
     height: 38px;
     justify-content: center;
     padding: 0;
   }
 
-  .log-mobile-settings-trigger .btn-icon {
+  .log-mobile-settings-trigger .btn-icon,
+  .log-mobile-refresh-trigger .btn-icon {
     margin: 0;
   }
 
-  .log-mobile-detail-open .log-mobile-settings-trigger {
+  /* 详情态只剩「返回」一个出口，两个图标按钮都收起来。 */
+  .log-mobile-detail-open .log-mobile-settings-trigger,
+  .log-mobile-detail-open .log-mobile-refresh-trigger {
     display: none;
-  }
-
-  .card.log-center-toolbar {
-    padding: 10px 12px;
   }
 
   .log-mobile-detail-open .card.log-center-toolbar {
     display: none;
   }
 
+  /* 工具栏里的「刷新 / 设置」只在电脑形态（>1180px）保留；
+     切页形态下它们由 subhead 提供，再显示一次就会出现两个「设置」。 */
+  .log-filter-actions {
+    display: none;
+  }
+
+  /* 设置面板要贴住 subhead 里的「设置」按钮：取消工具栏的定位上下文，
+     使包含块上溯到 `.log-center-page`，`top: 48px` = subhead 高 38 + 2 + 行间距 8。 */
+  .card.log-center-toolbar {
+    position: static;
+  }
+
+  .log-settings-popover {
+    top: 48px;
+  }
+
+  .log-center-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  /* 列表栏的 `.section-head` 不能隐藏：右侧的「页码 / 总页数」在里面，
+     是窄屏下唯一能看到页码的地方（`.log-pagination` 是翻页按钮、窄屏隐藏）。 */
+  .card.log-detail-panel {
+    display: none;
+  }
+
+  .log-mobile-detail-open .card.log-list-panel {
+    display: none;
+  }
+
+  .log-mobile-detail-open .card.log-detail-panel {
+    display: block;
+    height: 100%;
+    max-height: 100%;
+    overflow: auto;
+  }
+}
+
+@media (max-width: 1120px) {
+  /* 切页形态已在 ≤1180px 处理，这里只需筛选表单排两列。 */
+  .log-filter-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  /* 切页机制已上移到 `@media (max-width: 1180px)`；这里只保留 ≤760px 的窄屏细节。 */
+  .card.log-center-toolbar {
+    padding: 10px 12px;
+  }
+
   .log-filter-form {
     gap: 6px;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .log-filter-actions {
-    display: none;
   }
 
   .log-search-field > span {
@@ -1351,39 +1393,18 @@
     text-overflow: ellipsis;
   }
 
-  .log-center-grid {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
-  }
-
+  /* 窄屏一屏只放列表：分页按钮隐藏、内边距收紧。列表栏保持基础三行模板
+     （分页按钮隐藏后第 3 行高度为 0），不要改成两行 —— 那会连页码一起挤掉。 */
   .card.log-list-panel {
-    grid-template-rows: minmax(0, 1fr);
     padding: 8px;
   }
 
-  .log-list-panel > .section-head,
-  .log-pagination {
-    display: none;
-  }
-
   .card.log-detail-panel {
-    display: none;
-  }
-
-  .log-mobile-detail-open .card.log-list-panel {
-    display: none;
-  }
-
-  .log-mobile-detail-open .card.log-detail-panel {
-    display: block;
-    height: 100%;
-    max-height: 100%;
-    overflow: auto;
     padding: 10px 12px 14px;
   }
 
-  .log-settings-popover {
-    @apply static mt-3 w-full;
+  .log-pagination {
+    display: none;
   }
 
   .log-settings-retention-row {
@@ -2251,8 +2272,10 @@
     overflow: visible;
   }
 
+  /* 原本是 `minmax(320px, min(54vh, 560px))`：单列时卡片被拉到 54vh，
+     而表格用 `content-start` 把行顶在顶部 ⇒ 多出的高度全成了下方空白。改为随内容高度。 */
   .domain-rules-grid {
-    grid-auto-rows: minmax(320px, min(54vh, 560px));
+    grid-auto-rows: auto;
   }
 
   .domain-rules-table {
