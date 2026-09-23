@@ -6,6 +6,7 @@ import type { TotpCodeResult } from '@/lib/crypto';
 import { checkPasswordLeaked, type PasswordBreachResult } from '@/lib/password-security';
 import type { Cipher } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 import {
   CardBrandIcon,
   TOTP_RING_CIRCUMFERENCE,
@@ -13,7 +14,6 @@ import {
   copyToClipboard,
   displayCardBrand,
   formatAttachmentSize,
-  formatHistoryTime,
   formatTotp,
   isCipherDeleted,
   maskSecret,
@@ -57,6 +57,10 @@ function PasswordHistoryDialog(props: {
   entries: Array<{ password: string; lastUsedDate: string | null }>;
   onClose: () => void;
 }) {
+  const { format } = useDateTimeFormat();
+  // 解析失败时保留原样回显
+  const formatHistoryTime = (value: string | null | undefined): string =>
+    format(value) ?? (value || t('txt_dash'));
   useDialogLifecycle(props.open, props.onClose);
 
   if (!props.open || typeof document === 'undefined') return null;
@@ -92,6 +96,10 @@ function PasswordHistoryDialog(props: {
 }
 
 export default function VaultDetailView(props: VaultDetailViewProps) {
+  const { format } = useDateTimeFormat();
+  // 解析失败时保留原样回显
+  const formatHistoryTime = (value: string | null | undefined): string =>
+    format(value) ?? (value || t('txt_dash'));
   const selectedAttachments = Array.isArray(props.selectedCipher.attachments) ? props.selectedCipher.attachments : [];
   const [showSshPrivateKey, setShowSshPrivateKey] = useState(false);
   const [passwordHistoryOpen, setPasswordHistoryOpen] = useState(false);

@@ -1,0 +1,70 @@
+/** 邮件模板的俄文文案。 */
+import type { MailCopy } from './en';
+
+const ru: MailCopy = {
+  brand: 'NodeWarden',
+  test: {
+    subject: 'Тест SMTP NodeWarden',
+    heading: 'Настройки почты работают',
+    intro: 'Это письмо отправлено NodeWarden, чтобы подтвердить, что исходящая почта настроена правильно.',
+    detailsTitle: 'Параметры подключения',
+    labels: { server: 'Сервер', encryption: 'Шифрование', sentAt: 'Отправлено' },
+    outro: 'Если вы не ожидали это письмо, значит кто-то с правами администратора изменил настройки почты.',
+  },
+  verification: {
+    subject: 'Подтвердите адрес электронной почты в NodeWarden',
+    heading: 'Подтвердите свой адрес электронной почты',
+    intro: 'Введите этот код в NodeWarden, чтобы подтвердить, что адрес принадлежит вам. Уведомления безопасности отправляются только на подтверждённый адрес.',
+    codeLabel: 'Код подтверждения',
+    expiresLabel: 'Код действует до',
+    outro: 'Если вы не запрашивали это письмо, просто проигнорируйте его. Адрес останется неподтверждённым, и уведомления отправляться не будут.',
+  },
+  notifications: {
+    subject: 'Оповещение безопасности: {event}',
+    heading: 'Оповещение безопасности: {event}',
+    intro: 'В вашей учётной записи NodeWarden только что произошло изменение. Подробности ниже.',
+    detailsTitle: 'Подробности',
+    labels: { time: 'Время', ip: 'IP-адрес', device: 'Устройство', type: 'Тип', location: 'Местоположение' },
+    disclaimer: 'Если вы не совершали это изменение, возможно, кто-то получил доступ к вашей учётной записи. '
+      + 'Немедленно смените мастер-пароль и проверьте авторизованные устройства.',
+    adminDisclaimer: 'Если вы не совершали это изменение, немедленно свяжитесь с администратором.',
+    newMarker: ' (новое)',
+    deviceTypes: {
+      android: 'Андроид',
+      ios: 'iOS',
+      chromeExtension: 'Расширение Chrome',
+      firefoxExtension: 'Расширение Firefox',
+      operaExtension: 'Расширение Оперы',
+      edgeExtension: 'Расширение края',
+      windowsDesktop: 'Рабочий стол Windows',
+      macosDesktop: 'macOS Рабочий стол',
+      linuxDesktop: 'Рабочий стол Linux',
+      chromeBrowser: 'Браузер Chrome',
+      firefoxBrowser: 'Браузер Firefox',
+      operaBrowser: 'Браузер Опера',
+      edgeBrowser: 'Крайний браузер',
+      ieBrowser: 'IE-браузер',
+      web: 'Интернет',
+    },
+    events: {
+      two_step_enabled: 'Двухэтапный вход включён',
+      two_step_disabled: 'Двухэтапный вход отключён',
+      two_step_recovery_used: 'Использован код восстановления двухэтапного входа',
+      api_key_created: 'Создан ключ API',
+      api_key_rotated: 'Обновлён ключ API',
+      master_password_changed: 'Мастер-пароль изменён',
+      account_disabled: 'Учётная запись отключена администратором',
+      account_deleted: 'Учётная запись удалена администратором',
+      new_sign_in: 'Вход с нового устройства или из нового места',
+      two_step_recovery_created: 'Создан код восстановления двухэтапного входа',
+      passkey_created: 'Создан ключ входа',
+      passkey_deleted: 'Удалён ключ входа',
+    },
+  },
+  preferencesNote: {
+    timezone: 'Примечание: часовой пояс ещё не указан, поэтому время показано в {timezone}. Укажите свой в настройках.',
+  },
+  footer: 'Отправлено автоматически NodeWarden. Ответы на этот адрес не читаются.',
+};
+
+export default ru;

@@ -2,7 +2,8 @@ import { Env, User } from '../types';
 import { StorageService } from '../services/storage';
 import { AuthService } from '../services/auth';
 import { RateLimitService, getClientIdentifier } from '../services/ratelimit';
-import { auditRequestMetadata, writeAuditEvent, safeWriteAuditEvent } from '../services/audit-events';
+import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
+import { auditAndNotify } from '../services/security-notifications';
 import { jsonResponse, errorResponse } from '../utils/response';
 import { generateUUID } from '../utils/uuid';
 import { LIMITS } from '../config/limits';
@@ -334,7 +335,7 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
     securityStamp: generateUUID(),
     role: 'user',
     status: 'active',
-    verifyDevices: false, // new-device verification requires email delivery (not available)
+    verifyDevices: false, // new-device verification is not implemented yet
     totpSecret: null,
     totpRecoveryCode: null,
     yubikeyKey1: null,
@@ -528,7 +529,9 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
     targetType: 'user',
     targetId: user.id,
     metadata: {
-      updatedMasterPasswordHint: true,
+      // 用白名单里的 `changed`（标签就是「Changed fields」）：
+      // `updatedMasterPasswordHint` 这类名字不在白名单、又命中敏感正则 ⇒ 会被静默丢弃。
+      changed: 'masterPasswordHint',
       ...auditRequestMetadata(request),
     },
   });
@@ -537,9 +540,8 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
 }
 
 // PUT/POST /api/accounts/verify-devices
-// New-device verification requires an email delivery channel which NodeWarden
-// does not provide. This endpoint always rejects the request so clients receive
-// clear feedback that the feature is unavailable rather than silently ignoring
+// New-device verification is not implemented yet. This endpoint always rejects the request so
+// clients receive clear feedback that the feature is unavailable rather than silently ignoring
 // the user's preference.
 export async function handleSetVerifyDevices(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
@@ -555,8 +557,7 @@ export async function handleSetVerifyDevices(request: Request, env: Env, userId:
     targetType: 'user',
     targetId: user.id,
     metadata: {
-      // `reason` 要写成「代码」而不是句子：日志中心拿它拼 `txt_log_reason_<snake>` 查标签，
-      // 句子会拼出一个查不到的键、于是回退成英文原文。
+      // 日志中心拿它拼 `txt_log_reason_<snake>` 查标签；写成句子会拼出查不到的键、回退成英文。
       reason: 'new_device_verification_unsupported',
       ...auditRequestMetadata(request),
     },
@@ -631,9 +632,13 @@ export async function handleSetKeys(request: Request, env: Env, userId: string):
     targetType: 'user',
     targetId: user.id,
     metadata: {
-      updatedKey: !!body.key,
-      updatedPrivateKey: !!body.encryptedPrivateKey,
-      updatedPublicKey: !!body.publicKey,
+      // 用白名单里的 `changed` 承载「哪几段密钥材料被替换」（受控词表，永不是密钥本体）：
+      // `updatedKey` 这类名字不在白名单、又含 `key` / `private` ⇒ 会被静默丢弃。
+      changed: [
+        body.key ? 'key' : null,
+        body.encryptedPrivateKey ? 'encryptedPrivateKey' : null,
+        body.publicKey ? 'publicKey' : null,
+      ].filter(Boolean).join(','),
       ...auditRequestMetadata(request),
     },
   });
@@ -777,7 +782,7 @@ export async function handleChangePassword(request: Request, env: Env, userId: s
   await storage.saveUser(user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: 'user.password.change',
     targetType: 'user',
@@ -837,10 +842,8 @@ function yubiKeyResponse(user: User): Record<string, unknown> {
   };
 }
 
-// New-device verification requires an email delivery channel to send OTP
-// challenges to unknown devices. NodeWarden does not integrate with an email
-// provider, so this feature is intentionally unavailable. The settings
-// response always reports disabled regardless of any legacy DB value.
+// New-device verification is not implemented yet (it needs to email OTP challenges to unknown
+// devices). The settings response always reports disabled regardless of any legacy DB value.
 function deviceVerificationSettingsResponse(_user: User): Record<string, unknown> {
   return {
     Enabled: false,
@@ -952,7 +955,7 @@ export async function handleGetDeviceVerificationSettings(request: Request, env:
 }
 
 // PUT/POST /api/two-factor/device-verification-settings
-// New-device verification is not supported (no email delivery channel).
+// New-device verification is not implemented yet.
 // Reject any attempt to enable it; always return disabled state.
 export async function handlePutDeviceVerificationSettings(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
@@ -979,8 +982,7 @@ export async function handlePutDeviceVerificationSettings(request: Request, env:
     metadata: {
       requested: rawEnabled,
       reason: 'new_device_verification_unsupported',
-      // ⚠️ 键名必须是 `trigger`（已在 ALLOWED_METADATA_KEYS 里）。
-      // 原来写的 `source` 未登记 ⇒ 被 sanitizeMetadata **静默丢弃**，日志中心里看不到。
+      // 键名必须是 `trigger`（原 `source` 未登记，会被 sanitizeMetadata 静默丢弃）。
       trigger: 'two-factor.device-verification-settings',
       ...auditRequestMetadata(request),
     },
@@ -1030,7 +1032,7 @@ export async function handlePutTwoFactorAuthenticator(request: Request, env: Env
   await storage.saveUser(user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: 'account.totp.enable',
     category: 'security',
@@ -1109,7 +1111,7 @@ export async function handlePutTwoFactorYubiKey(request: Request, env: Env, user
   await storage.saveUser(user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: 'account.yubikey.enable',
     category: 'security',
@@ -1261,7 +1263,7 @@ export async function handleDisableTwoFactorProvider(request: Request, env: Env,
   await storage.saveUser(user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: type === TWO_FACTOR_PROVIDER_AUTHENTICATOR
       ? 'account.totp.disable'
@@ -1332,7 +1334,7 @@ export async function handleSetTotpStatus(request: Request, env: Env, userId: st
     await storage.saveUser(user);
     await storage.deleteRefreshTokensByUserId(user.id);
     AuthService.invalidateUserCache(user.id);
-    await writeAuditEvent(storage, {
+    await auditAndNotify(env, {
       actorUserId: user.id,
       action: 'account.totp.enable',
       category: 'security',
@@ -1356,7 +1358,7 @@ export async function handleSetTotpStatus(request: Request, env: Env, userId: st
     await storage.saveUser(user);
     await storage.deleteRefreshTokensByUserId(user.id);
     AuthService.invalidateUserCache(user.id);
-    await writeAuditEvent(storage, {
+    await auditAndNotify(env, {
       actorUserId: user.id,
       action: 'account.totp.disable',
       category: 'security',
@@ -1400,6 +1402,17 @@ export async function handleGetTotpRecoveryCode(request: Request, env: Env, user
     user.totpRecoveryCode = createRecoveryCode();
     user.updatedAt = new Date().toISOString();
     await storage.saveUser(user);
+    // ⚠️ 只在**首次铸出**时记录并通知：这个端点每次打开设置页都会被调用（读回同一枚码），
+    // 每次都发信只会变成噪声。恢复码是绕过两步登录的万能钥匙，被铸出来必须留痕。
+    await auditAndNotify(env, {
+      actorUserId: user.id,
+      action: 'account.totp.recovery.create',
+      category: 'security',
+      level: 'security',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: auditRequestMetadata(request),
+    });
   }
 
   return jsonResponse({
@@ -1486,7 +1499,7 @@ export async function handleRecoverTwoFactor(request: Request, env: Env): Promis
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
   await rateLimit.clearLoginAttempts(recoverLimitKey);
-  await safeWriteAuditEvent(env, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: 'account.totp.recover',
     category: 'security',
@@ -1596,11 +1609,13 @@ async function apiKey(request: Request, env: Env, userId: string, rotate: boolea
     AuthService.invalidateUserCache(user.id);
     auditAction = rotate ? 'account.api_key.rotate' : 'account.api_key.create';
   }
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: auditAction,
     category: 'security',
-    level: rotate ? 'security' : 'info',
+    // 创建与轮换都是「铸出一把长期凭据、且可绕过两步登录」⇒ 一律记 security；
+    // 只有查看（未改动密钥）是 info。
+    level: auditAction === 'account.api_key.view' ? 'info' : 'security',
     targetType: 'user',
     targetId: user.id,
     metadata: auditRequestMetadata(request),

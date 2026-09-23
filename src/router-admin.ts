@@ -13,6 +13,11 @@ import {
   handleAdminClearAuditLogs,
 } from './handlers/admin';
 import { handleAdminBackupRoute } from './router-admin-backup';
+import {
+  handleAdminGetMailSettings,
+  handleAdminSendTestMail,
+  handleAdminUpdateMailSettings,
+} from './handlers/admin-mail';
 import { errorResponse } from './utils/response';
 
 function isKnownAdminPath(path: string): boolean {
@@ -21,6 +26,7 @@ function isKnownAdminPath(path: string): boolean {
     path === '/api/admin/logs' ||
     path === '/api/admin/logs/settings' ||
     path === '/api/admin/invites' ||
+    path.startsWith('/api/admin/mail/') ||
     path.startsWith('/api/admin/backup') ||
     /^\/api\/admin\/invites\/[^/]+$/i.test(path) ||
     /^\/api\/admin\/users\/[a-f0-9-]+(?:\/status)?$/i.test(path)
@@ -60,6 +66,17 @@ export async function handleAdminRoute(
   if (path === '/api/admin/logs/settings') {
     if (method === 'GET') return handleAdminGetAuditLogSettings(request, env, actorUser);
     if (method === 'PUT' || method === 'POST') return handleAdminUpdateAuditLogSettings(request, env, actorUser);
+    return null;
+  }
+
+  // 「测试」端点路径更长，必须先匹配，否则会被下面吞掉。
+  if (path === '/api/admin/mail/settings/test' && method === 'POST') {
+    return handleAdminSendTestMail(request, env, actorUser);
+  }
+
+  if (path === '/api/admin/mail/settings') {
+    if (method === 'GET') return handleAdminGetMailSettings(request, env, actorUser);
+    if (method === 'PUT' || method === 'POST') return handleAdminUpdateMailSettings(request, env, actorUser);
     return null;
   }
 

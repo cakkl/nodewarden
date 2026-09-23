@@ -460,7 +460,7 @@ export async function handlePublicRoute(
   if (publicMailBackedPaths.has(path) && method === 'POST') {
     const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
     if (blocked) return blocked;
-    return unsupportedResponse('Email delivery is not supported by this server.');
+    return unsupportedResponse('Email link and email OTP flows are not implemented by this server.');
   }
 
   if (path === '/api/accounts/password-hint' && method === 'POST') {

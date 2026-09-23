@@ -4,6 +4,7 @@ import { copyTextToClipboard } from '@/lib/clipboard';
 import LoadingState from '@/components/LoadingState';
 import type { AdminInvite, AdminUser } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 
 interface AdminPageProps {
   currentUserId: string;
@@ -24,7 +25,8 @@ export default function AdminPage(props: AdminPageProps) {
   const [inviteHours, setInviteHours] = useState(168);
   const [page, setPage] = useState(1);
   const pageSize = 20;
-  const formatExpiresAt = (x?: string) => (x ? new Date(x).toLocaleString() : t('txt_dash'));
+  const { format } = useDateTimeFormat();
+  const formatExpiresAt = (x?: string) => format(x) ?? t('txt_dash');
   const totalPages = Math.max(1, Math.ceil(props.invites.length / pageSize));
   const safePage = Math.min(page, totalPages);
   const pagedInvites = props.invites.slice((safePage - 1) * pageSize, safePage * pageSize);

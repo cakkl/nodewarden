@@ -43,8 +43,34 @@ CREATE TABLE IF NOT EXISTS users (
   yubikey_key5 TEXT,
   yubikey_nfc INTEGER NOT NULL DEFAULT 0,
   api_key TEXT,
+  -- 邮箱是否已由用户自己验证。默认 0：未验证的邮箱不接收任何通知邮件。
+  email_verified INTEGER NOT NULL DEFAULT 0,
+  -- 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）。
+  -- 值与「来源」分开存：auto_* = 1 表示该值是自动检测来的（登录时可按浏览器刷新）；
+  -- 0 表示用户自己选定（或一次性迁移写入），永不被自动改写。
+  -- NULL = 未设定：邮件回退到英文 / UTC，并在正文追加一句提示。
+  locale TEXT,
+  auto_locale INTEGER NOT NULL DEFAULT 0,
+  timezone TEXT,
+  auto_timezone INTEGER NOT NULL DEFAULT 0,
+  -- 是否允许本服务向该用户发送**通知类**邮件（安全通知等）。
+  -- 默认 0 = 关闭：与「服务端能联系用户」构成双向自愿。
+  -- 只约束服务端主动发送的通知；用户主动请求的验证码邮件不受影响。
+  mail_opt_in INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
+);
+
+-- 邮箱验证码。user_id 作主键 ⇒ 每个用户同时只有一个待用码（新码覆盖旧码）。
+-- 存 email 是为了让「发码后用户改了邮箱」的旧码立即失效。
+CREATE TABLE IF NOT EXISTS email_verification_tokens (
+  user_id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS domain_settings (

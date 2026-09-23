@@ -29,6 +29,7 @@ import {
   verifyAccountPasskeyToken,
 } from '../utils/account-passkeys';
 import { auditRequestMetadata, safeWriteAuditEvent } from '../services/audit-events';
+import { auditAndNotify } from '../services/security-notifications';
 import { createRecoveryCode } from '../utils/recovery-code';
 
 const MAX_ACCOUNT_PASSKEYS = 5;
@@ -475,7 +476,7 @@ export async function handlePutTwoFactorWebAuthn(request: Request, env: Env, use
   await storage.deleteRefreshTokensByUserId(userId);
   AuthService.invalidateUserCache(userId);
 
-  await safeWriteAuditEvent(env, {
+  await auditAndNotify(env, {
     actorUserId: userId,
     action: 'account.webauthn_2fa.enable',
     category: 'security',
@@ -516,7 +517,7 @@ export async function handleDeleteTwoFactorWebAuthn(request: Request, env: Env, 
   await storage.deleteRefreshTokensByUserId(userId);
   AuthService.invalidateUserCache(userId);
 
-  await safeWriteAuditEvent(env, {
+  await auditAndNotify(env, {
     actorUserId: userId,
     action: 'account.webauthn_2fa.delete',
     category: 'security',
@@ -701,7 +702,7 @@ export async function handleCreateAccountPasskeyCredential(request: Request, env
   };
 
   await storage.saveAccountPasskeyCredential(credential);
-  await safeWriteAuditEvent(env, {
+  await auditAndNotify(env, {
     actorUserId: userId,
     action: 'account.passkey.create',
     category: 'security',
@@ -776,7 +777,7 @@ export async function handleDeleteAccountPasskeyCredential(request: Request, env
   const deleted = await storage.deleteAccountPasskeyCredential(userId, credentialId);
   if (!deleted) return errorResponse('Passkey not found', 404);
 
-  await safeWriteAuditEvent(env, {
+  await auditAndNotify(env, {
     actorUserId: userId,
     action: 'account.passkey.delete',
     category: 'security',

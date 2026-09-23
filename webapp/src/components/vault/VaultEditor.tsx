@@ -7,6 +7,7 @@ import { useDialogLifecycle } from '@/components/ConfirmDialog';
 import { normalizeTotpInput } from '@/lib/crypto';
 import type { Cipher, Folder, VaultDraft, VaultDraftField } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 import { cardBrand } from '@/lib/import-format-shared';
 import {
   CARD_BRAND_OPTIONS,
@@ -14,7 +15,6 @@ import {
   cipherTypeLabel,
   createEmptyLoginUri,
   formatAttachmentSize,
-  formatHistoryTime,
   getCreateTypeOptions,
   getWebsiteMatchOptions,
   normalizeCardBrand,
@@ -135,6 +135,10 @@ function WebsiteRow(props: WebsiteRowProps) {
 }
 
 export default function VaultEditor(props: VaultEditorProps) {
+  const { format } = useDateTimeFormat();
+  // 解析失败时保留原样回显
+  const formatHistoryTime = (value: string | null | undefined): string =>
+    format(value) ?? (value || t('txt_dash'));
   const createTypeOptions = getCreateTypeOptions();
   const normalizedDraftCardBrand = normalizeCardBrand(props.draft.cardBrand);
   const cardBrandOptions = normalizedDraftCardBrand && !CARD_BRAND_OPTIONS.includes(normalizedDraftCardBrand as any)

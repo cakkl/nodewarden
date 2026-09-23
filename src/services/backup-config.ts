@@ -1,4 +1,5 @@
 import type { Env, User } from '../types';
+import { isValidTimeZone } from '../utils/timezone';
 import { StorageService } from './storage';
 import {
   type BackupSettingsPortableEnvelope,
@@ -239,12 +240,8 @@ export function normalizeBackupEndpointUrl(value: string, label: string): string
 }
 
 function assertValidTimeZone(timezone: string): string {
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: timezone }).format(new Date());
-    return timezone;
-  } catch {
-    throw new Error('Invalid backup timezone');
-  }
+  if (!isValidTimeZone(timezone)) throw new Error('Invalid backup timezone');
+  return timezone;
 }
 
 function normalizeRetentionCount(value: unknown, fallback: number | null = 30): number | null {

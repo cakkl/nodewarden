@@ -3,7 +3,8 @@ import { AuthService } from '../services/auth';
 import { StorageService } from '../services/storage';
 import { jsonResponse, errorResponse } from '../utils/response';
 import { deleteBlobObject, getAttachmentObjectKey, getSendFileObjectKey } from '../services/blob-store';
-import { auditRequestMetadata, getAuditLogSettings, normalizeAuditLogSettings, saveAuditLogSettings, writeAuditEvent } from '../services/audit-events';
+import { auditRequestMetadata, getAuditLogSettings, normalizeAuditLogSettings, saveAuditLogSettings } from '../services/audit-events';
+import { auditAndNotify, notificationRecipientSnapshot } from '../services/security-notifications';
 
 function isAdmin(user: User): boolean {
   return user.role === 'admin' && user.status === 'active';
@@ -44,7 +45,8 @@ export async function guardLastActiveAdmin(storage: StorageService, target: User
   return errorResponse(LAST_ACTIVE_ADMIN_MESSAGE, 400);
 }
 
-async function requireMasterPasswordHash(
+/** 管理员敏感写操作前的主密码复核。导出供 `admin-mail.ts`（SMTP 凭证）复用。 */
+export async function requireMasterPasswordHash(
   env: Env,
   actorUser: User,
   masterPasswordHash: unknown
@@ -83,7 +85,7 @@ function buildInviteLink(request: Request, code: string): string {
 }
 
 async function writeAuditLog(
-  storage: StorageService,
+  env: Env,
   actorUserId: string | null,
   action: string,
   targetType: string | null,
@@ -91,7 +93,7 @@ async function writeAuditLog(
   metadata: Record<string, unknown> | null,
   request?: Request
 ): Promise<void> {
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId,
     action,
     targetType,
@@ -234,7 +236,7 @@ export async function handleAdminUpdateAuditLogSettings(
   }
   const storage = new StorageService(env.DB);
   const settings = await saveAuditLogSettings(storage, normalizeAuditLogSettings(body));
-  await writeAuditLog(storage, actorUser.id, 'admin.audit.settings.update', 'auditLog', null, { ...settings }, request);
+  await writeAuditLog(env, actorUser.id, 'admin.audit.settings.update', 'auditLog', null, { ...settings }, request);
   return jsonResponse({
     object: 'auditLogSettings',
     ...settings,
@@ -252,7 +254,7 @@ export async function handleAdminClearAuditLogs(
   }
   const storage = new StorageService(env.DB);
   const deleted = await storage.clearAuditLogs();
-  await writeAuditLog(storage, actorUser.id, 'admin.audit.clear', 'auditLog', null, {
+  await writeAuditLog(env, actorUser.id, 'admin.audit.clear', 'auditLog', null, {
     deleted,
   }, request);
   return jsonResponse({ object: 'auditLogClear', deleted });
@@ -289,7 +291,7 @@ export async function handleAdminCreateInvite(
   };
 
   await storage.createInvite(invite);
-  await writeAuditLog(storage, actorUser.id, 'admin.invite.create', 'invite', null, {
+  await writeAuditLog(env, actorUser.id, 'admin.invite.create', 'invite', null, {
     expiresInHours,
   }, request);
 
@@ -338,7 +340,7 @@ export async function handleAdminDeleteInvite(
     return errorResponse('Invite not found', 404);
   }
 
-  await writeAuditLog(storage, actorUser.id, 'admin.invite.delete', 'invite', null, {
+  await writeAuditLog(env, actorUser.id, 'admin.invite.delete', 'invite', null, {
     code,
   }, request);
   return new Response(null, { status: 204 });
@@ -362,7 +364,7 @@ export async function handleAdminDeleteAllInvites(
   const url = new URL(request.url);
   if (url.searchParams.get('scope') === 'invalid') {
     const deleted = await storage.deleteInvalidInvites();
-    await writeAuditLog(storage, actorUser.id, 'admin.invite.delete_invalid', 'invite', null, {
+    await writeAuditLog(env, actorUser.id, 'admin.invite.delete_invalid', 'invite', null, {
       deleted,
     }, request);
 
@@ -370,7 +372,7 @@ export async function handleAdminDeleteAllInvites(
   }
 
   const deleted = await storage.deleteAllInvites();
-  await writeAuditLog(storage, actorUser.id, 'admin.invite.delete_all', 'invite', null, {
+  await writeAuditLog(env, actorUser.id, 'admin.invite.delete_all', 'invite', null, {
     deleted,
   }, request);
 
@@ -423,7 +425,7 @@ export async function handleAdminSetUserStatus(
     await storage.deleteRefreshTokensByUserId(target.id);
   }
   AuthService.invalidateUserCache(target.id);
-  await writeAuditLog(storage, freshActor.id, 'admin.user.status', 'user', target.id, {
+  await writeAuditLog(env, freshActor.id, 'admin.user.status', 'user', target.id, {
     status: nextStatus,
   }, request);
 
@@ -493,8 +495,10 @@ export async function handleAdminDeleteUser(
   await storage.deleteRefreshTokensByUserId(target.id);
   await storage.deleteUserById(target.id);
   AuthService.invalidateUserCache(target.id);
-  await writeAuditLog(storage, freshActor.id, 'admin.user.delete', 'user', target.id, {
+  await writeAuditLog(env, freshActor.id, 'admin.user.delete', 'user', target.id, {
     targetEmail: target.email,
+    // 用户行马上就会被删掉，通知层只能靠这份快照判断该不该发、发到哪里
+    ...notificationRecipientSnapshot(target),
   }, request);
 
   return new Response(null, { status: 204 });

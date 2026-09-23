@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Database, RefreshCw, Save, Search, Server, S
 import LoadingState from '@/components/LoadingState';
 import type { AuditLogFilters } from '@/lib/api/admin';
 import { t, translateServerError } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 import type { AuditLogCategory, AuditLogEntry, AuditLogLevel, AuditLogListResult, AuditLogSettings } from '@/lib/types';
 
 interface LogCenterPageProps {
@@ -133,11 +134,6 @@ function formatTargetType(type: string): string {
   return translatedOrHumanized(keyFor('txt_log_target_type_', type), type);
 }
 
-function formatTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-}
-
 function formatMetaValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return t('txt_dash');
   if (typeof value === 'boolean') return value ? t('txt_yes') : t('txt_no');
@@ -188,6 +184,9 @@ function inferRetentionMode(settings: AuditLogSettings): RetentionMode {
 }
 
 export default function LogCenterPage(props: LogCenterPageProps) {
+  const { format } = useDateTimeFormat();
+  // 解析失败时保留原样回显
+  const formatTime = (value: string): string => format(value) ?? value;
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);

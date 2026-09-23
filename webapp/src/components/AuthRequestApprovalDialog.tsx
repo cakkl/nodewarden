@@ -1,6 +1,7 @@
 import { ShieldCheck, ShieldX } from 'lucide-preact';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 import type { AuthRequest } from '@/lib/types';
 
 interface AuthRequestApprovalDialogProps {
@@ -12,14 +13,11 @@ interface AuthRequestApprovalDialogProps {
   onClose: () => void;
 }
 
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return t('txt_dash');
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleString();
-}
-
 export default function AuthRequestApprovalDialog(props: AuthRequestApprovalDialogProps) {
+  const { format } = useDateTimeFormat();
+  // 解析失败时保留原样回显（对排障比一个 `-` 有用）
+  const formatDateTime = (value: string | null | undefined): string =>
+    format(value) ?? (value || t('txt_dash'));
   const authRequest = props.authRequest;
   return (
     <ConfirmDialog

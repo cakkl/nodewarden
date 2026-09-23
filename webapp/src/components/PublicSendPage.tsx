@@ -8,6 +8,7 @@ import NotFoundPage from '@/components/NotFoundPage';
 import StandalonePageFrame from '@/components/StandalonePageFrame';
 import { getDemoPublicSend, IS_DEMO_MODE } from '@/lib/demo';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 
 interface PublicSendPageProps {
   accessId: string;
@@ -53,13 +54,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? value as Record<string, unknown> : null;
 }
 
-function formatSendDate(value: string | null | undefined): string {
-  if (!value) return '';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toLocaleString();
-}
-
 function optionalString(value: unknown): string | null {
   return typeof value === 'string' ? value : null;
 }
@@ -94,6 +88,9 @@ function parsePublicSendData(value: unknown): PublicSendData | null {
 }
 
 export default function PublicSendPage(props: PublicSendPageProps) {
+  const { format } = useDateTimeFormat();
+  // 空值 / 解析失败都是空串：这是给外部收件人看的页面，不出现占位符
+  const formatSendDate = (value: string | null | undefined): string => format(value) ?? '';
   const initialDemoSend = IS_DEMO_MODE ? getDemoPublicSend(props.accessId) : null;
   const [loading, setLoading] = useState(!IS_DEMO_MODE);
   const [password, setPassword] = useState('');

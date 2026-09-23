@@ -1,6 +1,22 @@
-import type { AdminInvite, AdminUser, AuditLogCategory, AuditLogEntry, AuditLogLevel, AuditLogListResult, AuditLogSettings, ListResponse } from '../types';
-import { t } from '../i18n';
+import type { AdminInvite, AdminUser, AuditLogCategory, AuditLogEntry, AuditLogLevel, AuditLogListResult, AuditLogSettings, ListResponse, MailSettings, MailSettingsInput, MailTestResult } from '../types';
+import { t, translateServerError } from '../i18n';
 import { parseErrorMessage, parseJson, type AuthedFetch } from './shared';
+
+/**
+ * 投递失败。保留服务端的结构化字段，让界面能按「哪个环节 + 什么状态码」
+ * 挑本地化文案 —— 服务端回复里的 5xx 详情是动态的，整串匹配不了。
+ */
+export class MailDeliveryError extends Error {
+  constructor(
+    message: string,
+    readonly stage: string | null,
+    readonly code: number | null,
+    readonly timedOut: boolean
+  ) {
+    super(message);
+    this.name = 'MailDeliveryError';
+  }
+}
 
 export async function listAdminUsers(authedFetch: AuthedFetch): Promise<AdminUser[]> {
   const resp = await authedFetch('/api/admin/users');
@@ -138,4 +154,77 @@ export async function clearAuditLogs(authedFetch: AuthedFetch): Promise<number> 
   if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_clear_logs_failed')));
   const body = await parseJson<{ deleted?: number }>(resp);
   return Number(body?.deleted || 0);
+}
+
+function normalizeMailSettings(raw: unknown): MailSettings {
+  const body = (raw || {}) as Record<string, unknown>;
+  const encryption = String(body.encryption || '').toLowerCase() === 'implicit' ? 'implicit' : 'starttls';
+  return {
+    enabled: !!(body.enabled ?? body.Enabled),
+    host: String(body.host ?? body.Host ?? ''),
+    port: Number(body.port ?? body.Port ?? 587),
+    encryption,
+    username: String(body.username ?? body.Username ?? ''),
+    fromAddress: String(body.fromAddress ?? body.FromAddress ?? ''),
+    fromName: String(body.fromName ?? body.FromName ?? ''),
+    passwordConfigured: !!(body.passwordConfigured ?? body.PasswordConfigured),
+    configured: !!(body.configured ?? body.Configured),
+  };
+}
+
+export async function getMailSettings(authedFetch: AuthedFetch): Promise<MailSettings> {
+  const resp = await authedFetch('/api/admin/mail/settings');
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_mail_settings_load_failed')));
+  return normalizeMailSettings(await parseJson<unknown>(resp));
+}
+
+export async function saveMailSettings(
+  authedFetch: AuthedFetch,
+  settings: MailSettingsInput,
+  masterPasswordHash: string
+): Promise<MailSettings> {
+  const resp = await authedFetch('/api/admin/mail/settings', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...settings, masterPasswordHash }),
+  });
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_mail_settings_save_failed')));
+  return normalizeMailSettings(await parseJson<unknown>(resp));
+}
+
+/** 用**表单当前值**发一封测试邮件到操作者自己的邮箱（未保存也能测，不需要主密码）。 */
+export async function sendTestMail(
+  authedFetch: AuthedFetch,
+  settings: MailSettingsInput
+): Promise<MailTestResult> {
+  const resp = await authedFetch('/api/admin/mail/settings/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!resp.ok) {
+    // 只能读一次 body：`parseJson` 与 `parseErrorMessage` 都会消费流，
+    // 两者相继调用会抛 `body stream already read`，把真正的错误掩盖掉。
+    const raw = await resp.text();
+    let body: Record<string, unknown> | null = null;
+    try {
+      body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+    } catch {
+      body = null;
+    }
+    const detail = String(body?.error_description || body?.error || body?.Message || '').trim();
+    throw new MailDeliveryError(
+      translateServerError(detail, t('txt_mail_test_failed')),
+      body?.smtpStage ? String(body.smtpStage) : null,
+      body?.smtpCode === null || body?.smtpCode === undefined ? null : Number(body.smtpCode),
+      !!body?.timedOut
+    );
+  }
+  const body = (await parseJson<Record<string, unknown>>(resp)) || {};
+  return {
+    recipient: String(body.recipient || ''),
+    authMethod: String(body.authMethod || '').toLowerCase() === 'login' ? 'login' : 'plain',
+    encryption: String(body.encryption || '').toLowerCase() === 'implicit' ? 'implicit' : 'starttls',
+    response: String(body.response || ''),
+  };
 }

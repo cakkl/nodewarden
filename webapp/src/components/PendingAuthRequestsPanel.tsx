@@ -3,6 +3,7 @@ import { RefreshCw, ShieldCheck, ShieldX } from 'lucide-preact';
 import LoadingState from '@/components/LoadingState';
 import type { AuthRequest } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 
 interface PendingAuthRequestsPanelProps {
   pendingAuthRequests: AuthRequest[];
@@ -15,13 +16,9 @@ interface PendingAuthRequestsPanelProps {
   loadingVariant?: 'placeholder' | 'compact';
 }
 
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return t('txt_dash');
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? t('txt_dash') : date.toLocaleString();
-}
-
 export default function PendingAuthRequestsPanel(props: PendingAuthRequestsPanelProps) {
+  const { format } = useDateTimeFormat();
+  const formatDateTime = (value: string | null | undefined): string => format(value) ?? t('txt_dash');
   const [authRequestSubmittingId, setAuthRequestSubmittingId] = useState<string | null>(null);
   const refreshing = props.pendingAuthRequestsLoading || !!props.pendingAuthRequestsRefreshing;
 

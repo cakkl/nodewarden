@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from 'preact/hooks';
-import { Clipboard, KeyRound, RefreshCw, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { Clipboard, KeyRound, RefreshCw, Send, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { calcTotpNow } from '@/lib/crypto';
 import qrcode from 'qrcode-generator';
-import type { AccountPasskeyCredential, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
-import { AVAILABLE_LOCALES, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import type { AccountPasskeyCredential, MailEncryption, MailPreferences, MailPreferencesUpdate, MailSettings, MailSettingsInput, MailTestResult, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
+import type { EmailVerificationStatus } from '@/lib/api/auth';
+import { describeMailFailure } from '@/hooks/useAdminMailActions';
+import { AVAILABLE_LOCALES, detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
+import { detectBrowserTimeZone } from '@/lib/datetime';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface SettingsPageProps {
@@ -34,6 +38,16 @@ interface SettingsPageProps {
   onGetRecoveryCode: (masterPassword: string) => Promise<string>;
   onGetApiKey: (masterPassword: string) => Promise<string>;
   onRotateApiKey: (masterPassword: string) => Promise<string>;
+  onLoadMailSettings: () => Promise<MailSettings>;
+  onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
+  onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
+  /** 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）；未提供时偏好页不显示时区块。 */
+  mailPreferences?: MailPreferences | null;
+  onSaveMailPreferences?: (update: MailPreferencesUpdate) => Promise<MailPreferences>;
+  // 邮箱验证。未提供时账户选项卡不显示该模块。
+  onLoadEmailVerification?: () => Promise<EmailVerificationStatus>;
+  onSendEmailVerificationCode?: () => Promise<unknown>;
+  onSubmitEmailVerificationCode?: (code: string) => Promise<void>;
   onListAccountPasskeys: () => Promise<AccountPasskeyCredential[]>;
   onCreateAccountPasskey: (name: string, masterPassword: string, directUnlock: boolean) => Promise<AccountPasskeyCredential | null>;
   onEnableAccountPasskeyDirectUnlock: (id: string, masterPassword: string) => Promise<void>;
@@ -45,7 +59,7 @@ interface SettingsPageProps {
 }
 
 type ThemePreference = 'system' | 'light' | 'dark';
-type SettingsSection = 'appearance' | 'session' | 'masterPassword' | 'twoStep' | 'keys';
+type SettingsSection = 'preferences' | 'account' | 'twoStep' | 'keys' | 'mail';
 
 type MasterPasswordPromptAction =
   | 'enableTotp'
@@ -68,6 +82,14 @@ const LOCK_TIMEOUT_OPTIONS = [
 ] as const;
 
 const EMPTY_YUBIKEY_KEYS: [string, string, string, string, string] = ['', '', '', '', ''];
+
+/** 语言 / 时区下拉里「自动」那一项的取值（与真实值不冲突） */
+const AUTO_OPTION = 'auto';
+
+/** 把语言代码显示成下拉里的标签；认不出就原样显示 */
+function localeLabel(value: string): string {
+  return AVAILABLE_LOCALES.find((option) => option.value === value)?.label ?? value;
+}
 
 function formatStoredYubiKey(value: string): string {
   if (!value) return '';
@@ -110,13 +132,6 @@ function clearLegacyTotpSetupSecrets(): void {
   for (const key of keys) {
     window.localStorage.removeItem(key);
   }
-}
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return t('txt_dash');
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return t('txt_dash');
-  return date.toLocaleString();
 }
 
 export default function SettingsPage(props: SettingsPageProps) {
@@ -166,12 +181,228 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [masterPasswordPrompt, setMasterPasswordPrompt] = useState<MasterPasswordPromptAction | null>(null);
   const [masterPasswordPromptValue, setMasterPasswordPromptValue] = useState('');
   const [masterPasswordPromptSubmitting, setMasterPasswordPromptSubmitting] = useState(false);
+  const { format } = useDateTimeFormat();
+  const formatDateTime = (value: string | null | undefined): string => format(value) ?? t('txt_dash');
   const [selectedLocale, setSelectedLocale] = useState<Locale>(() => getLocale());
-  const [activeSection, setActiveSection] = useState<SettingsSection>('appearance');
+  const [activeSection, setActiveSection] = useState<SettingsSection>('preferences');
+
+  const [emailVerification, setEmailVerification] = useState<EmailVerificationStatus | null>(null);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [emailVerificationBusy, setEmailVerificationBusy] = useState(false);
+  const [emailVerificationDialogOpen, setEmailVerificationDialogOpen] = useState(false);
+  /** 「允许发送通知邮件」的保存中状态（值本身是受控的：直接取自 props.mailPreferences）。 */
+  const [mailOptInBusy, setMailOptInBusy] = useState(false);
+  const [verificationResendIn, setVerificationResendIn] = useState(0);
+
+  // 用 ref 持有最新的加载函数：父组件传的是内联箭头函数，每帧都是新引用，
+  // 直接放进依赖数组会让 effect 反复重跑，未完成的旧请求还会把刚更新的验证状态盖回去。
+  const loadEmailVerificationRef = useRef(props.onLoadEmailVerification);
+  loadEmailVerificationRef.current = props.onLoadEmailVerification;
+  useEffect(() => {
+    if (activeSection !== 'account') return;
+    const load = loadEmailVerificationRef.current;
+    if (!load) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const status = await load();
+        if (!cancelled) setEmailVerification(status);
+      } catch (error) {
+        if (!cancelled) props.onNotify?.('error', error instanceof Error ? error.message : t('txt_email_verification_failed'));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection]);
+
+  // 与服务端的 RESEND_INTERVAL_MS 对齐，避免按钮点了必然失败
+  const RESEND_COOLDOWN_SECONDS = 60;
+
+  useEffect(() => {
+    if (verificationResendIn <= 0) return;
+    const timer = window.setTimeout(() => setVerificationResendIn((n) => n - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [verificationResendIn]);
+
+  const sendVerificationCode = async () => {
+    if (!props.onSendEmailVerificationCode) return;
+    setEmailVerificationBusy(true);
+    try {
+      await props.onSendEmailVerificationCode();
+      setVerificationResendIn(RESEND_COOLDOWN_SECONDS);
+    } catch (error) {
+      props.onNotify?.('error', error instanceof Error ? error.message : t('txt_email_verification_failed'));
+    } finally {
+      setEmailVerificationBusy(false);
+    }
+  };
+
+  // 点「验证邮箱地址」即发码并开窗，省一次点击
+  const openVerificationDialog = async () => {
+    setVerificationCode('');
+    setEmailVerificationDialogOpen(true);
+    await sendVerificationCode();
+  };
+
+  const closeVerificationDialog = () => {
+    setEmailVerificationDialogOpen(false);
+    setVerificationCode('');
+  };
+
+  const submitVerificationCode = async () => {
+    if (!props.onSubmitEmailVerificationCode) return;
+    const code = verificationCode.trim();
+    if (!/^\d{6}$/.test(code)) {
+      props.onNotify?.('error', t('txt_email_verification_failed'));
+      return;
+    }
+    setEmailVerificationBusy(true);
+    try {
+      await props.onSubmitEmailVerificationCode(code);
+      setEmailVerification((prev) => (prev ? { ...prev, verified: true, pendingExpiresAt: null } : prev));
+      setVerificationCode('');
+      setVerificationResendIn(0);
+      setEmailVerificationDialogOpen(false);
+      props.onNotify?.('success', t('txt_email_verification_verified_badge'));
+    } catch (error) {
+      props.onNotify?.('error', error instanceof Error ? error.message : t('txt_email_verification_failed'));
+    } finally {
+      setEmailVerificationBusy(false);
+    }
+  };
+
+  const [mailSettings, setMailSettings] = useState<MailSettings | null>(null);
+  const [mailHost, setMailHost] = useState('');
+  const [mailPort, setMailPort] = useState('587');
+  const [mailUsername, setMailUsername] = useState('');
+  const [mailPassword, setMailPassword] = useState('');
+  const [mailFromAddress, setMailFromAddress] = useState('');
+  const [mailFromName, setMailFromName] = useState('');
+  const [mailSubmitting, setMailSubmitting] = useState(false);
+  const [mailPromptAction, setMailPromptAction] = useState<'save' | 'disable' | null>(null);
+  const [mailMasterPassword, setMailMasterPassword] = useState('');
+  /** 当前表单是否已通过测试 —— 只有它为真时「保存」才可用 */
+  const [mailTested, setMailTested] = useState(false);
+  /** 表单是否与已保存的一致（配置完整时无需重测即可重新启用） */
+  const [mailSynced, setMailSynced] = useState(false);
+
+  const isAdmin = props.profile.role === 'admin';
+  /** 端口决定加密方式，不单独选择，避免存下必然失败的组合 */
+  const mailEncryption: MailEncryption = Number(mailPort) === 465 || Number(mailPort) === 2465 ? 'implicit' : 'starttls';
+  /** 服务端当前是否已启用邮件发送 */
+  const mailEnabled = !!mailSettings?.enabled;
+  /** 已停用等同未配置：只有「参数完整 **且** 已启用」才算配置好了 */
+  const mailConfigured = !!mailSettings?.configured && mailEnabled;
+  /** 表单没改过且参数完整 ⇒ 可以不经重测直接提交（重新启用 / 停用） */
+  const mailUnchanged = mailSynced && !!mailSettings?.configured;
+  const mailCanTest = !mailSubmitting && !!mailHost.trim() && !!mailFromAddress.trim();
+  /** 保存（= 启用）：测过、或配置未变且当前处于停用状态（重新启用） */
+  const mailCanSave = !mailSubmitting && (mailTested || (mailUnchanged && !mailEnabled));
+  const mailInput: MailSettingsInput = {
+    enabled: true,
+    host: mailHost.trim(),
+    port: Number(mailPort),
+    username: mailUsername.trim(),
+    fromAddress: mailFromAddress.trim(),
+    fromName: mailFromName.trim(),
+    ...(mailPassword ? { password: mailPassword } : {}),
+  };
+
+  /** 时区列表由运行环境提供（workerd/浏览器的 ICU 数据），拿不到时保底只给 UTC */
+  const timezoneOptions = useMemo<string[]>(() => {
+    try {
+      const supported = (Intl as unknown as { supportedValuesOf?: (key: string) => string[] })
+        .supportedValuesOf?.('timeZone');
+      return supported && supported.length > 0 ? supported : ['UTC'];
+    } catch {
+      return ['UTC'];
+    }
+  }, []);
+
+  /**
+   * 「自动」档在下拉里显示**实际生效值**（如「自动（简体中文）」），而不是「按浏览器」字样：
+   * 用户要看的是现在到底用的是什么。服务端还没有值时用本机检测值兜底。
+   */
+  const autoLocaleValue = props.mailPreferences?.locale ?? detectBrowserLocale();
+  const autoTimezoneValue = props.mailPreferences?.timezone ?? detectBrowserTimeZone();
+
+  /**
+   * 表单被改动 ⇒ 之前的测试结果作废，保存重新变为不可用。
+   */
+  function touchMailForm(): void {
+    setMailTested(false);
+    setMailSynced(false);
+  }
+
+  function applyMailSettings(settings: MailSettings): void {
+    setMailSettings(settings);
+    setMailHost(settings.host);
+    setMailPort(String(settings.port));
+    setMailUsername(settings.username);
+    setMailFromAddress(settings.fromAddress);
+    setMailFromName(settings.fromName);
+    // 口令永不回显：留空表示「保持原口令不变」
+    setMailPassword('');
+    setMailTested(false);
+    setMailSynced(true);
+  }
+
+  function closeMailPrompt(): void {
+    setMailPromptAction(null);
+    setMailMasterPassword('');
+  }
+
+  /** 测试不需要主密码：只给操作者自己发一封信，不是敏感写操作。 */
+  async function submitMailTest(): Promise<void> {
+    if (!mailCanTest) return;
+    setMailSubmitting(true);
+    try {
+      await props.onSendTestMail(mailInput);
+      setMailTested(true);
+    } catch (error) {
+      props.onNotify?.('error', describeMailFailure(error));
+    } finally {
+      setMailSubmitting(false);
+    }
+  }
+
+  async function submitMailPrompt(): Promise<void> {
+    if (mailSubmitting || !mailMasterPassword) return;
+    setMailSubmitting(true);
+    try {
+      // 禁用再启用走同一个端点：靠 `enabled` 区分（保存 = 启用）
+      const payload = mailPromptAction === 'disable' ? { ...mailInput, enabled: false } : mailInput;
+      const saved = await props.onSaveMailSettings(payload, mailMasterPassword);
+      applyMailSettings(saved);
+      closeMailPrompt();
+    } catch (error) {
+      props.onNotify?.('error', describeMailFailure(error));
+      closeMailPrompt();
+    } finally {
+      setMailSubmitting(false);
+    }
+  }
 
   useEffect(() => {
     clearLegacyTotpSetupSecrets();
   }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'mail' || !isAdmin) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const settings = await props.onLoadMailSettings();
+        if (!cancelled) applyMailSettings(settings);
+      } catch (error) {
+        if (!cancelled) props.onNotify?.('error', describeMailFailure(error));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSection, isAdmin]);
 
   useEffect(() => {
     if (!props.totpEnabled) {
@@ -346,11 +577,47 @@ export default function SettingsPage(props: SettingsPageProps) {
     return t('txt_prf_not_supported');
   }
 
-  async function changeLocale(next: Locale): Promise<void> {
-    if (next === getLocale()) return;
-    setSelectedLocale(next);
-    await setLocale(next);
-    window.location.reload();
+  /**
+   * 切换语言：界面语言与邮件语言是**同一个值**（见 docs/TODO/MAIL-PREFS.md），
+   * 既立刻应用到界面，也落库给服务端渲染邮件用。
+   * 选「自动」时写当前浏览器语言并标记为自动档，此后每次登录可按浏览器刷新。
+   */
+  async function changeLocale(next: Locale | typeof AUTO_OPTION): Promise<void> {
+    const auto = next === AUTO_OPTION;
+    const effective = auto ? detectBrowserLocale() : next;
+    setSelectedLocale(effective);
+    await props.onSaveMailPreferences?.(
+      auto ? { locale: effective, localeAuto: true } : { locale: effective, localeAuto: false }
+    );
+    if (effective !== getLocale()) {
+      await setLocale(effective);
+      window.location.reload();
+    }
+  }
+
+  /** 时区同理：选「自动」写当前浏览器时区并标记自动档，否则固定为选中的值。 */
+  async function changeTimezone(next: string): Promise<void> {
+    await props.onSaveMailPreferences?.(
+      next === AUTO_OPTION
+        ? { timezone: detectBrowserTimeZone(), timezoneAuto: true }
+        : { timezone: next, timezoneAuto: false }
+    );
+  }
+
+  /**
+   * 「允许发送通知邮件」。勾选框的值直接取自 `props.mailPreferences`（不本地乐观更新）⇒
+   * 保存失败时界面自动回到原值，只需给出提示。
+   */
+  async function changeMailOptIn(next: boolean): Promise<void> {
+    if (!props.onSaveMailPreferences) return;
+    setMailOptInBusy(true);
+    try {
+      await props.onSaveMailPreferences({ mailOptIn: next });
+    } catch {
+      props.onNotify?.('error', t('txt_preferences_save_failed'));
+    } finally {
+      setMailOptInBusy(false);
+    }
   }
 
   function closeTotpManageDialog(): void {
@@ -587,12 +854,14 @@ export default function SettingsPage(props: SettingsPageProps) {
     }
   }
 
+  // 顺序是刻意的：偏好最常用排第一，账户次之，服务器级配置压到最后。
   const settingsSections: Array<{ id: SettingsSection; label: string }> = [
-    { id: 'appearance', label: t('txt_settings_appearance') },
-    { id: 'session', label: t('txt_session_timeout') },
-    { id: 'masterPassword', label: t('txt_master_password') },
+    { id: 'preferences', label: t('txt_settings_preferences') },
+    { id: 'account', label: t('txt_settings_account') },
     { id: 'twoStep', label: t('txt_two_step_login') },
     { id: 'keys', label: t('txt_keys') },
+    // 邮件发送是服务器级配置，只有管理员能改，因此仅对管理员显示
+    ...(isAdmin ? [{ id: 'mail' as SettingsSection, label: t('txt_mail') }] : []),
   ];
 
   return (
@@ -612,7 +881,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         </nav>
 
         <section className="settings-category-panel">
-          {activeSection === 'appearance' && (
+          {activeSection === 'preferences' && (
             <div className="settings-section-stack">
               <section className="settings-submodule">
                 <label className="field">
@@ -635,9 +904,12 @@ export default function SettingsPage(props: SettingsPageProps) {
                   <span>{t('txt_display_language')}</span>
                   <select
                     className="input"
-                    value={selectedLocale}
-                    onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale)}
+                    value={props.mailPreferences?.autoLocale ? AUTO_OPTION : selectedLocale}
+                    onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale | typeof AUTO_OPTION)}
                   >
+                    <option value={AUTO_OPTION}>
+                      {t('txt_preferences_auto', { value: localeLabel(autoLocaleValue) })}
+                    </option>
                     {AVAILABLE_LOCALES.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
@@ -647,11 +919,30 @@ export default function SettingsPage(props: SettingsPageProps) {
                   <div className="field-help">{t('txt_display_language_help')}</div>
                 </label>
               </section>
-            </div>
-          )}
 
-          {activeSection === 'session' && (
-            <div className="settings-section-stack">
+              {props.onSaveMailPreferences && (
+                <section className="settings-submodule">
+                  <label className="field">
+                    <span>{t('txt_timezone')}</span>
+                    <select
+                      className="input"
+                      value={props.mailPreferences?.autoTimezone || !props.mailPreferences?.timezone ? AUTO_OPTION : props.mailPreferences.timezone}
+                      onInput={(e) => void changeTimezone((e.currentTarget as HTMLSelectElement).value)}
+                    >
+                      <option value={AUTO_OPTION}>
+                        {t('txt_preferences_auto', { value: autoTimezoneValue })}
+                      </option>
+                      {timezoneOptions.map((zone) => (
+                        <option key={zone} value={zone}>
+                          {zone}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="field-help">{t('txt_timezone_help')}</div>
+                  </label>
+                </section>
+              )}
+
               <section className="settings-submodule">
                 <div className="session-timeout-fields">
                   <label className="field">
@@ -684,10 +975,79 @@ export default function SettingsPage(props: SettingsPageProps) {
             </div>
           )}
 
-          {activeSection === 'masterPassword' && (
+          {activeSection === 'account' && (
             <div className="settings-section-stack">
+              {props.onLoadEmailVerification && (
+                <section className="settings-submodule">
+                  <div className="settings-module-head">
+                    <h3>{t('txt_email')}</h3>
+                    {/* 只有服务端确实能发信时才显示徽标：否则会显示一个用户无法改变的「未验证」 */}
+                    {emailVerification?.available && (
+                      <span className={`two-step-enabled-badge ${emailVerification.verified ? '' : 'is-danger'}`}>
+                        {emailVerification.verified
+                          ? t('txt_email_verification_verified_badge')
+                          : t('txt_email_verification_unverified_badge')}
+                      </span>
+                    )}
+                  </div>
+                  <label className="field">
+                    <span>{t('txt_current_email')}</span>
+                    <input className="input" value={props.profile.email} disabled readOnly />
+                  </label>
+                  <div className="settings-vertical-fields">
+                    <label className="field">
+                      <span>{t('txt_new_email')}</span>
+                      <input className="input" value="" disabled />
+                    </label>
+                  </div>
+                  {/* 间距对齐 management.css 的 .settings-vertical-fields + .btn（按钮组打断了相邻兄弟选择器） */}
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '14px' }}>
+                    {/* 不再加 title：禁用态的按钮多数浏览器不会弹 tooltip，而且
+                        同一句话下面已有可见的说明行，重复一遍是噪音。 */}
+                    <button
+                      type="button"
+                      className="btn btn-danger"
+                      disabled
+                    >
+                      {t('txt_change_email')}
+                    </button>
+                    {emailVerification?.available && !emailVerification.verified && (
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={emailVerificationBusy}
+                        onClick={() => void openVerificationDialog()}
+                      >
+                        {t('txt_verify_email_address')}
+                      </button>
+                    )}
+                  </div>
+                  <p className="field-help">{t('txt_change_email_unavailable')}</p>
+                  {/* 是否接收安全通知邮件。两个前提缺一不可：服务端**能**发信（否则开关无意义）、
+                      且邮箱**已验证**（未验证按第 31 条的 gate 语义本来就不会发通知）。
+                      放在邮箱区最后：它属于「意愿」，与地址/验证（事实）分层。 */}
+                  {emailVerification?.available && emailVerification.verified && (
+                    <div className="settings-checkbox-block" style={{ marginTop: '14px' }}>
+                      <label className="settings-switch">
+                        <input
+                          type="checkbox"
+                          checked={!!props.mailPreferences?.mailOptIn}
+                          disabled={mailOptInBusy}
+                          onInput={(e) => void changeMailOptIn((e.currentTarget as HTMLInputElement).checked)}
+                        />
+                        <span aria-hidden="true" />
+                        <strong>{t('txt_mail_opt_in')}</strong>
+                      </label>
+                      <div className="field-help">{t('txt_mail_opt_in_help')}</div>
+                    </div>
+                  )}
+                </section>
+              )}
+
               <section className="settings-submodule">
-                <h3>{t('txt_change_master_password')}</h3>
+                {/* 小标题用名词（与「邮箱」「账号通行密钥」等一致）；
+                    「修改主密码」这个动词短语只留给变更前的确认弹窗标题。 */}
+                <h3>{t('txt_master_password')}</h3>
                 <label className="field">
                   <span>{t('txt_current_password')}</span>
                   <input
@@ -917,8 +1277,179 @@ export default function SettingsPage(props: SettingsPageProps) {
               </section>
             </div>
           )}
+
+          {activeSection === 'mail' && (
+            <div className="settings-section-stack">
+              <section className="settings-submodule">
+                <div className="settings-module-head">
+                  <h3>{t('txt_mail_config')}</h3>
+                  {mailConfigured ? (
+                    <span className="two-step-enabled-badge">{t('txt_mail_configured')}</span>
+                  ) : (
+                    <span className="two-step-enabled-badge is-danger">{t('txt_mail_not_configured')}</span>
+                  )}
+                </div>
+                <p className="muted-inline settings-field-note">{t('txt_mail_sending_intro')}</p>
+                <div className="settings-vertical-fields">
+                  <label className="field">
+                    <span>{t('txt_mail_host')}</span>
+                    <input
+                      className="input"
+                      value={mailHost}
+                      placeholder="smtp.example.com"
+                      onInput={(event) => {
+                        setMailHost((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_port')}</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={65535}
+                      value={mailPort}
+                      onInput={(event) => {
+                        setMailPort((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                    <div className="field-help">
+                      {t('txt_mail_encryption_inferred', {
+                        mode:
+                          mailEncryption === 'implicit'
+                            ? t('txt_mail_encryption_implicit')
+                            : t('txt_mail_encryption_starttls'),
+                      })}
+                    </div>
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_username')}</span>
+                    <input
+                      className="input"
+                      value={mailUsername}
+                      onInput={(event) => {
+                        setMailUsername((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_password')}</span>
+                    <input
+                      className="input"
+                      type="password"
+                      autoComplete="new-password"
+                      value={mailPassword}
+                      placeholder={mailSettings?.passwordConfigured ? t('txt_mail_password_keep') : ''}
+                      onInput={(event) => {
+                        setMailPassword((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_from_address')}</span>
+                    <input
+                      className="input"
+                      value={mailFromAddress}
+                      placeholder="noreply@example.com"
+                      onInput={(event) => {
+                        setMailFromAddress((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>{t('txt_mail_from_name')}</span>
+                    <input
+                      className="input"
+                      value={mailFromName}
+                      onInput={(event) => {
+                        setMailFromName((event.currentTarget as HTMLInputElement).value);
+                        touchMailForm();
+                      }}
+                    />
+                  </label>
+
+                  <div className="actions">
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={!mailCanSave}
+                      onClick={() => setMailPromptAction('save')}
+                    >
+                      {t('txt_save')}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled={!mailCanTest}
+                      onClick={() => void submitMailTest()}
+                    >
+                      <Send size={14} className="btn-icon" />
+                      {t('txt_mail_send_test')}
+                    </button>
+                    {mailEnabled && (
+                      <button
+                        type="button"
+                        className="btn btn-danger push-right"
+                        disabled={mailSubmitting}
+                        onClick={() => setMailPromptAction('disable')}
+                      >
+                        {t('txt_mail_disable')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
         </section>
       </div>
+      <ConfirmDialog
+        open={mailPromptAction !== null}
+        title={mailPromptAction === 'disable' ? t('txt_mail_disable') : t('txt_mail_save_title')}
+        message={t('txt_enter_master_password_to_continue')}
+        hideConfirm
+        hideCancel
+        closeButton
+        onConfirm={() => undefined}
+        onCancel={closeMailPrompt}
+        afterActions={
+          <div className="settings-vertical-fields">
+            <label className="field">
+              <span>{t('txt_master_password')}</span>
+              <input
+                className="input"
+                type="password"
+                autoComplete="current-password"
+                value={mailMasterPassword}
+                onInput={(event) =>
+                  setMailMasterPassword((event.currentTarget as HTMLInputElement).value)
+                }
+              />
+            </label>
+            <div className="actions">
+              <button
+                type="button"
+                className={mailPromptAction === 'disable' ? 'btn btn-danger' : 'btn btn-primary'}
+                disabled={mailSubmitting || !mailMasterPassword}
+                onClick={() => void submitMailPrompt()}
+              >
+                {mailPromptAction === 'disable' ? t('txt_mail_disable') : t('txt_save')}
+              </button>
+            </div>
+          </div>
+        }
+      />
       <ConfirmDialog
         open={masterPasswordPrompt !== null}
         title={masterPasswordPromptTitle}
@@ -941,6 +1472,44 @@ export default function SettingsPage(props: SettingsPageProps) {
           />
         </label>
       </ConfirmDialog>
+      <ConfirmDialog
+        open={emailVerificationDialogOpen}
+        title={t('txt_verify_email_address')}
+        message={t('txt_email_verification_description')}
+        confirmText={t('txt_email_verification_submit')}
+        confirmDisabled={emailVerificationBusy || verificationCode.length !== 6}
+        onConfirm={() => void submitVerificationCode()}
+        onCancel={closeVerificationDialog}
+      >
+        {/* 固定高度：内容在开窗时就已是最终形态，这里只是防止提示行把底部按钮推下去 */}
+        <div style={{ minHeight: '132px' }}>
+          <label className="field">
+            <span>{t('txt_email_verification_code_label')}</span>
+            <input
+              className="input"
+              inputMode="numeric"
+              maxLength={6}
+              value={verificationCode}
+              onInput={(e) => setVerificationCode((e.currentTarget as HTMLInputElement).value.replace(/\D/g, ''))}
+            />
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+            <p className="field-help" style={{ margin: 0 }}>{t('txt_email_verification_sent_hint')}</p>
+            <button
+              type="button"
+              className="btn btn-secondary small"
+              style={{ flexShrink: 0 }}
+              disabled={emailVerificationBusy || verificationResendIn > 0}
+              onClick={() => void sendVerificationCode()}
+            >
+              {verificationResendIn > 0
+                ? `${t('txt_email_verification_resend_code')} (${verificationResendIn}s)`
+                : t('txt_email_verification_resend_code')}
+            </button>
+          </div>
+        </div>
+      </ConfirmDialog>
+
       <ConfirmDialog
         open={totpManageDialogOpen}
         title={t('txt_totp')}
@@ -1039,7 +1608,7 @@ export default function SettingsPage(props: SettingsPageProps) {
       <ConfirmDialog
         open={yubiKeyDialogOpen}
         title={`${t('txt_two_step_login')} YubiKey`}
-        message={!yubiKeyYubicoConfigured ? '' : yubiKeyEnabled ? t('txt_yubikey_enabled') : t('txt_disabled')}
+        message={!yubiKeyYubicoConfigured ? '' : yubiKeyEnabled ? t('txt_yubikey_enabled') : t('txt_yubikey_disabled')}
         hideConfirm
         hideCancel
         closeButton

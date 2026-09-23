@@ -54,6 +54,15 @@ function resolveInitialLocale(): Locale {
   } catch {
     // ignore storage errors
   }
+  return detectBrowserLocale();
+}
+
+/**
+ * 按浏览器语言偏好选一个受支持的语言（**不看 localStorage**）。
+ *
+ * 用于「自动（按浏览器）」档与登录时的自动填充：要的是这台设备当前用什么语言。
+ */
+export function detectBrowserLocale(): Locale {
   if (typeof navigator !== 'undefined') {
     const langs = Array.isArray(navigator.languages) ? navigator.languages : [navigator.language];
     for (const lang of langs) {

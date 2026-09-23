@@ -794,6 +794,18 @@
   color: var(--success);
 }
 
+/* 需要提醒的负面状态（如「未配置」）：同构于上一条，改用危险色。 */
+.two-step-enabled-badge.is-danger {
+  border-color: color-mix(in srgb, var(--danger) 28%, var(--line));
+  background: color-mix(in srgb, var(--danger) 10%, var(--panel));
+  color: var(--danger-text);
+}
+
+/* 把按钮推到按钮组的另一端（用于「禁用」这类破坏性操作，与常规按钮拉开距离） */
+.actions > .push-right {
+  margin-left: auto;
+}
+
 .totp-manage-dialog-body {
   @apply mt-3;
 }
@@ -841,6 +853,67 @@
 
 .settings-checkbox-block {
   @apply space-y-2;
+}
+
+/* 设置页的滑动开关（视觉与密码生成器的 `.generator-toggle` 一致：38×22 轨道 + 16px 滑块）。
+   复选框本身透明化、不参与布局，只留 `span` 画轨道 ⇒ 键盘仍可聚焦、读屏仍读作「复选框」。 */
+.settings-switch {
+  @apply grid cursor-pointer items-center gap-2.5;
+  grid-template-columns: 40px minmax(0, 1fr);
+  min-height: 32px;
+}
+
+.settings-switch input {
+  @apply absolute opacity-0;
+}
+
+.settings-switch > span {
+  @apply relative rounded-full;
+  width: 38px;
+  height: 22px;
+  background: var(--line);
+  transition: background-color var(--dur-fast) var(--ease-smooth);
+}
+
+.settings-switch > span::after {
+  @apply absolute rounded-full;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+  content: '';
+  transition: transform var(--dur-fast) var(--ease-smooth);
+}
+
+.settings-switch input:checked + span {
+  background: var(--primary);
+}
+
+.settings-switch input:checked + span::after {
+  transform: translateX(16px);
+}
+
+/* 复选框 opacity:0 ⇒ 全局的 :focus-visible 焦点环会画在不可见元素上，这里改画到轨道上 */
+.settings-switch input:focus-visible + span {
+  outline: 3px solid color-mix(in srgb, var(--primary) 30%, transparent);
+  outline-offset: 2px;
+}
+
+.settings-switch input:disabled + span {
+  opacity: 0.55;
+}
+
+.settings-switch strong {
+  @apply text-sm font-semibold;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-switch > span,
+  .settings-switch > span::after {
+    transition: none;
+  }
 }
 
 .checkbox-inline {

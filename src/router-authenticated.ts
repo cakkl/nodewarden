@@ -26,6 +26,16 @@ import {
   handleRotateApiKey,
 } from './handlers/accounts';
 import {
+  handleGetEmailVerificationStatus,
+  handleSendEmailVerificationCode,
+  handleVerifyEmailCode,
+} from './handlers/account-email-verification';
+import {
+  handleDetectPreferences,
+  handleGetPreferences,
+  handleUpdatePreferences,
+} from './handlers/account-preferences';
+import {
   handleGetCiphers,
   handleGetCipher,
   handleCreateCipher,
@@ -121,10 +131,7 @@ export async function handleAuthenticatedRoute(
   }
 
   const mailBackedAccountPaths = new Set([
-    '/api/accounts/email-token',
-    '/accounts/email-token',
-    '/api/accounts/verify-email',
-    '/accounts/verify-email',
+    // 邮箱验证走真实实现（见下方分发）；这里只剩尚未接入的邮件能力。
     '/api/accounts/verify-email-token',
     '/accounts/verify-email-token',
     '/api/accounts/request-otp',
@@ -133,7 +140,7 @@ export async function handleAuthenticatedRoute(
     '/accounts/verify-otp',
   ]);
   if (mailBackedAccountPaths.has(path) && (method === 'POST' || method === 'PUT')) {
-    return unsupportedResponse('Email delivery is not supported by this server.');
+    return unsupportedResponse('Email link and email OTP flows are not implemented by this server.');
   }
 
   const emailTwoFactorPaths = new Set([
@@ -154,6 +161,30 @@ export async function handleAuthenticatedRoute(
     if (method === 'GET') return handleGetProfile(request, env, userId);
     if (method === 'PUT') return handleUpdateProfile(request, env, userId);
     return errorResponse('Method not allowed', 405);
+  }
+
+  // 邮箱验证：状态查询、发送验证码、提交验证码
+  if (path === '/api/accounts/email-verification' && method === 'GET') {
+    return handleGetEmailVerificationStatus(request, env, currentUser);
+  }
+
+  // 用户级「语言 / 时区」偏好（普通用户也必须能设，故**不做**管理员检查）
+  if (path === '/api/accounts/preferences') {
+    if (method === 'GET') return handleGetPreferences(request, env, currentUser);
+    if (method === 'PUT') return handleUpdatePreferences(request, env, currentUser);
+    return errorResponse('Method not allowed', 405);
+  }
+
+  if (path === '/api/accounts/preferences/detect' && method === 'POST') {
+    return handleDetectPreferences(request, env, currentUser);
+  }
+
+  if ((path === '/api/accounts/email-token' || path === '/accounts/email-token') && method === 'POST') {
+    return handleSendEmailVerificationCode(request, env, currentUser);
+  }
+
+  if ((path === '/api/accounts/verify-email' || path === '/accounts/verify-email') && method === 'POST') {
+    return handleVerifyEmailCode(request, env, currentUser);
   }
 
   if ((path === '/api/accounts/password' || path === '/api/accounts/change-password') && (method === 'POST' || method === 'PUT')) {

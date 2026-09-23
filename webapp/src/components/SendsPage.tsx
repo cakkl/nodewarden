@@ -5,6 +5,7 @@ import LoadingState from '@/components/LoadingState';
 import MobileFilterMenu, { type MobileFilterOption } from '@/components/MobileFilterMenu';
 import type { Send, SendDraft } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 
 interface SendsPageProps {
   sends: Send[];
@@ -31,13 +32,6 @@ function daysFromNow(iso: string | null | undefined, fallback: number): string {
   const diff = d - Date.now();
   const days = Math.ceil(diff / (24 * 60 * 60 * 1000));
   return String(Math.max(days, 0));
-}
-
-function formatSendDate(value: string | null | undefined): string {
-  if (!value) return t('txt_dash');
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return t('txt_dash');
-  return parsed.toLocaleString();
 }
 
 function buildDefaultDraft(): SendDraft {
@@ -74,6 +68,8 @@ function draftFromSend(send: Send): SendDraft {
 }
 
 export default function SendsPage(props: SendsPageProps) {
+  const { format } = useDateTimeFormat();
+  const formatSendDate = (value: string | null | undefined): string => format(value) ?? t('txt_dash');
   const getInitialIsMobileLayout = () =>
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
       ? window.matchMedia(MOBILE_LAYOUT_QUERY).matches

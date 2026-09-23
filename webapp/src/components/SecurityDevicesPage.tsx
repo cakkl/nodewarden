@@ -5,6 +5,7 @@ import LoadingState from '@/components/LoadingState';
 import PendingAuthRequestsPanel from '@/components/PendingAuthRequestsPanel';
 import type { AuthRequest, AuthorizedDevice } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import { useDateTimeFormat } from '@/lib/datetime';
 
 interface SecurityDevicesPageProps {
   devices: AuthorizedDevice[];
@@ -25,13 +26,6 @@ interface SecurityDevicesPageProps {
   onRemoveSelectedDevices: (devices: AuthorizedDevice[]) => void;
   onRevokeAll: () => void;
   onRemoveAll: () => void;
-}
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) return t('txt_dash');
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return t('txt_dash');
-  return date.toLocaleString();
 }
 
 function isPermanentTrust(value: string | null | undefined): boolean {
@@ -62,6 +56,8 @@ function mapDeviceTypeName(type: number): string {
 }
 
 export default function SecurityDevicesPage(props: SecurityDevicesPageProps) {
+  const { format } = useDateTimeFormat();
+  const formatDateTime = (value: string | null | undefined): string => format(value) ?? t('txt_dash');
   const [editingDevice, setEditingDevice] = useState<AuthorizedDevice | null>(null);
   const [deviceNote, setDeviceNote] = useState('');
   const [savingNote, setSavingNote] = useState(false);

@@ -68,6 +68,23 @@ export interface User {
   yubikeyKey5: string | null;
   yubikeyNfc: boolean;
   apiKey: string | null;
+  emailVerified?: boolean;
+  /**
+   * 用户级语言（**界面 + 邮件共用**，见 docs/TODO/MAIL-PREFS.md）。
+   * `null` / `undefined` = 未设定：邮件回退英文并在正文追加提示。
+   */
+  locale?: string | null;
+  /** true = 上面的 `locale` 是自动检测来的（登录时可按浏览器刷新）；false = 用户自己选定 */
+  autoLocale?: boolean;
+  /** 用户级 IANA 时区；`null` / `undefined` = 未设定（按 UTC 渲染 + 邮件加提示句） */
+  timezone?: string | null;
+  /** true = 上面的 `timezone` 是自动检测来的 */
+  autoTimezone?: boolean;
+  /**
+   * 是否允许本服务向该用户发送**通知类**邮件（安全通知等）。默认 false = 关闭。
+   * 只约束服务端主动发送的通知；用户主动请求的验证码邮件不受它影响。
+   */
+  mailOptIn?: boolean;
   createdAt: string;
   updatedAt: string;
 }

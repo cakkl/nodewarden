@@ -310,6 +310,8 @@ async function importPreparedBackupRows(db: D1Database, payload: BackupPayload['
   for (const row of payload.users || []) {
     if (row.verify_devices == null) row.verify_devices = 0;
     if (row.yubikey_nfc == null) row.yubikey_nfc = 0;
+    // 旧备份没有 email_verified 列，按未验证处理，避免恢复后凭空放行通知邮件。
+    if (row.email_verified == null) row.email_verified = 0;
   }
   for (const row of payload.webauthn_credentials || []) {
     row.purpose = normalizeAccountPasskeyPurpose(row.purpose);
@@ -653,7 +655,7 @@ async function importBackupRows(db: D1Database, payload: BackupPayload['db'], us
   await insertRows(
     db,
     tableName('users'),
-    ['id', 'email', 'name', 'master_password_hint', 'master_password_hash', 'key', 'private_key', 'public_key', 'kdf_type', 'kdf_iterations', 'kdf_memory', 'kdf_parallelism', 'security_stamp', 'role', 'status', 'verify_devices', 'totp_secret', 'totp_recovery_code', 'yubikey_key1', 'yubikey_key2', 'yubikey_key3', 'yubikey_key4', 'yubikey_key5', 'yubikey_nfc', 'created_at', 'updated_at'],
+    ['id', 'email', 'name', 'master_password_hint', 'master_password_hash', 'key', 'private_key', 'public_key', 'kdf_type', 'kdf_iterations', 'kdf_memory', 'kdf_parallelism', 'security_stamp', 'role', 'status', 'verify_devices', 'totp_secret', 'totp_recovery_code', 'yubikey_key1', 'yubikey_key2', 'yubikey_key3', 'yubikey_key4', 'yubikey_key5', 'yubikey_nfc', 'email_verified', 'locale', 'auto_locale', 'timezone', 'auto_timezone', 'mail_opt_in', 'created_at', 'updated_at'],
     payload.users || []
   );
   await insertRows(db, tableName('user_revisions'), ['user_id', 'revision_date'], payload.user_revisions || [], true);
