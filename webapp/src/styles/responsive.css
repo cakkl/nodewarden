@@ -761,24 +761,11 @@
     padding-bottom: 7px;
   }
 
-  .section-head {
-    @apply flex-col items-start gap-2.5;
-  }
-
-  .detail-actions {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 5px;
-  }
-
-  .detail-actions .actions {
-    width: 100%;
-  }
-
-  .detail-actions .actions .btn,
-  .detail-delete-btn {
-    width: 100%;
-  }
+  /* 注：`.section-head` 与 `.detail-actions` 的「移动形态」不再放在这里。
+     1181–640px 这一带（电脑半屏就落在这里）往往**放得下**电脑形态，
+     无条件堆叠反而让每个按钮独占一整行。现在拆成两块：
+       · 中间区（1181–640）见本文件末尾的 `@media (min-width: 641px) and (max-width: 1180px)`
+       · 手机区（≤640）  见下方 `@media (max-width: 640px)` */
 
   .kv-row {
     grid-template-columns: minmax(64px, 80px) minmax(0, 1fr) auto;
@@ -1040,6 +1027,35 @@
 }
 
 @media (max-width: 640px) {
+  /* 手机区：标题独占一行、按钮组一律单列填满整行 —— 与改动前保持一致。 */
+  .section-head {
+    @apply flex-col items-start gap-2.5;
+  }
+
+  .detail-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 5px;
+  }
+
+  .detail-actions .actions {
+    width: 100%;
+  }
+
+  .detail-actions .actions .btn,
+  .detail-delete-btn {
+    width: 100%;
+  }
+
+  /* 已授权设备：手机上一行一个（覆盖中间区的两列网格）。
+     注意 `display: grid` 也要在这里补 —— 中间区那份在 641px 以上才生效。 */
+  .authorized-devices-head-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+
   .settings-category-layout {
     gap: 12px;
   }
@@ -1477,5 +1493,52 @@
   .backup-help-wrap:focus-within .backup-help-bubble,
   .backup-help-wrap.open .backup-help-bubble {
     transform: translate(0, 0);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   中间宽度（1181–640px）：电脑与手机之间的那一段
+   ═══════════════════════════════════════════════════════════════════════════
+
+   三区约定：
+     · 电脑 >1180px   —— 原样（标题与按钮同行、按钮自然宽度）
+     · 中间 1181–640  —— 尽量按电脑形态；某组按钮**放不下**时换到下一行并撑满该行
+                        （两个一行或一个一行；同类里「删除」尽量凑同一行）
+     · 手机 ≤640px    —— 见上方 `@media (max-width: 640px)`，与改动前一致
+
+   为什么不复用 ≤1180px 那一块：`.section-head` / `.detail-actions` 的移动形态
+   在 1181–640px 常常是多余的（明明放得下却被压成一列），所以只让 ≤640px 继承它们。
+   本块必须放在 ≤640 块**之后** —— 同特异性下靠后的胜出。 */
+@media (min-width: 641px) and (max-width: 1180px) {
+  /* 标题与按钮组尽量同行；放不下时按钮组整体换行，而不是把标题挤走、按钮再参差折行 */
+  .section-head {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
+  /* `flex-shrink: 0` ⇒ 按钮保持自然宽度（文字不折行），横向放不下就整组换行；
+     `flex-grow: 1`  ⇒ 换行后撑满该行，于是得到「两个一行」或「一个一行」。 */
+  .section-head .actions {
+    flex: 1 0 auto;
+    justify-content: flex-end;
+  }
+
+  /* 已授权设备：5 个按钮（后三个标签很长，共约 604px）在这一带放不进一行
+     ⇒ 用两列网格填满整行；「移除已选」单独占一行，两个「全部…」留在最后一行。 */
+  .authorized-devices-head-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+
+  .authorized-devices-head-actions > .authorized-devices-remove-selected {
+    grid-column: 1 / -1;
+  }
+
+  /* `--actions-gap` 在 ≤1180px 会从 8px 变 10px，正好把这 5 个按钮顶过临界。
+     这里改回 8px（与电脑一致），把间距的放大留给真正需要触摸目标间距的 ≤640px。 */
+  .actions {
+    gap: 8px;
   }
 }

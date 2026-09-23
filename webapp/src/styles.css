@@ -830,6 +830,17 @@ h4 {
   grid-template-columns: 260px 280px minmax(0, 1fr);
 }
 
+/* 云端备份：1181–1300px 时上面的固定三栏把详情列压到 ~344px，
+   「详情标题 + 四个按钮（保存设置 / 启停计划 / 手动执行 / 删除，含间距约 392px）」
+   放不进一行，按钮会参差折成两行。这里按比例收窄两个侧栏，让详情列放得下；
+   >1300px 保持原样，≤1180px 由下面的单列规则接管。
+   ⚠️ 必须写在**打磨层**：`responsive.css` 里的同特异性规则会被上面这条反压（加载顺序在它之前）。 */
+@media (min-width: 1181px) and (max-width: 1300px) {
+  .backup-grid {
+    grid-template-columns: minmax(200px, 23%) minmax(200px, 23%) minmax(0, 1fr);
+  }
+}
+
 .backup-operations-sidebar,
 .backup-destination-sidebar,
 .backup-detail-panel {
@@ -1419,6 +1430,11 @@ input[type='file'].input::file-selector-button {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
+  }
+
+  /* 手机上：刷新独占一行，两个「删除…」并排 —— 破坏性操作凑同一行，不把刷新拆到中间 */
+  .admin-invites-head-actions > .btn:first-child {
+    grid-column: 1 / -1;
   }
 
   .admin-invites-head-actions .btn {
