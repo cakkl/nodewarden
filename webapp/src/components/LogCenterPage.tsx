@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'preact/hooks';
 import { ChevronLeft, ChevronRight, Database, RefreshCw, Save, Search, Server, Settings2, ShieldAlert, Smartphone, Trash2, UserRound, X } from 'lucide-preact';
 import LoadingState from '@/components/LoadingState';
 import type { AuditLogFilters } from '@/lib/api/admin';
-import { t } from '@/lib/i18n';
+import { t, translateServerError } from '@/lib/i18n';
 import { useDateTimeFormat } from '@/lib/datetime';
 import type { AuditLogCategory, AuditLogEntry, AuditLogLevel, AuditLogListResult, AuditLogSettings } from '@/lib/types';
 
@@ -150,6 +150,9 @@ function formatMetaValueForKey(key: string, value: unknown): string {
   if (key === 'type' && typeof value === 'string') {
     return formatTargetType(value);
   }
+  // 后端往 `error` 里写的是英文原句（如 `Another backup run is already in progress`），
+  // 走与 API 错误提示同一套翻译；未命中时它返回原文，所以不会把看不懂的文案弄丢。
+  if (key === 'error' && typeof value === 'string') return translateServerError(value, value);
   return formatMetaValue(value);
 }
 
@@ -341,6 +344,16 @@ export default function LogCenterPage(props: LogCenterPageProps) {
         </button>
         <button
           type="button"
+          className="btn btn-secondary log-mobile-refresh-trigger"
+          aria-label={t('txt_refresh')}
+          title={t('txt_refresh')}
+          disabled={loading}
+          onClick={() => void load(offset)}
+        >
+          <RefreshCw size={18} />
+        </button>
+        <button
+          type="button"
           className={`btn btn-secondary log-mobile-settings-trigger ${settingsOpen ? 'active' : ''}`}
           aria-label={t('txt_log_settings')}
           title={t('txt_log_settings')}
@@ -515,7 +528,7 @@ export default function LogCenterPage(props: LogCenterPageProps) {
 
       <div className="log-center-grid">
         <section className="card log-list-panel">
-          <div className="section-head">
+          <div className="section-head log-list-head">
             <h3>{t('txt_audit_events')}</h3>
             <span className="muted-inline">{page} / {totalPages}</span>
           </div>

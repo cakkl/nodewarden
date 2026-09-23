@@ -557,7 +557,8 @@ export async function handleSetVerifyDevices(request: Request, env: Env, userId:
     targetType: 'user',
     targetId: user.id,
     metadata: {
-      reason: 'new-device verification is not implemented yet',
+      // 日志中心拿它拼 `txt_log_reason_<snake>` 查标签；写成句子会拼出查不到的键、回退成英文。
+      reason: 'new_device_verification_unsupported',
       ...auditRequestMetadata(request),
     },
   });
@@ -980,8 +981,8 @@ export async function handlePutDeviceVerificationSettings(request: Request, env:
     targetId: user.id,
     metadata: {
       requested: rawEnabled,
-      reason: 'new-device verification is not implemented yet',
-      // `trigger` 已在白名单且有标签（原键名 `source` 未登记，会被静默丢弃）。
+      reason: 'new_device_verification_unsupported',
+      // 键名必须是 `trigger`（原 `source` 未登记，会被 sanitizeMetadata 静默丢弃）。
       trigger: 'two-factor.device-verification-settings',
       ...auditRequestMetadata(request),
     },

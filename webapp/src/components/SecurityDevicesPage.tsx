@@ -110,14 +110,14 @@ export default function SecurityDevicesPage(props: SecurityDevicesPageProps) {
         />
 
         <section className="card">
-          <div className="section-head">
+          <div className="section-head authorized-devices-head">
             <div>
               <h3 className="flush-title">{t('txt_authorized_devices')}</h3>
               <div className="muted-inline section-note">
                 {t('txt_manage_device_sessions_and_30_day_totp_trusted_sessions')}
               </div>
             </div>
-            <div className="actions">
+            <div className="actions authorized-devices-head-actions">
               <button type="button" className="btn btn-secondary small" disabled={props.loading} onClick={props.onRefresh}>
                 <RefreshCw size={14} className="btn-icon" />
                 {t('txt_refresh')}
@@ -133,7 +133,7 @@ export default function SecurityDevicesPage(props: SecurityDevicesPageProps) {
               </button>
               <button
                 type="button"
-                className="btn btn-danger small"
+                className="btn btn-danger small authorized-devices-remove-selected"
                 disabled={selectedDevices.length === 0}
                 onClick={() => {
                   props.onRemoveSelectedDevices(selectedDevices);

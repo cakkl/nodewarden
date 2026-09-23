@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { CheckCheck, ChevronLeft, Copy, Eye, EyeOff, File, FileText, LayoutGrid, Lock, Pencil, Plus, RefreshCw, Save, Send as SendIcon, Trash2, X } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import LoadingState from '@/components/LoadingState';
+import MobileFilterMenu, { type MobileFilterOption } from '@/components/MobileFilterMenu';
 import type { Send, SendDraft } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { useDateTimeFormat } from '@/lib/datetime';
@@ -140,6 +141,14 @@ export default function SendsPage(props: SendsPageProps) {
       setMobilePanel('list');
     }
   }, [isMobileLayout, isEditing, selectedId]);
+
+  /** 手机 / 中间态（≤1180px）的「类型」筛选下拉；桌面形态仍用左侧栏，共用同一个 `typeFilter`。 */
+  const sendTypeFilterOptions: MobileFilterOption[] = [
+    { value: 'all', label: t('txt_all_sends'), icon: <LayoutGrid size={14} />, active: typeFilter === 'all', onSelect: () => setTypeFilter('all') },
+    { value: 'text', label: t('txt_text'), icon: <FileText size={14} />, active: typeFilter === 'text', onSelect: () => setTypeFilter('text') },
+    { value: 'file', label: t('txt_file'), icon: <File size={14} />, active: typeFilter === 'file', onSelect: () => setTypeFilter('file') },
+  ];
+  const sendTypeFilterSelected = sendTypeFilterOptions.find((option) => option.active);
 
   const filteredSends = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -304,6 +313,16 @@ export default function SendsPage(props: SendsPageProps) {
             )}
           </div>
         </div>
+        {isMobileLayout && (
+          <div className="mobile-vault-filter-row mobile-sends-filter-row" aria-label={t('txt_filter')}>
+            <MobileFilterMenu
+              label={t('txt_type')}
+              selected={sendTypeFilterSelected}
+              fallbackIcon={<FileText size={14} />}
+              options={sendTypeFilterOptions}
+            />
+          </div>
+        )}
         <div className="toolbar actions">
           {/* 刷新靠左，与右侧的批量操作隔开 */}
           <button type="button" className="btn btn-secondary small list-icon-btn mr-auto" disabled={busy || props.loading} onClick={() => void props.onRefresh()}>

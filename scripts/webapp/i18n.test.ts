@@ -9,9 +9,11 @@
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 
-import { AVAILABLE_LOCALES, getLocale, t, translateServerError } from '../../webapp/src/lib/i18n';
+import { AVAILABLE_LOCALES, getLocale, setLocale, t, translateServerError } from '../../webapp/src/lib/i18n';
 import { REMOTE_REQUEST_ACTIONS, buildRemoteTimeoutMessage } from '../../shared/backup-timeout-message';
 
 // ---------------------------------------------------------------- 插值
@@ -145,4 +147,108 @@ test('translateServerError：HTTP 状态类失败仍按「provider + 动作 + �
     translateServerError('WebDAV upload failed: 403', 'fallback'),
     'WebDAV upload failed: HTTP 403.'
   );
+});
+
+// -------------------------------------------- 日志中心标签覆盖（防「静默退回英文」）
+//
+// `LogCenterPage` 把审计里的四类**值**拼成键去查标签（`txt_log_{action,reason,trigger,target_type}_<snake>`），
+// 查不到就 humanize 成英文 —— 不报错、不警告，中文界面上就那么冒出一句 `Lease / Held`。
+// 实测踩过：`backup.scheduled.skipped` 的动作、`lease_held` 等原因、`error` 里的整句英文都中过招。
+// 所以这里扫源码、按四类逐个验十种语言都有标签；**新增事件时忘了加标签会直接变红**。
+
+/** 与 `webapp/src/components/LogCenterPage.tsx` 的 `keyFor()` 保持一致 */
+function logLabelKey(prefix: string, value: string): string {
+  return `${prefix}${value.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^A-Za-z0-9]+/g, '_').toLowerCase()}`;
+}
+
+/** `auth.refresh.failed.<reason>` 由日志中心拆成「动作 + 原因」两段渲染 */
+const REFRESH_FAILED_PREFIX = 'auth.refresh.failed.';
+
+function collectSourceFiles(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) collectSourceFiles(abs, out);
+    else if (/\.tsx?$/.test(entry.name) && !entry.name.endsWith('.test.ts')) out.push(abs);
+  }
+  return out;
+}
+
+interface LabelGroup {
+  /** 出问题时打印给人看的类别名 */
+  label: string;
+  prefix: string;
+  values: Set<string>;
+}
+
+/**
+ * 从 `src/` 扫出日志中心会拿去查标签的四类值。
+ *
+ * 只扫生产代码：`scripts/` 与 webapp 测试自己也会写这些字面量，混进来会互相干扰。
+ */
+function collectLabelGroups(): LabelGroup[] {
+  const actions = new Set<string>();
+  const reasons = new Set<string>();
+  const triggers = new Set<string>();
+  const targetTypes = new Set<string>();
+  const root = path.resolve(import.meta.dirname, '../..');
+
+  for (const file of collectSourceFiles(path.join(root, 'src'))) {
+    const source = readFileSync(file, 'utf8');
+    // `action: '...'` / `action: someVariable`（再回头找同文件里的赋值）/ 位置参数式调用
+    for (const m of source.matchAll(/action:\s*'([^']+)'/g)) actions.add(m[1]);
+    for (const m of source.matchAll(/action:\s*([A-Za-z_$][\w$]*)/g)) {
+      for (const a of source.matchAll(new RegExp(`\\b${m[1]}\\s*=\\s*'([^']+)'`, 'g'))) actions.add(a[1]);
+    }
+    for (const m of source.matchAll(/write\w*Audit\w*\(\s*storage\s*,\s*[^,]+,\s*'([^']+)'/g)) actions.add(m[1]);
+    for (const m of source.matchAll(/reason:\s*'([^']+)'/g)) reasons.add(m[1]);
+    for (const m of source.matchAll(/trigger:\s*'([^']+)'/g)) triggers.add(m[1]);
+    for (const m of source.matchAll(/targetType:\s*'([^']+)'/g)) targetTypes.add(m[1]);
+  }
+
+  for (const action of [...actions]) {
+    if (action.startsWith(REFRESH_FAILED_PREFIX)) {
+      reasons.add(action.slice(REFRESH_FAILED_PREFIX.length));
+      actions.delete(action);
+    }
+  }
+
+  return [
+    { label: '动作', prefix: 'txt_log_action_', values: actions },
+    { label: '原因', prefix: 'txt_log_reason_', values: reasons },
+    { label: '触发方式', prefix: 'txt_log_trigger_', values: triggers },
+    { label: '目标类型', prefix: 'txt_log_target_type_', values: targetTypes },
+  ];
+}
+
+test('日志中心用到的每个值，在全部语言包都有标签（扫不到时也要红，防止护栏自己失效）', async () => {
+  const groups = collectLabelGroups();
+
+  // 先确认扫描本身没坏：数量明显偏少说明正则失效了，此时「无缺失」是假阳性
+  const expectedAtLeast: Record<string, number> = {
+    txt_log_action_: 30,
+    txt_log_reason_: 10,
+    txt_log_trigger_: 3,
+    txt_log_target_type_: 8,
+  };
+  for (const group of groups) {
+    assert.ok(
+      group.values.size >= expectedAtLeast[group.prefix],
+      `扫描 ${group.label} 只拿到 ${group.values.size} 个值（预期 ≥ ${expectedAtLeast[group.prefix]}），正则可能已失效`
+    );
+  }
+
+  const missing: string[] = [];
+  for (const { value: locale } of AVAILABLE_LOCALES) {
+    await setLocale(locale);
+    for (const group of groups) {
+      for (const value of group.values) {
+        const key = logLabelKey(group.prefix, value);
+        if (t(key) === key) missing.push(`${locale} 缺 ${key}（${group.label}：${JSON.stringify(value)}）`);
+      }
+    }
+  }
+  // 换回英文，免得影响同文件里后面的用例
+  await setLocale('en');
+
+  assert.deepEqual(missing, []);
 });

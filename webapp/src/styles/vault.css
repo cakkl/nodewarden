@@ -297,6 +297,14 @@ select.input.duplicate-mode-toolbar-select {
 
 .mobile-vault-filter-row {
   @apply hidden;
+  /* 上方 `.list-head` 到本行是 5px，而本行到下方 `.toolbar` 是 0 —— 补成等距。
+     大屏下本行 `display: none`，margin 无影响。 */
+  margin-bottom: 5px;
+}
+
+/* Send 只有「类型」一个下拉，沿用上面的 `repeat(3, 1fr)` 会让它只占三分之一宽。 */
+.mobile-vault-filter-row.mobile-sends-filter-row {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .mobile-vault-filter-control {
@@ -1146,8 +1154,9 @@ select.input.duplicate-mode-toolbar-select {
 
 .totp-codes-list {
   @apply grid w-full items-start justify-start gap-2.5;
-  /* 列宽设上限，避免超宽屏下卡片被拉伸得过于空旷；列数仍由 --totp-columns 决定。 */
-  grid-template-columns: repeat(var(--totp-columns, 1), minmax(0, 420px));
+  /* 列数由 JS 的 `--totp-columns` 决定；列宽必须用 `1fr` 均分 ——
+     设上限（如 420px）时只有列宽恰好铺满容器才会齐，否则右侧留一大片空白。 */
+  grid-template-columns: repeat(var(--totp-columns, 1), minmax(0, 1fr));
 }
 
 /* 加载骨架与空态需要横跨整行，否则宽屏下只占第一列，数据到达时会产生布局跳变。 */
