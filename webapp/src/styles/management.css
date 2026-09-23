@@ -1228,11 +1228,10 @@
   .log-filter-actions {
     @apply col-span-2;
   }
-
-  .log-center-grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: repeat(2, minmax(220px, 1fr));
-  }
+  /* ⚠️ 这里原本把 `.log-center-grid` 改成「一列两行、上下各占一半」，
+     但 761–1120px（电脑半屏就落在这里）既不是电脑的左右分栏、
+     也不是手机的切页形态（≤760px）—— 上下各半反而两边都用不了。
+     改为继续用上面的两列网格：这个带宽里两列各自还有 370–545px，够用。 */
 }
 
 @media (max-width: 760px) {
