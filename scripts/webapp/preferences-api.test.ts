@@ -54,6 +54,7 @@ test('detect：POST 到 detect 端点，并原样带上浏览器检测值', asyn
     autoLocale: true,
     timezone: 'Asia/Shanghai',
     autoTimezone: true,
+    mailOptIn: false,
     localeWritten: true,
     timezoneWritten: true,
   });
@@ -85,6 +86,7 @@ test('detect：空串与缺失字段归一成 null（不让空串冒充「已设
     timezone: '',
     autoLocale: 0,
     autoTimezone: 1,
+    mailOptIn: 1,
     localeWritten: 0,
   });
 
@@ -94,8 +96,25 @@ test('detect：空串与缺失字段归一成 null（不让空串冒充「已设
   assert.equal(result.timezone, null);
   assert.equal(result.autoLocale, false);
   assert.equal(result.autoTimezone, true, '真值转换（1 → true）');
+  assert.equal(result.mailOptIn, true, '真值转换同样适用于 mailOptIn');
   assert.equal(result.localeWritten, false);
   assert.equal(result.timezoneWritten, false, '字段缺失时按 false，不能是 undefined');
+});
+
+test('save：「允许发通知邮件」可单独提交，且回读仍是布尔', async () => {
+  const { calls, authedFetch } = stubFetch({
+    locale: 'zh-CN',
+    autoLocale: false,
+    timezone: 'Asia/Shanghai',
+    autoTimezone: false,
+    mailOptIn: true,
+  });
+
+  const result = await savePreferences(authedFetch, { mailOptIn: true });
+
+  assert.deepEqual(calls[0].body, { mailOptIn: true }, '只提交该字段，不捎带语言/时区');
+  assert.equal(result.mailOptIn, true);
+  assert.equal(typeof result.mailOptIn, 'boolean', '必须是布尔，而不是 0/1');
 });
 
 test('save：PUT 到 preferences 端点，显式 null 必须保留（清空回未设定的语义）', async () => {
@@ -104,6 +123,7 @@ test('save：PUT 到 preferences 端点，显式 null 必须保留（清空回�
     autoLocale: false,
     timezone: null,
     autoTimezone: false,
+    mailOptIn: false,
   });
 
   const result = await savePreferences(authedFetch, { locale: null, timezone: null });
@@ -122,6 +142,7 @@ test('save：只传一个字段时不动另一个（省略 = 不改）', async (
     autoLocale: true,
     timezone: 'UTC',
     autoTimezone: false,
+    mailOptIn: false,
   });
 
   await savePreferences(authedFetch, { localeAuto: true, locale: 'en' });

@@ -22,6 +22,7 @@ function normalizePreferences(raw: unknown): MailPreferences {
     autoLocale: !!body.autoLocale,
     timezone: text(body.timezone),
     autoTimezone: !!body.autoTimezone,
+    mailOptIn: !!body.mailOptIn,
   };
 }
 

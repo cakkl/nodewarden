@@ -190,6 +190,8 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [verificationCode, setVerificationCode] = useState('');
   const [emailVerificationBusy, setEmailVerificationBusy] = useState(false);
   const [emailVerificationDialogOpen, setEmailVerificationDialogOpen] = useState(false);
+  /** 「允许发送通知邮件」的保存中状态（值本身是受控的：直接取自 props.mailPreferences）。 */
+  const [mailOptInBusy, setMailOptInBusy] = useState(false);
   const [verificationResendIn, setVerificationResendIn] = useState(0);
 
   // 用 ref 持有最新的加载函数：父组件传的是内联箭头函数，每帧都是新引用，
@@ -602,6 +604,22 @@ export default function SettingsPage(props: SettingsPageProps) {
     );
   }
 
+  /**
+   * 「允许发送通知邮件」。勾选框的值直接取自 `props.mailPreferences`（不本地乐观更新）⇒
+   * 保存失败时界面自动回到原值，只需给出提示。
+   */
+  async function changeMailOptIn(next: boolean): Promise<void> {
+    if (!props.onSaveMailPreferences) return;
+    setMailOptInBusy(true);
+    try {
+      await props.onSaveMailPreferences({ mailOptIn: next });
+    } catch {
+      props.onNotify?.('error', t('txt_preferences_save_failed'));
+    } finally {
+      setMailOptInBusy(false);
+    }
+  }
+
   function closeTotpManageDialog(): void {
     setTotpManageDialogOpen(false);
     setTotpManagePassword('');
@@ -1005,6 +1023,24 @@ export default function SettingsPage(props: SettingsPageProps) {
                     )}
                   </div>
                   <p className="field-help">{t('txt_change_email_unavailable')}</p>
+                  {/* 是否接收安全通知邮件。两个前提缺一不可：服务端**能**发信（否则开关无意义）、
+                      且邮箱**已验证**（未验证按第 31 条的 gate 语义本来就不会发通知）。
+                      放在邮箱区最后：它属于「意愿」，与地址/验证（事实）分层。 */}
+                  {emailVerification?.available && emailVerification.verified && (
+                    <div className="settings-checkbox-block" style={{ marginTop: '14px' }}>
+                      <label className="settings-switch">
+                        <input
+                          type="checkbox"
+                          checked={!!props.mailPreferences?.mailOptIn}
+                          disabled={mailOptInBusy}
+                          onInput={(e) => void changeMailOptIn((e.currentTarget as HTMLInputElement).checked)}
+                        />
+                        <span aria-hidden="true" />
+                        <strong>{t('txt_mail_opt_in')}</strong>
+                      </label>
+                      <div className="field-help">{t('txt_mail_opt_in_help')}</div>
+                    </div>
+                  )}
                 </section>
               )}
 

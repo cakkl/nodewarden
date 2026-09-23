@@ -83,6 +83,8 @@ const it: Record<string, string> = {
   "txt_email_verification_sent_hint": "È stato inviato un codice. È valido per 15 minuti.",
   "txt_email_verification_failed": "Verifica email non riuscita",
   "txt_change_email": "Cambia email",
+  "txt_mail_opt_in": "Ricevi email di notifica di sicurezza",
+  "txt_mail_opt_in_help": "Consenti a questo server di inviarti notifiche di sicurezza sul tuo account. Le email che richiedi tu stesso (come i codici di verifica) non sono interessate.",
   "txt_change_email_unavailable": "La modifica dell'indirizzo email non è ancora disponibile.",
   "txt_verify_email_address": "Verifica indirizzo email",
   "txt_current_email": "Email attuale",

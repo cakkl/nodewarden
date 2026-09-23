@@ -18,7 +18,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT, master_password_hint TEXT, master_password_hash TEXT NOT NULL, ' +
   'key TEXT NOT NULL, private_key TEXT, public_key TEXT, kdf_type INTEGER NOT NULL, ' +
   'kdf_iterations INTEGER NOT NULL, kdf_memory INTEGER, kdf_parallelism INTEGER, ' +
-  'security_stamp TEXT NOT NULL, role TEXT NOT NULL DEFAULT \'user\', status TEXT NOT NULL DEFAULT \'active\', verify_devices INTEGER NOT NULL DEFAULT 0, totp_secret TEXT, totp_recovery_code TEXT, yubikey_key1 TEXT, yubikey_key2 TEXT, yubikey_key3 TEXT, yubikey_key4 TEXT, yubikey_key5 TEXT, yubikey_nfc INTEGER NOT NULL DEFAULT 0, api_key TEXT, email_verified INTEGER NOT NULL DEFAULT 0, locale TEXT, auto_locale INTEGER NOT NULL DEFAULT 0, timezone TEXT, auto_timezone INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)',
+  'security_stamp TEXT NOT NULL, role TEXT NOT NULL DEFAULT \'user\', status TEXT NOT NULL DEFAULT \'active\', verify_devices INTEGER NOT NULL DEFAULT 0, totp_secret TEXT, totp_recovery_code TEXT, yubikey_key1 TEXT, yubikey_key2 TEXT, yubikey_key3 TEXT, yubikey_key4 TEXT, yubikey_key5 TEXT, yubikey_nfc INTEGER NOT NULL DEFAULT 0, api_key TEXT, email_verified INTEGER NOT NULL DEFAULT 0, locale TEXT, auto_locale INTEGER NOT NULL DEFAULT 0, timezone TEXT, auto_timezone INTEGER NOT NULL DEFAULT 0, mail_opt_in INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)',
   'ALTER TABLE users ADD COLUMN master_password_hint TEXT',
   'ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT \'user\'',
   'ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT \'active\'',
@@ -41,6 +41,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'ALTER TABLE users ADD COLUMN auto_locale INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE users ADD COLUMN timezone TEXT',
   'ALTER TABLE users ADD COLUMN auto_timezone INTEGER NOT NULL DEFAULT 0',
+  // 是否允许本服务向该用户发送**通知类**邮件（安全通知等）；默认 0 = 关闭。
+  // 只约束服务端主动发送的通知，用户主动请求的验证码不受影响。
+  'ALTER TABLE users ADD COLUMN mail_opt_in INTEGER NOT NULL DEFAULT 0',
 
   // 邮箱验证码。`user_id` 作主键 ⇒ 每个用户同时只有一个待用码（新码覆盖旧码）。
   // 存 `email` 是为了让「发码后用户改了邮箱」的旧码立即失效。

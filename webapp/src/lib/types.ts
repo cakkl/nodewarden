@@ -454,6 +454,8 @@ export interface MailPreferences {
   autoLocale: boolean;
   timezone: string | null;
   autoTimezone: boolean;
+  /** 是否允许本服务发**通知类**邮件；用户主动请求的验证码不受影响。 */
+  mailOptIn: boolean;
 }
 
 /** `detect` 的返回：最新偏好 + 本次是否真的写入（false = 已有手动值，未被覆盖）。 */
@@ -471,6 +473,7 @@ export interface MailPreferencesUpdate {
   localeAuto?: boolean;
   timezone?: string | null;
   timezoneAuto?: boolean;
+  mailOptIn?: boolean;
 }
 
 /** 保存时提交的字段；`password` 留空表示保持原口令不变。 */

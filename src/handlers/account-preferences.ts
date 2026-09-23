@@ -36,6 +36,7 @@ function preferencesResponse(user: User): Record<string, unknown> {
     autoLocale: !!user.autoLocale,
     timezone: user.timezone ?? null,
     autoTimezone: !!user.autoTimezone,
+    mailOptIn: !!user.mailOptIn,
   };
 }
 
@@ -73,6 +74,7 @@ export async function handleUpdatePreferences(
     localeAuto?: boolean;
     timezone?: string | null;
     timezoneAuto?: boolean;
+    mailOptIn?: boolean;
   } = {};
 
   if ('locale' in body) {
@@ -107,14 +109,20 @@ export async function handleUpdatePreferences(
     if (typeof body.timezoneAuto !== 'boolean') return errorResponse('timezoneAuto must be a boolean', 400);
     update.timezoneAuto = body.timezoneAuto;
   }
+  // 「允许发通知邮件」：与语言/时区同一条 PUT，但它不是浏览器检测值，`detect` 不碰它。
+  if ('mailOptIn' in body) {
+    if (typeof body.mailOptIn !== 'boolean') return errorResponse('mailOptIn must be a boolean', 400);
+    update.mailOptIn = body.mailOptIn;
+  }
 
   if (
     update.locale === undefined &&
     update.localeAuto === undefined &&
     update.timezone === undefined &&
-    update.timezoneAuto === undefined
+    update.timezoneAuto === undefined &&
+    update.mailOptIn === undefined
   ) {
-    return errorResponse('locale or timezone is required', 400);
+    return errorResponse('at least one preference field is required', 400);
   }
 
   await saveUserPreferences(env.DB, currentUser.id, update);

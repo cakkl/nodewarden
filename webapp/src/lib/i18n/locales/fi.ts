@@ -83,6 +83,8 @@ const fi: Record<string, string> = {
   "txt_email_verification_sent_hint": "Koodi on lähetetty. Se on voimassa 15 minuuttia.",
   "txt_email_verification_failed": "Sähköpostin vahvistus epäonnistui",
   "txt_change_email": "Vaihda sähköposti",
+  "txt_mail_opt_in": "Vastaanota turvailmoituksia sähköpostitse",
+  "txt_mail_opt_in_help": "Salli tämän palvelimen lähettää tilisi turvailmoituksia. Itse pyytämäsi sähköpostit (kuten vahvistuskoodit) eivät muutu.",
   "txt_change_email_unavailable": "Sähköpostiosoitteen vaihtaminen ei ole vielä käytettävissä.",
   "txt_verify_email_address": "Vahvista sähköpostiosoite",
   "txt_current_email": "Nykyinen sähköposti",

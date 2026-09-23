@@ -84,6 +84,8 @@ const ru: Record<string, string> = {
   "txt_email_verification_sent_hint": "Код отправлен. Он действует 15 минут.",
   "txt_email_verification_failed": "Не удалось подтвердить почту",
   "txt_change_email": "Изменить почту",
+  "txt_mail_opt_in": "Получать уведомления о безопасности по почте",
+  "txt_mail_opt_in_help": "Разрешить этому серверу отправлять уведомления о безопасности вашей учётной записи. Письма, запрошенные вами (например, коды подтверждения), не затрагиваются.",
   "txt_change_email_unavailable": "Изменение адреса почты пока недоступно.",
   "txt_verify_email_address": "Подтвердить адрес почты",
   "txt_current_email": "Текущая почта",

@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS users (
   auto_locale INTEGER NOT NULL DEFAULT 0,
   timezone TEXT,
   auto_timezone INTEGER NOT NULL DEFAULT 0,
+  -- 是否允许本服务向该用户发送**通知类**邮件（安全通知等）。
+  -- 默认 0 = 关闭：与「服务端能联系用户」构成双向自愿。
+  -- 只约束服务端主动发送的通知；用户主动请求的验证码邮件不受影响。
+  mail_opt_in INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

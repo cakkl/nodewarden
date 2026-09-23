@@ -83,6 +83,8 @@ const sv: Record<string, string> = {
   "txt_email_verification_sent_hint": "En kod har skickats. Den gäller i 15 minuter.",
   "txt_email_verification_failed": "E-postverifieringen misslyckades",
   "txt_change_email": "Ändra e-post",
+  "txt_mail_opt_in": "Ta emot säkerhetsaviseringar via e-post",
+  "txt_mail_opt_in_help": "Tillåt denna server att skicka säkerhetsaviseringar om ditt konto. E-post som du själv begär (t.ex. verifieringskoder) påverkas inte.",
   "txt_change_email_unavailable": "Det går ännu inte att ändra e-postadressen.",
   "txt_verify_email_address": "Verifiera e-postadress",
   "txt_current_email": "Nuvarande e-post",

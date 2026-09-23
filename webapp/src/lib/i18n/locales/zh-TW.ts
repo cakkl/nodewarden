@@ -83,6 +83,8 @@ const zhTW: Record<string, string> = {
   "txt_email_verification_sent_hint": "驗證碼已寄出，15 分鐘內有效。",
   "txt_email_verification_failed": "電子郵件驗證失敗",
   "txt_change_email": "修改電子郵件",
+  "txt_mail_opt_in": "接收安全通知郵件",
+  "txt_mail_opt_in_help": "允許本服務寄送帳戶安全通知給你。你自己主動請求的郵件（如驗證碼）不受影響。",
   "txt_change_email_unavailable": "暫不支援修改電子郵件地址。",
   "txt_verify_email_address": "驗證電子郵件地址",
   "txt_current_email": "目前電子郵件",

@@ -83,6 +83,8 @@ const en: Record<string, string> = {
   "txt_email_verification_sent_hint": "A verification code has been sent. It is valid for 15 minutes.",
   "txt_email_verification_failed": "Email verification failed",
   "txt_change_email": "Change email",
+  "txt_mail_opt_in": "Receive security notification emails",
+  "txt_mail_opt_in_help": "Allow this server to send you security notifications about your account. Emails you request yourself, such as verification codes, are not affected.",
   "txt_change_email_unavailable": "Changing the email address is not available yet.",
   "txt_verify_email_address": "Verify email address",
   "txt_current_email": "Current email",

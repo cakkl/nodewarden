@@ -655,7 +655,7 @@ async function importBackupRows(db: D1Database, payload: BackupPayload['db'], us
   await insertRows(
     db,
     tableName('users'),
-    ['id', 'email', 'name', 'master_password_hint', 'master_password_hash', 'key', 'private_key', 'public_key', 'kdf_type', 'kdf_iterations', 'kdf_memory', 'kdf_parallelism', 'security_stamp', 'role', 'status', 'verify_devices', 'totp_secret', 'totp_recovery_code', 'yubikey_key1', 'yubikey_key2', 'yubikey_key3', 'yubikey_key4', 'yubikey_key5', 'yubikey_nfc', 'email_verified', 'locale', 'auto_locale', 'timezone', 'auto_timezone', 'created_at', 'updated_at'],
+    ['id', 'email', 'name', 'master_password_hint', 'master_password_hash', 'key', 'private_key', 'public_key', 'kdf_type', 'kdf_iterations', 'kdf_memory', 'kdf_parallelism', 'security_stamp', 'role', 'status', 'verify_devices', 'totp_secret', 'totp_recovery_code', 'yubikey_key1', 'yubikey_key2', 'yubikey_key3', 'yubikey_key4', 'yubikey_key5', 'yubikey_nfc', 'email_verified', 'locale', 'auto_locale', 'timezone', 'auto_timezone', 'mail_opt_in', 'created_at', 'updated_at'],
     payload.users || []
   );
   await insertRows(db, tableName('user_revisions'), ['user_id', 'revision_date'], payload.user_revisions || [], true);

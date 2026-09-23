@@ -55,6 +55,14 @@ function rawPrefs(handle: Handle): Record<string, unknown> {
   return { ...row };
 }
 
+/** 「允许发通知邮件」单独读：它不参与语言/时区的自动检测，断言也分开。 */
+function rawMailOptIn(handle: Handle): number {
+  const row = handle.connection
+    .prepare('SELECT mail_opt_in FROM users WHERE id = ?')
+    .get(USER_ID) as { mail_opt_in: number };
+  return Number(row.mail_opt_in);
+}
+
 async function readJson(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
@@ -70,6 +78,7 @@ test('未设定时：GET 返回 null + auto=false', async () => {
     autoLocale: false,
     timezone: null,
     autoTimezone: false,
+    mailOptIn: false,
   });
 
   handle.close();
@@ -90,6 +99,7 @@ test('PUT 设定语言与时区 ⇒ 落库并标记为「手动」（auto = 0）
     autoLocale: false,
     timezone: 'Asia/Shanghai',
     autoTimezone: false,
+    mailOptIn: false,
   });
   assert.deepStrictEqual(rawPrefs(handle), {
     locale: 'zh-CN',
@@ -365,6 +375,74 @@ test('PUT：localeAuto 非布尔 ⇒ 400', async () => {
     await currentUser()
   );
   assert.equal(response.status, 400);
+
+  handle.close();
+});
+
+test('「允许发通知邮件」：默认关闭，开启后落库为 1 且 GET 回读一致', async () => {
+  const { handle, env, currentUser } = await setup();
+  const user = await currentUser();
+
+  // 默认关闭 —— 与「服务端能联系用户」构成双向自愿
+  assert.equal(rawMailOptIn(handle), 0);
+  const initial = await readJson(await handleGetPreferences(jsonRequest('GET'), env, user));
+  assert.equal(initial.mailOptIn, false);
+
+  const enabled = await handleUpdatePreferences(jsonRequest('PUT', { mailOptIn: true }), env, user);
+  assert.equal(enabled.status, 200);
+  assert.equal((await readJson(enabled)).mailOptIn, true);
+  assert.equal(rawMailOptIn(handle), 1, '必须真正落库，而不只是回显');
+
+  const readBack = await readJson(await handleGetPreferences(jsonRequest('GET'), env, user));
+  assert.equal(readBack.mailOptIn, true, 'GET 应回读同一份值');
+
+  handle.close();
+});
+
+test('「允许发通知邮件」：可以再关回去', async () => {
+  const { handle, env, currentUser } = await setup();
+  const user = await currentUser();
+
+  await handleUpdatePreferences(jsonRequest('PUT', { mailOptIn: true }), env, user);
+  assert.equal(rawMailOptIn(handle), 1);
+
+  const disabled = await handleUpdatePreferences(jsonRequest('PUT', { mailOptIn: false }), env, user);
+  assert.equal(disabled.status, 200);
+  assert.equal((await readJson(disabled)).mailOptIn, false);
+  assert.equal(rawMailOptIn(handle), 0);
+
+  handle.close();
+});
+
+test('「允许发通知邮件」：非布尔 ⇒ 400，且不改动库里的值', async () => {
+  const { handle, env, currentUser } = await setup();
+  const user = await currentUser();
+
+  for (const bad of ['true', 1, null]) {
+    const response = await handleUpdatePreferences(jsonRequest('PUT', { mailOptIn: bad }), env, user);
+    assert.equal(response.status, 400, `mailOptIn=${JSON.stringify(bad)} 应被拒绝`);
+  }
+  assert.equal(rawMailOptIn(handle), 0, '被拒绝的请求不得改动已存的值');
+
+  handle.close();
+});
+
+test('detect（登录时上报浏览器值）绝不改动「允许发通知邮件」', async () => {
+  // 护栏：detect 的入参来自浏览器，只能承载「语言/时区」这类检测值。
+  // 若将来有人把它加进 detect 的白名单，这条会红。
+  const { handle, env, currentUser } = await setup();
+  const user = await currentUser();
+
+  await handleUpdatePreferences(jsonRequest('PUT', { mailOptIn: true }), env, user);
+
+  const detected = await handleDetectPreferences(
+    jsonRequest('POST', { locale: 'zh-CN', timezone: 'Asia/Shanghai', mailOptIn: false }),
+    env,
+    user
+  );
+  assert.equal(detected.status, 200);
+  assert.equal(rawMailOptIn(handle), 1, 'detect 不得改写用户意愿');
+  assert.equal((await readJson(detected)).mailOptIn, true, '响应应如实回读库里的值');
 
   handle.close();
 });

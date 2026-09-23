@@ -80,6 +80,11 @@ export interface User {
   timezone?: string | null;
   /** true = 上面的 `timezone` 是自动检测来的 */
   autoTimezone?: boolean;
+  /**
+   * 是否允许本服务向该用户发送**通知类**邮件（安全通知等）。默认 false = 关闭。
+   * 只约束服务端主动发送的通知；用户主动请求的验证码邮件不受它影响。
+   */
+  mailOptIn?: boolean;
   createdAt: string;
   updatedAt: string;
 }

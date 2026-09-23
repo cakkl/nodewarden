@@ -83,6 +83,8 @@ const zhCN: Record<string, string> = {
   "txt_email_verification_sent_hint": "验证码已发出，15 分钟内有效。",
   "txt_email_verification_failed": "邮箱验证失败",
   "txt_change_email": "修改邮箱",
+  "txt_mail_opt_in": "接收安全通知邮件",
+  "txt_mail_opt_in_help": "允许本服务向你发送账户安全通知。你自己主动请求的邮件（如验证码）不受影响。",
   "txt_change_email_unavailable": "暂不支持修改邮箱地址。",
   "txt_verify_email_address": "验证邮箱地址",
   "txt_current_email": "当前邮箱",
