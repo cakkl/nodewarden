@@ -62,7 +62,7 @@ export default function AdminPage(props: AdminPageProps) {
         </div>
       )}
       <section className="card">
-        <div className="section-head">
+        <div className="section-head admin-users-head">
           <h3>{t('txt_users')}</h3>
           <button type="button" className="btn btn-secondary small" disabled={props.loading} onClick={props.onRefresh}>
             <RefreshCw size={14} className="btn-icon" /> {t('txt_refresh')}

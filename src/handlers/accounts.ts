@@ -555,7 +555,9 @@ export async function handleSetVerifyDevices(request: Request, env: Env, userId:
     targetType: 'user',
     targetId: user.id,
     metadata: {
-      reason: 'new-device verification is not supported (no email delivery channel)',
+      // `reason` 要写成「代码」而不是句子：日志中心拿它拼 `txt_log_reason_<snake>` 查标签，
+      // 句子会拼出一个查不到的键、于是回退成英文原文。
+      reason: 'new_device_verification_unsupported',
       ...auditRequestMetadata(request),
     },
   });
@@ -976,8 +978,10 @@ export async function handlePutDeviceVerificationSettings(request: Request, env:
     targetId: user.id,
     metadata: {
       requested: rawEnabled,
-      reason: 'new-device verification is not supported (no email delivery channel)',
-      source: 'two-factor.device-verification-settings',
+      reason: 'new_device_verification_unsupported',
+      // ⚠️ 键名必须是 `trigger`（已在 ALLOWED_METADATA_KEYS 里）。
+      // 原来写的 `source` 未登记 ⇒ 被 sanitizeMetadata **静默丢弃**，日志中心里看不到。
+      trigger: 'two-factor.device-verification-settings',
       ...auditRequestMetadata(request),
     },
   });
