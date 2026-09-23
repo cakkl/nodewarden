@@ -1429,6 +1429,7 @@ const sv: Record<string, string> = {
   "txt_log_action_send_delete_bulk": "Ta bort sändningar",
   "txt_log_action_send_password_remove": "Ta bort lösenord för sändning",
   "txt_log_action_system_app_version_started": "Appversion startad",
+  "txt_log_action_system_mail_notify_failed": "Säkerhetsaviseringen kunde inte skickas",
   "txt_log_action_system_yubico_credentials_initialize": "Initiera Yubico valideringsuppgifter",
   "txt_log_action_system_yubico_credentials_reconfigure": "Konfigurera om Yubico valideringsuppgifter",
   "txt_log_action_system_yubico_credentials_update": "Uppdatera Yubico valideringsuppgifter",

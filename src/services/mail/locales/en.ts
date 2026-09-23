@@ -4,6 +4,24 @@
  * 加新语言时：复制本文件、改 `MailCopy` 里的值，并在 `index.ts` 的 `COPY` 里注册。
  * 缺失的语言会回退到英文（见 `resolveMailCopy`）。
  */
+
+/**
+ * 安全通知覆盖的事件。
+ *
+ * 新增事件时只需在这里加键 —— `Record<NotificationEventKey, string>` 会在**编译期**
+ * 拦住漏填的语言包，不需要额外的运行时护栏测试。
+ * 短句同时嵌进主题与大标题，所以写成名词短语、不带句号。
+ */
+export type NotificationEventKey =
+  | 'two_step_enabled'
+  | 'two_step_disabled'
+  | 'two_step_recovery_used'
+  | 'api_key_created'
+  | 'api_key_rotated'
+  | 'master_password_changed'
+  | 'account_disabled'
+  | 'account_deleted';
+
 export interface MailCopy {
   /** 邮件顶部与页脚显示的产品名 */
   brand: string;
@@ -23,6 +41,26 @@ export interface MailCopy {
     codeLabel: string;
     expiresLabel: string;
     outro: string;
+  };
+  /**
+   * 安全通知。**单模板 + 事件名映射**：`events` 只提供「发生了什么」，其余文案十种语言共用。
+   * `subject` / `heading` 里的 `{event}` 由对应短句填充；正文不含保管库内容或条目数量。
+   */
+  notifications: {
+    subject: string;
+    heading: string;
+    intro: string;
+    detailsTitle: string;
+    labels: { time: string; ip: string };
+    /** 收尾提醒：如非本人操作该怎么办 */
+    disclaimer: string;
+    /**
+     * 管理员发起的事件（禁用 / 删除）专用的收尾提醒。
+     *
+     * 那两种情况下用户可能已经登不进去了，「改主密码、检查已授权设备」是做不到的建议。
+     */
+    adminDisclaimer: string;
+    events: Record<NotificationEventKey, string>;
   };
   /** 页脚统一说明 */
   footer: string;
@@ -60,6 +98,27 @@ const en: MailCopy = {
     codeLabel: 'Verification code',
     expiresLabel: 'This code expires at',
     outro: 'If you did not request this, ignore this message. Your address stays unconfirmed and no notifications will be sent.',
+  },
+  notifications: {
+    subject: 'Security alert: {event}',
+    heading: 'Security alert: {event}',
+    intro: 'A change was just made to your NodeWarden account. The details are below.',
+    detailsTitle: 'Details',
+    labels: { time: 'Time', ip: 'IP address' },
+    disclaimer:
+      'If you did not expect this change, someone else may have access to your account. '
+      + 'Change your master password and review your authorized devices now.',
+    adminDisclaimer: 'If you did not expect this change, contact an administrator immediately.',
+    events: {
+      two_step_enabled: 'Two-step login turned on',
+      two_step_disabled: 'Two-step login turned off',
+      two_step_recovery_used: 'Two-step login recovery code used',
+      api_key_created: 'API key created',
+      api_key_rotated: 'API key rotated',
+      master_password_changed: 'Master password changed',
+      account_disabled: 'Account disabled by an administrator',
+      account_deleted: 'Account deleted by an administrator',
+    },
   },
   preferencesNote: {
     timezone:

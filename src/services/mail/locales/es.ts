@@ -19,6 +19,26 @@ const es: MailCopy = {
     expiresLabel: 'Este código caduca el',
     outro: 'Si no solicitaste esto, ignora este mensaje. Tu dirección quedará sin confirmar y no se enviarán notificaciones.',
   },
+  notifications: {
+    subject: 'Aviso de seguridad: {event}',
+    heading: 'Aviso de seguridad: {event}',
+    intro: 'Se acaba de realizar un cambio en tu cuenta de NodeWarden. Aquí tienes los detalles.',
+    detailsTitle: 'Detalles',
+    labels: { time: 'Hora', ip: 'Dirección IP' },
+    disclaimer: 'Si no esperabas este cambio, es posible que otra persona tenga acceso a tu cuenta. '
+      + 'Cambia tu contraseña maestra y revisa tus dispositivos autorizados ahora mismo.',
+    adminDisclaimer: 'Si no esperabas este cambio, ponte en contacto con un administrador de inmediato.',
+    events: {
+      two_step_enabled: 'Verificación en dos pasos activada',
+      two_step_disabled: 'Verificación en dos pasos desactivada',
+      two_step_recovery_used: 'Código de recuperación de la verificación en dos pasos utilizado',
+      api_key_created: 'Clave de API creada',
+      api_key_rotated: 'Clave de API rotada',
+      master_password_changed: 'Contraseña maestra cambiada',
+      account_disabled: 'Cuenta desactivada por un administrador',
+      account_deleted: 'Cuenta eliminada por un administrador',
+    },
+  },
   preferencesNote: {
     timezone: 'Nota: aún no has configurado una zona horaria, por lo que las horas se muestran en {timezone}. Configúrala en Configuración → Preferencias.',
   },

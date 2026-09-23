@@ -2,7 +2,8 @@ import { Env, User } from '../types';
 import { StorageService } from '../services/storage';
 import { AuthService } from '../services/auth';
 import { RateLimitService, getClientIdentifier } from '../services/ratelimit';
-import { auditRequestMetadata, writeAuditEvent, safeWriteAuditEvent } from '../services/audit-events';
+import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
+import { auditAndNotify } from '../services/security-notifications';
 import { jsonResponse, errorResponse } from '../utils/response';
 import { generateUUID } from '../utils/uuid';
 import { LIMITS } from '../config/limits';
@@ -780,7 +781,7 @@ export async function handleChangePassword(request: Request, env: Env, userId: s
   await storage.saveUser(user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: 'user.password.change',
     targetType: 'user',
@@ -1030,7 +1031,7 @@ export async function handlePutTwoFactorAuthenticator(request: Request, env: Env
   await storage.saveUser(user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: 'account.totp.enable',
     category: 'security',
@@ -1109,7 +1110,7 @@ export async function handlePutTwoFactorYubiKey(request: Request, env: Env, user
   await storage.saveUser(user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: 'account.yubikey.enable',
     category: 'security',
@@ -1261,7 +1262,7 @@ export async function handleDisableTwoFactorProvider(request: Request, env: Env,
   await storage.saveUser(user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: type === TWO_FACTOR_PROVIDER_AUTHENTICATOR
       ? 'account.totp.disable'
@@ -1332,7 +1333,7 @@ export async function handleSetTotpStatus(request: Request, env: Env, userId: st
     await storage.saveUser(user);
     await storage.deleteRefreshTokensByUserId(user.id);
     AuthService.invalidateUserCache(user.id);
-    await writeAuditEvent(storage, {
+    await auditAndNotify(env, {
       actorUserId: user.id,
       action: 'account.totp.enable',
       category: 'security',
@@ -1356,7 +1357,7 @@ export async function handleSetTotpStatus(request: Request, env: Env, userId: st
     await storage.saveUser(user);
     await storage.deleteRefreshTokensByUserId(user.id);
     AuthService.invalidateUserCache(user.id);
-    await writeAuditEvent(storage, {
+    await auditAndNotify(env, {
       actorUserId: user.id,
       action: 'account.totp.disable',
       category: 'security',
@@ -1486,7 +1487,7 @@ export async function handleRecoverTwoFactor(request: Request, env: Env): Promis
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
   await rateLimit.clearLoginAttempts(recoverLimitKey);
-  await safeWriteAuditEvent(env, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: 'account.totp.recover',
     category: 'security',
@@ -1596,7 +1597,7 @@ async function apiKey(request: Request, env: Env, userId: string, rotate: boolea
     AuthService.invalidateUserCache(user.id);
     auditAction = rotate ? 'account.api_key.rotate' : 'account.api_key.create';
   }
-  await writeAuditEvent(storage, {
+  await auditAndNotify(env, {
     actorUserId: user.id,
     action: auditAction,
     category: 'security',

@@ -1429,6 +1429,7 @@ const zhCN: Record<string, string> = {
   "txt_log_action_send_delete_bulk": "批量删除 Send",
   "txt_log_action_send_password_remove": "移除 Send 密码",
   "txt_log_action_system_app_version_started": "应用版本启动",
+  "txt_log_action_system_mail_notify_failed": "安全通知邮件发送失败",
   "txt_log_action_system_yubico_credentials_initialize": "初始化 Yubico 验证凭据",
   "txt_log_action_system_yubico_credentials_reconfigure": "重新配置 Yubico 验证凭据",
   "txt_log_action_system_yubico_credentials_update": "更新 Yubico 验证凭据",

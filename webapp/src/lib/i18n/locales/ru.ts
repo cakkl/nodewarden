@@ -1429,6 +1429,7 @@ const ru: Record<string, string> = {
   "txt_log_action_send_delete_bulk": "Удаление Send",
   "txt_log_action_send_password_remove": "Удаление пароля Send",
   "txt_log_action_system_app_version_started": "Запуск версии приложения",
+  "txt_log_action_system_mail_notify_failed": "Не удалось отправить уведомление безопасности",
   "txt_log_action_system_yubico_credentials_initialize": "Инициализация учетных данных проверки Yubico",
   "txt_log_action_system_yubico_credentials_reconfigure": "Переконфигурация учетных данных проверки Yubico",
   "txt_log_action_system_yubico_credentials_update": "Обновление учетных данных проверки Yubico",

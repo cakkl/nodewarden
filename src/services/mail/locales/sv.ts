@@ -19,6 +19,26 @@ const sv: MailCopy = {
     expiresLabel: 'Koden gäller till',
     outro: 'Om du inte begärde detta kan du ignorera meddelandet. Adressen förblir obekräftad och inga aviseringar skickas.',
   },
+  notifications: {
+    subject: 'Säkerhetsvarning: {event}',
+    heading: 'Säkerhetsvarning: {event}',
+    intro: 'En ändring gjordes nyss på ditt NodeWarden-konto. Uppgifterna finns nedan.',
+    detailsTitle: 'Uppgifter',
+    labels: { time: 'Tid', ip: 'IP-adress' },
+    disclaimer: 'Om du inte förväntade dig den här ändringen kan någon annan ha åtkomst till ditt konto. '
+      + 'Byt huvudlösenord och granska dina auktoriserade enheter direkt.',
+    adminDisclaimer: 'Om du inte förväntade dig den här ändringen kontaktar du en administratör omedelbart.',
+    events: {
+      two_step_enabled: 'Tvåstegsinloggning aktiverad',
+      two_step_disabled: 'Tvåstegsinloggning avaktiverad',
+      two_step_recovery_used: 'Återställningskod för tvåstegsinloggning använd',
+      api_key_created: 'API-nyckel skapad',
+      api_key_rotated: 'API-nyckel roterad',
+      master_password_changed: 'Huvudlösenord ändrat',
+      account_disabled: 'Kontot inaktiverat av en administratör',
+      account_deleted: 'Kontot borttaget av en administratör',
+    },
+  },
   preferencesNote: {
     timezone: 'Obs: ingen tidszon har angetts ännu, så tiderna visas i {timezone}. Ange din i inställningarna.',
   },

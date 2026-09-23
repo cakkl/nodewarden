@@ -1429,6 +1429,7 @@ const zhTW: Record<string, string> = {
   "txt_log_action_send_delete_bulk": "批次刪除 Send",
   "txt_log_action_send_password_remove": "移除 Send 密碼",
   "txt_log_action_system_app_version_started": "應用版本啟動",
+  "txt_log_action_system_mail_notify_failed": "安全通知郵件寄送失敗",
   "txt_log_action_system_yubico_credentials_initialize": "初始化 Yubico 驗證憑據",
   "txt_log_action_system_yubico_credentials_reconfigure": "重新設定 Yubico 驗證憑據",
   "txt_log_action_system_yubico_credentials_update": "更新 Yubico 驗證憑據",

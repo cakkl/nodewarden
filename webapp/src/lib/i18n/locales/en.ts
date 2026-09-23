@@ -1429,6 +1429,7 @@ const en: Record<string, string> = {
   "txt_log_action_send_delete_bulk": "Delete Sends",
   "txt_log_action_send_password_remove": "Remove Send password",
   "txt_log_action_system_app_version_started": "App version started",
+  "txt_log_action_system_mail_notify_failed": "Security notification email failed",
   "txt_log_action_system_yubico_credentials_initialize": "Initialize Yubico validation credentials",
   "txt_log_action_system_yubico_credentials_reconfigure": "Reconfigure Yubico validation credentials",
   "txt_log_action_system_yubico_credentials_update": "Update Yubico validation credentials",

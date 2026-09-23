@@ -13,7 +13,7 @@ import de from './locales/de';
 import fr from './locales/fr';
 import it from './locales/it';
 import sv from './locales/sv';
-import { renderTestMail, renderVerificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
+import { renderTestMail, renderVerificationMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
 
 export type MailLocale = 'en' | 'zh-CN' | 'zh-TW' | 'ru' | 'es' | 'fi' | 'de' | 'fr' | 'it' | 'sv';
 
@@ -72,7 +72,17 @@ export function renderVerificationEmail(
   return { ...renderVerificationMail(copy, input, { ...context, locale: resolved }), locale: resolved };
 }
 
-export type { MailCopy, MailRenderContext, RenderedMail, TestMailInput, VerificationMailInput };
+/** 安全通知：事件名取自语言包枚举，语言与时区都按收件人偏好解析。 */
+export function renderNotificationEmail(
+  input: NotificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail & { locale: MailLocale } {
+  const { locale: resolved, copy } = resolveMailCopy(context.locale);
+  return { ...renderNotificationMail(copy, input, { ...context, locale: resolved }), locale: resolved };
+}
+
+export type { NotificationEventKey } from './locales/en';
+export type { MailCopy, MailRenderContext, NotificationMailInput, RenderedMail, TestMailInput, VerificationMailInput };
 
 /** 转发自 `templates.ts`：提示句里的 `{timezone}` 需要它填充。 */
 export { DEFAULT_MAIL_TIMEZONE };

@@ -21,7 +21,7 @@
     "test:webauthn-mobile": "node --test scripts/webauthn-mobile-connector.test.mjs",
     "test:webauthn-connector": "node --test scripts/webauthn-connector.test.mjs && tsx --test scripts/webauthn-connector-headers.test.ts",
     "test:webauthn-connectors": "node --test scripts/webauthn-mobile-connector.test.mjs scripts/webauthn-connector.test.mjs && tsx --test scripts/webauthn-connector-headers.test.ts",
-    "test:security-audit-api-key": "tsx scripts/security-audit-api-key-semantics.mjs",
+    "test:security-audit-api-key": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs scripts/security-audit-api-key-semantics.mjs",
     "test:security-audit-backup-state": "tsx scripts/security-audit-backup-auth-state.mjs",
     "test:security-audit-backup-endpoint": "tsx --test scripts/security-audit-backup-endpoint.test.ts",
     "test:security-audit": "npm run test:security-audit-api-key && npm run test:security-audit-backup-state && npm run test:security-audit-backup-endpoint",
@@ -50,14 +50,15 @@
     "test:app-version-log": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/app-version-log.test.ts",
     "test:mail-smtp": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/mail-smtp-client.test.ts",
     "test:email-verification": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/email-verification.test.ts",
-    "test": "npm run test:config-compatibility && npm run test:web-crypto && npm run test:notifications-security && npm run test:webauthn-connectors && npm run test:security-audit && npm run test:backup-roundtrip && npm run test:backup-remote-timeout && npm run test:backup-visibility && npm run test:yubico-otp-timeout && npm run test:ensure-kv && npm run test:error-message-guard && npm run test:regex-hardening && npm run test:audit-log-pagination && npm run test:migration-upgrade && npm run test:ciphers-handler && npm run test:sync-handler && npm run test:identity-handler && npm run test:admin-last-admin && npm run test:sends-handler && npm run test:folders-handler && npm run test:import-handler && npm run test:attachments-handler && npm run test:backup-handler && npm run test:webapp-lib && npm run test:query-plan && npm run test:query-count && npm run test:app-version-log && npm run test:audit-events && npm run test:mail-smtp && npm run test:email-verification && npm run test:mail-render-preferences && npm run test:account-preferences",
+    "test": "npm run test:config-compatibility && npm run test:web-crypto && npm run test:notifications-security && npm run test:webauthn-connectors && npm run test:security-audit && npm run test:backup-roundtrip && npm run test:backup-remote-timeout && npm run test:backup-visibility && npm run test:yubico-otp-timeout && npm run test:ensure-kv && npm run test:error-message-guard && npm run test:regex-hardening && npm run test:audit-log-pagination && npm run test:migration-upgrade && npm run test:ciphers-handler && npm run test:sync-handler && npm run test:identity-handler && npm run test:admin-last-admin && npm run test:sends-handler && npm run test:folders-handler && npm run test:import-handler && npm run test:attachments-handler && npm run test:backup-handler && npm run test:webapp-lib && npm run test:query-plan && npm run test:query-count && npm run test:app-version-log && npm run test:audit-events && npm run test:mail-smtp && npm run test:email-verification && npm run test:mail-render-preferences && npm run test:security-notifications && npm run test:account-preferences",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p webapp/tsconfig.json --noEmit && tsc -p tsconfig.scripts.json --noEmit && tsc -p tsconfig.webapp-tests.json --noEmit",
     "verify": "npm run typecheck && npm run i18n:validate && npm test && npm run build",
     "deploy": "wrangler deploy",
     "deploy:kv": "node scripts/ensure-kv.cjs && wrangler deploy -c wrangler.kv.toml",
     "deploy:demo": "npm run build:demo && wrangler pages deploy dist --project-name nw-demo",
     "test:account-preferences": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/account-preferences.test.ts",
-    "test:mail-render-preferences": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/mail-render-preferences.test.ts"
+    "test:mail-render-preferences": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/mail-render-preferences.test.ts",
+    "test:security-notifications": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/security-notifications.test.ts"
   },
   "keywords": [
     "bitwarden",

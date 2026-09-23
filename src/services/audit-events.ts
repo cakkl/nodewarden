@@ -93,6 +93,12 @@ const ALLOWED_METADATA_KEYS = new Set([
   'previousVersion',
   'deploymentId',
   'deployedAt',
+  // 安全通知的收件人快照（见 services/security-notifications.ts）。
+  // 账户被删除后用户行就查不到了，通知层只能靠删除前写进元数据的这三个值
+  // 判断「该不该发、发到哪里」。
+  'recipientEmail',
+  'recipientOptIn',
+  'recipientVerified',
 ]);
 
 function normalizePositiveInteger(value: unknown, allowed: readonly number[]): number | null {

@@ -1429,6 +1429,7 @@ const fr: Record<string, string> = {
   "txt_log_action_send_delete_bulk": "Supprimer des envois",
   "txt_log_action_send_password_remove": "Supprimer le mot de passe de l'envoi",
   "txt_log_action_system_app_version_started": "Version de l'application démarrée",
+  "txt_log_action_system_mail_notify_failed": "Échec de l’envoi de l’alerte de sécurité",
   "txt_log_action_system_yubico_credentials_initialize": "Initialiser les identifiants de validation Yubico",
   "txt_log_action_system_yubico_credentials_reconfigure": "Reconfigurer les identifiants de validation Yubico",
   "txt_log_action_system_yubico_credentials_update": "Mettre à jour les identifiants de validation Yubico",

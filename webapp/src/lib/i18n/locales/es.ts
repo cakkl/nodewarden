@@ -1429,6 +1429,7 @@ const es: Record<string, string> = {
   "txt_log_action_send_delete_bulk": "Eliminar Sends",
   "txt_log_action_send_password_remove": "Quitar contraseña de Send",
   "txt_log_action_system_app_version_started": "Inicio de versión de la aplicación",
+  "txt_log_action_system_mail_notify_failed": "Error al enviar el aviso de seguridad",
   "txt_log_action_system_yubico_credentials_initialize": "Inicializar credenciales de validación de Yubico",
   "txt_log_action_system_yubico_credentials_reconfigure": "Reconfigurar credenciales de validación de Yubico",
   "txt_log_action_system_yubico_credentials_update": "Actualizar credenciales de validación de Yubico",

@@ -1429,6 +1429,7 @@ const fi: Record<string, string> = {
   "txt_log_action_send_delete_bulk": "Poista lähetykset",
   "txt_log_action_send_password_remove": "Poista lähetyksen salasana",
   "txt_log_action_system_app_version_started": "Sovelluksen versio käynnistyi",
+  "txt_log_action_system_mail_notify_failed": "Tietoturvailmoituksen lähetys epäonnistui",
   "txt_log_action_system_yubico_credentials_initialize": "Alusta Yubico-vahvistuksen tunnistetiedot",
   "txt_log_action_system_yubico_credentials_reconfigure": "Määritä Yubico-vahvistuksen tunnistetiedot uudelleen",
   "txt_log_action_system_yubico_credentials_update": "Päivitä Yubico-vahvistuksen tunnistetiedot",

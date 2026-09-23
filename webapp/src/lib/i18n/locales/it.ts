@@ -1429,6 +1429,7 @@ const it: Record<string, string> = {
   "txt_log_action_send_delete_bulk": "Elimina invii (multipli)",
   "txt_log_action_send_password_remove": "Rimuovi password dell'invio",
   "txt_log_action_system_app_version_started": "Versione dell'app avviata",
+  "txt_log_action_system_mail_notify_failed": "Invio dell’avviso di sicurezza non riuscito",
   "txt_log_action_system_yubico_credentials_initialize": "Inizializza credenziali di convalida Yubico",
   "txt_log_action_system_yubico_credentials_reconfigure": "Riconfigura credenziali di convalida Yubico",
   "txt_log_action_system_yubico_credentials_update": "Aggiorna credenziali di convalida Yubico",

@@ -4,7 +4,7 @@
  * 纯文本不是可选项：部分客户端（以及可访问性工具）只读 `text/plain`，
  * 而且它是 HTML 被拦截时的兜底。两者必须表达同样的信息。
  */
-import type { MailCopy } from './locales/en';
+import type { MailCopy, NotificationEventKey } from './locales/en';
 import { mailCodeBlock, mailDetailBlock, mailParagraph, renderMailLayout } from './layout';
 
 export interface RenderedMail {
@@ -23,6 +23,17 @@ export interface TestMailInput {
 export interface VerificationMailInput {
   code: string;
   expiresAt: Date;
+}
+
+export interface NotificationMailInput {
+  /**
+   * 发生了什么。取值是**语言包里的固定枚举**（`NotificationEventKey`），
+   * 不是任意字符串 —— 正文里不能出现调用方拼出来的内容。
+   */
+  event: NotificationEventKey;
+  occurredAt: Date;
+  /** 触发事件的来源 IP；拿不到时传 `null`，明细里省掉这一行。 */
+  ip?: string | null;
 }
 
 /** 渲染选项：语言与时区都来自**收件人偏好**，不是写死的。 */
@@ -89,6 +100,11 @@ function preferencesNoteFor(
   if (unset.locale) return fillTimezonePlaceholder(note.locale ?? note.timezone);
   if (unset.timezone) return fillTimezonePlaceholder(note.timezone);
   return null;
+}
+
+/** `{event}` 用 `events` 里对应的短句填充。 */
+function fillEventPlaceholder(template: string, eventLabel: string): string {
+  return template.replace('{event}', eventLabel);
 }
 
 /** 测试邮件：证明发信链路可用，并回显本次使用的连接参数。 */
@@ -170,6 +186,61 @@ export function renderVerificationMail(
       expiryLine,
       '',
       copy.verification.outro,
+      ...(preferencesNote ? ['', preferencesNote] : []),
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
+/**
+ * 由管理员发起的事件：此时用户可能已经登不进去了，
+ * 「改主密码、检查已授权设备」是做不到的建议。
+ */
+const ADMIN_INITIATED_EVENTS: ReadonlySet<NotificationEventKey> = new Set([
+  'account_disabled',
+  'account_deleted',
+]);
+
+/** 安全通知：只描述「发生了什么 + 时间 + IP」，不含保管库内容或用户可控文本。 */
+export function renderNotificationMail(
+  copy: MailCopy,
+  input: NotificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  // 类型上 `events` 不会缺键，这里是二道防线：宁可显示键名，也不要渲染出 `undefined`
+  const eventLabel = copy.notifications.events[input.event] || input.event;
+  const preferencesNote = preferencesNoteFor(copy, context.preferencesUnset);
+  const disclaimer = ADMIN_INITIATED_EVENTS.has(input.event)
+    ? copy.notifications.adminDisclaimer
+    : copy.notifications.disclaimer;
+  const rows: Array<[string, string]> = [
+    [copy.notifications.labels.time, formatMailTime(input.occurredAt, context.timezone)],
+  ];
+  if (input.ip) rows.push([copy.notifications.labels.ip, input.ip]);
+
+  return {
+    subject: fillEventPlaceholder(copy.notifications.subject, eventLabel),
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: fillEventPlaceholder(copy.notifications.heading, eventLabel),
+      bodyHtml:
+        mailParagraph(copy.notifications.intro) +
+        mailDetailBlock(copy.notifications.detailsTitle, rows) +
+        mailParagraph(disclaimer, { muted: true }) +
+        (preferencesNote ? mailParagraph(preferencesNote, { muted: true }) : ''),
+      footer: copy.footer,
+    }),
+    text: [
+      fillEventPlaceholder(copy.notifications.heading, eventLabel),
+      '',
+      copy.notifications.intro,
+      '',
+      `${copy.notifications.detailsTitle}:`,
+      ...rows.map(([label, value]) => `- ${label}: ${value}`),
+      '',
+      disclaimer,
       ...(preferencesNote ? ['', preferencesNote] : []),
       '',
       copy.footer,

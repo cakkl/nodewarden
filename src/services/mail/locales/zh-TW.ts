@@ -19,6 +19,26 @@ const zhTW: MailCopy = {
     expiresLabel: '驗證碼有效期至',
     outro: '如果你沒有發起這個操作，忽略本郵件即可。該地址會保持未確認狀態，不會收到任何通知。',
   },
+  notifications: {
+    subject: '安全提醒：{event}',
+    heading: '安全提醒：{event}',
+    intro: '你的 NodeWarden 帳號剛剛發生變動，詳情如下。',
+    detailsTitle: '詳情',
+    labels: { time: '時間', ip: 'IP 位址' },
+    disclaimer: '如果不是你本人的操作，代表可能有其他人能存取你的帳號。'
+      + '請立即修改主密碼並檢查已授權的裝置。',
+    adminDisclaimer: '如果不是你本人的操作，請立即聯絡管理員。',
+    events: {
+      two_step_enabled: '兩步驗證已開啟',
+      two_step_disabled: '兩步驗證已關閉',
+      two_step_recovery_used: '使用了復原碼登入',
+      api_key_created: '建立了 API 金鑰',
+      api_key_rotated: '輪替了 API 金鑰',
+      master_password_changed: '主密碼已變更',
+      account_disabled: '帳號已被管理員停用',
+      account_deleted: '帳號已被管理員刪除',
+    },
+  },
   preferencesNote: {
     timezone: '提示：你還沒有設定時區，郵件裡的時間按 {timezone} 顯示。請到「設定 → 偏好」設定你的時區。',
   },
