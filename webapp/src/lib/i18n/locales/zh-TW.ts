@@ -1370,6 +1370,7 @@ const zhTW: Record<string, string> = {
   "txt_log_action_account_totp_disable": "關閉兩步驟登入",
   "txt_log_action_account_totp_enable": "開啟兩步驟登入",
   "txt_log_action_account_totp_recover": "復原兩步驟登入",
+  "txt_log_action_account_totp_recovery_create": "產生復原碼",
   "txt_log_action_account_verify_devices_update": "更新裝置驗證設定",
   "txt_log_action_account_verify_devices_update_rejected": "拒絕修改裝置驗證",
   "txt_log_action_account_webauthn_2fa_delete": "刪除通行密鑰兩步驟驗證密鑰",

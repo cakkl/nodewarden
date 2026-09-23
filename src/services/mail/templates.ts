@@ -32,8 +32,18 @@ export interface NotificationMailInput {
    */
   event: NotificationEventKey;
   occurredAt: Date;
-  /** 触发事件的来源 IP；拿不到时传 `null`，明细里省掉这一行。 */
+  /** 来源 IP；拿不到时省略该行。 */
   ip?: string | null;
+  /** 设备名（客户端自报）；与 `deviceType` 一起显示「设备 / 类型」两行。 */
+  deviceName?: string | null;
+  /** Bitwarden 的 `DeviceType` 数字；未定义的类型不显示「类型」行。 */
+  deviceType?: number | null;
+  /** 该设备是否首次出现（决定要不要缀「（新）」） */
+  deviceIsNew?: boolean;
+  /** 国家/地区码（ISO 3166-1 alpha-2），**渲染时**按 `context.locale` 本地化；拿不到时省略该行。 */
+  location?: string | null;
+  /** 该地区是否首次出现 */
+  locationIsNew?: boolean;
 }
 
 /** 渲染选项：语言与时区都来自**收件人偏好**，不是写死的。 */
@@ -202,6 +212,54 @@ const ADMIN_INITIATED_EVENTS: ReadonlySet<NotificationEventKey> = new Set([
   'account_deleted',
 ]);
 
+/**
+ * 国家/地区码 → 本地化名称。
+ *
+ * 用 `Intl.DisplayNames` 免掉 250 个国家 × 10 语言的文案表；
+ * 认不出就退回显示代码本身 —— 邮件不能因为一个地区名解析不出来就不发。
+ */
+function formatLocation(country: string, locale?: string): string {
+  try {
+    return new Intl.DisplayNames([locale || 'en'], { type: 'region' }).of(country) ?? country;
+  } catch {
+    return country;
+  }
+}
+
+/** 新出现的信息缀上标记（`newMarker` 自带各语言需要的间距）。 */
+function withNewMarker(copy: MailCopy, value: string, isNew?: boolean): string {
+  return isNew ? `${value}${copy.notifications.newMarker}` : value;
+}
+
+/**
+ * Bitwarden 的 `DeviceType` 数字 → 界面文案。
+ *
+ * 键名与粒度都对齐网页端设备管理页（`SecurityDevicesPage.mapDeviceTypeName`）：
+ * 两处用同一个词，用户才不会以为是两回事。
+ * 未定义的类型返回 `null` —— 此时不显示「类型」行，也不要退化成「类型 16」。
+ */
+function deviceTypeLabel(type: number | null | undefined, copy: MailCopy): string | null {
+  const types = copy.notifications.deviceTypes;
+  switch (type) {
+    case 0: return types.android;
+    case 1: return types.ios;
+    case 2: return types.chromeExtension;
+    case 3: return types.firefoxExtension;
+    case 4: return types.operaExtension;
+    case 5: return types.edgeExtension;
+    case 6: return types.windowsDesktop;
+    case 7: return types.macosDesktop;
+    case 8: return types.linuxDesktop;
+    case 9: return types.chromeBrowser;
+    case 10: return types.firefoxBrowser;
+    case 11: return types.operaBrowser;
+    case 12: return types.edgeBrowser;
+    case 13: return types.ieBrowser;
+    case 14: return types.web;
+    default: return null;
+  }
+}
+
 /** 安全通知：只描述「发生了什么 + 时间 + IP」，不含保管库内容或用户可控文本。 */
 export function renderNotificationMail(
   copy: MailCopy,
@@ -218,6 +276,20 @@ export function renderNotificationMail(
     [copy.notifications.labels.time, formatMailTime(input.occurredAt, context.timezone)],
   ];
   if (input.ip) rows.push([copy.notifications.labels.ip, input.ip]);
+  if (input.deviceName) {
+    rows.push([
+      copy.notifications.labels.device,
+      withNewMarker(copy, input.deviceName, input.deviceIsNew),
+    ]);
+  }
+  const typeLabel = deviceTypeLabel(input.deviceType, copy);
+  if (typeLabel) rows.push([copy.notifications.labels.type, typeLabel]);
+  if (input.location) {
+    rows.push([
+      copy.notifications.labels.location,
+      withNewMarker(copy, formatLocation(input.location, context.locale), input.locationIsNew),
+    ]);
+  }
 
   return {
     subject: fillEventPlaceholder(copy.notifications.subject, eventLabel),

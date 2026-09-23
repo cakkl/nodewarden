@@ -1370,6 +1370,7 @@ const es: Record<string, string> = {
   "txt_log_action_account_totp_disable": "Desactivar verificación en dos pasos",
   "txt_log_action_account_totp_enable": "Activar verificación en dos pasos",
   "txt_log_action_account_totp_recover": "Recuperar verificación en dos pasos",
+  "txt_log_action_account_totp_recovery_create": "Crear código de recuperación de la verificación en dos pasos",
   "txt_log_action_account_verify_devices_update": "Actualizar verificación de dispositivos",
   "txt_log_action_account_verify_devices_update_rejected": "Rechazar cambio de verificación de dispositivos",
   "txt_log_action_account_webauthn_2fa_delete": "Eliminar clave de verificación en dos pasos con passkey",

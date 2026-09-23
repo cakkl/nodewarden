@@ -1370,6 +1370,7 @@ const sv: Record<string, string> = {
   "txt_log_action_account_totp_disable": "Inaktivera tvåstegsinloggning",
   "txt_log_action_account_totp_enable": "Aktivera tvåstegsinloggning",
   "txt_log_action_account_totp_recover": "Återställ tvåstegsinloggning",
+  "txt_log_action_account_totp_recovery_create": "Skapa återställningskod för tvåstegsinloggning",
   "txt_log_action_account_verify_devices_update": "Uppdatera enhetsverifiering",
   "txt_log_action_account_verify_devices_update_rejected": "Ändring av enhetsverifiering avvisad",
   "txt_log_action_account_webauthn_2fa_delete": "Ta bort nyckel för tvåstegsinloggning",

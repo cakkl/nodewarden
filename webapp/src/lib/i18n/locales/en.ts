@@ -1370,6 +1370,7 @@ const en: Record<string, string> = {
   "txt_log_action_account_totp_disable": "Disable two-step login",
   "txt_log_action_account_totp_enable": "Enable two-step login",
   "txt_log_action_account_totp_recover": "Recover two-step login",
+  "txt_log_action_account_totp_recovery_create": "Create two-step login recovery code",
   "txt_log_action_account_verify_devices_update": "Update device verification",
   "txt_log_action_account_verify_devices_update_rejected": "Reject device verification change",
   "txt_log_action_account_webauthn_2fa_delete": "Delete passkey two-step login key",

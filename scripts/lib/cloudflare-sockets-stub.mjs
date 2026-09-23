@@ -34,11 +34,14 @@ let currentScript = null;
 /** 上一次会话里客户端实际发出的命令（按顺序），用于断言协议顺序 */
 let lastCommands = [];
 let connectCalls = [];
+/** DATA 阶段实际投递的正文（每次 DATA 一项）。会话级 `dataBuffer` 用完即弃，这里留一份快照。 */
+let lastDataBodies = [];
 
 export function setSmtpScript(overrides = {}) {
   currentScript = { ...DEFAULT_SCRIPT, ...overrides };
   lastCommands = [];
   connectCalls = [];
+  lastDataBodies = [];
   return currentScript;
 }
 
@@ -46,10 +49,16 @@ export function resetSmtpScript() {
   currentScript = null;
   lastCommands = [];
   connectCalls = [];
+  lastDataBodies = [];
 }
 
 export function getSmtpCommands() {
   return [...lastCommands];
+}
+
+/** 投递出去的邮件正文。用来断言「信里到底写了什么」，而不只是「发了几封」。 */
+export function getSmtpDataBodies() {
+  return [...lastDataBodies];
 }
 
 export function getSmtpConnectCalls() {
@@ -134,6 +143,7 @@ class FakeSocket {
       this.inbound = this.inbound.slice(terminator + 5);
       this.dataMode = false;
       this.dataBuffer.push(body);
+      lastDataBodies.push(body);
       this.push(replyLine(...splitReply(script().messageReply)));
       return;
     }

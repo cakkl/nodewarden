@@ -1370,6 +1370,7 @@ const de: Record<string, string> = {
   "txt_log_action_account_totp_disable": "Zweistufige Anmeldung deaktivieren",
   "txt_log_action_account_totp_enable": "Zweistufige Anmeldung aktivieren",
   "txt_log_action_account_totp_recover": "Zweistufige Anmeldung wiederherstellen",
+  "txt_log_action_account_totp_recovery_create": "Wiederherstellungscode für die Zwei-Faktor-Anmeldung erstellen",
   "txt_log_action_account_verify_devices_update": "Geräteüberprüfung aktualisieren",
   "txt_log_action_account_verify_devices_update_rejected": "Änderung der Geräteüberprüfung abgelehnt",
   "txt_log_action_account_webauthn_2fa_delete": "Zweistufigen Anmelde-Schlüssel löschen",

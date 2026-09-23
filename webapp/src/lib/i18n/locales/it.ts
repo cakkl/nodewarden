@@ -1370,6 +1370,7 @@ const it: Record<string, string> = {
   "txt_log_action_account_totp_disable": "Disabilita accesso in due passaggi",
   "txt_log_action_account_totp_enable": "Abilita accesso in due passaggi",
   "txt_log_action_account_totp_recover": "Recupera accesso in due passaggi",
+  "txt_log_action_account_totp_recovery_create": "Crea codice di recupero della verifica in due passaggi",
   "txt_log_action_account_verify_devices_update": "Aggiorna verifica dispositivi",
   "txt_log_action_account_verify_devices_update_rejected": "Modifica verifica dispositivi rifiutata",
   "txt_log_action_account_webauthn_2fa_delete": "Elimina chiave di accesso in due passaggi",

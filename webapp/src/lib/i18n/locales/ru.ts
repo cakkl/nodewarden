@@ -1370,6 +1370,7 @@ const ru: Record<string, string> = {
   "txt_log_action_account_totp_disable": "Отключение двухфакторной проверки",
   "txt_log_action_account_totp_enable": "Включение двухфакторной проверки",
   "txt_log_action_account_totp_recover": "Восстановление двухфакторной проверки",
+  "txt_log_action_account_totp_recovery_create": "Создание кода восстановления двухэтапного входа",
   "txt_log_action_account_verify_devices_update": "Обновление проверки устройств",
   "txt_log_action_account_verify_devices_update_rejected": "Отклонение изменения проверки устройств",
   "txt_log_action_account_webauthn_2fa_delete": "Удаление ключа двухфакторной проверки",

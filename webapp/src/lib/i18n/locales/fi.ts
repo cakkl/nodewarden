@@ -1370,6 +1370,7 @@ const fi: Record<string, string> = {
   "txt_log_action_account_totp_disable": "Poista kaksivaiheinen kirjautuminen käytöstä",
   "txt_log_action_account_totp_enable": "Ota kaksivaiheinen kirjautuminen käyttöön",
   "txt_log_action_account_totp_recover": "Palauta kaksivaiheinen kirjautuminen",
+  "txt_log_action_account_totp_recovery_create": "Luo kaksivaiheisen kirjautumisen palautuskoodi",
   "txt_log_action_account_verify_devices_update": "Päivitä laitteiden vahvistus",
   "txt_log_action_account_verify_devices_update_rejected": "Laitteiden vahvistusmuutoksen hylkäys",
   "txt_log_action_account_webauthn_2fa_delete": "Poista pääsyavain kaksivaiheisesta kirjautumisesta",

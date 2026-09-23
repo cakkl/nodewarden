@@ -1370,6 +1370,7 @@ const zhCN: Record<string, string> = {
   "txt_log_action_account_totp_disable": "关闭两步验证",
   "txt_log_action_account_totp_enable": "开启两步验证",
   "txt_log_action_account_totp_recover": "恢复两步验证",
+  "txt_log_action_account_totp_recovery_create": "生成恢复码",
   "txt_log_action_account_verify_devices_update": "更新设备验证设置",
   "txt_log_action_account_verify_devices_update_rejected": "拒绝修改设备验证",
   "txt_log_action_account_webauthn_2fa_delete": "删除通行密钥两步验证密钥",

@@ -16,6 +16,7 @@ import {
   buildUserDecryptionOptions,
 } from '../utils/user-decryption';
 import { auditRequestMetadata, safeWriteAuditEvent } from '../services/audit-events';
+import { auditAndNotify } from '../services/security-notifications';
 import {
   assertAccountPasskeyCredential,
   assertTwoFactorPasskeyCredential,
@@ -62,11 +63,12 @@ async function resolveDeviceSession(
   storage: StorageService,
   userId: string,
   deviceInfo: ReturnType<typeof readAuthRequestDeviceInfo>
-): Promise<{ identifier: string; sessionStamp: string } | null> {
+): Promise<{ identifier: string; sessionStamp: string; isNewDevice: boolean } | null> {
   if (!deviceInfo.deviceIdentifier) return null;
   const existingDevice = await storage.getDevice(userId, deviceInfo.deviceIdentifier);
   const sessionStamp = String(existingDevice?.sessionStamp || '').trim() || generateUUID();
-  return { identifier: deviceInfo.deviceIdentifier, sessionStamp };
+  // `existingDevice` 本就要查：顺手把「是不是新设备」带出去，不额外增加查询
+  return { identifier: deviceInfo.deviceIdentifier, sessionStamp, isNewDevice: !existingDevice };
 }
 
 function resolveRefreshClientType(request: Request, body: Record<string, string>): string {
@@ -81,7 +83,7 @@ async function persistAndResolveDeviceSession(
   storage: StorageService,
   userId: string,
   deviceInfo: ReturnType<typeof readAuthRequestDeviceInfo>
-): Promise<{ identifier: string; sessionStamp: string } | null> {
+): Promise<{ identifier: string; sessionStamp: string; isNewDevice: boolean } | null> {
   const candidate = await resolveDeviceSession(storage, userId, deviceInfo);
   if (!candidate) return null;
   await storage.upsertDevice(
@@ -93,7 +95,30 @@ async function persistAndResolveDeviceSession(
   );
   const persisted = await storage.getDevice(userId, candidate.identifier);
   if (!persisted?.sessionStamp) throw new Error('Failed to persist device session');
-  return { identifier: persisted.deviceIdentifier, sessionStamp: persisted.sessionStamp };
+  return {
+    identifier: persisted.deviceIdentifier,
+    sessionStamp: persisted.sessionStamp,
+    isNewDevice: candidate.isNewDevice,
+  };
+}
+
+/** 登录成功审计的公共元数据（密码 / 通行密钥 / 客户端凭据三条路径共用同一份）。 */
+function loginAuditMetadata(
+  request: Request,
+  grantType: string,
+  deviceInfo: ReturnType<typeof readAuthRequestDeviceInfo>,
+  deviceSession: { identifier: string; sessionStamp: string; isNewDevice: boolean } | null
+): Record<string, unknown> {
+  return {
+    grantType,
+    webSession: shouldUseWebSession(request),
+    deviceIdentifier: deviceSession?.identifier ?? deviceInfo.deviceIdentifier,
+    deviceType: deviceInfo.deviceType,
+    deviceName: deviceInfo.deviceName,
+    // 只在新设备时写：通知层据此决定发不发提醒，老设备不留无用字段
+    ...(deviceSession?.isNewDevice ? { newDevice: true } : {}),
+    ...auditRequestMetadata(request),
+  };
 }
 
 function readDevicePushToken(body: Record<string, string>): string {
@@ -599,20 +624,14 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     const refreshToken = await auth.generateRefreshToken(user, deviceSession, resolveRefreshClientType(request, body));
     const accountKeys = buildAccountKeys(user);
     const userDecryptionOptions = buildUserDecryptionOptions(user);
-    await safeWriteAuditEvent(env, {
+    await auditAndNotify(env, {
       actorUserId: user.id,
       action: 'auth.login.success',
       category: 'auth',
       level: 'info',
       targetType: 'user',
       targetId: user.id,
-      metadata: {
-        grantType,
-        webSession: shouldUseWebSession(request),
-        deviceIdentifier: deviceSession?.identifier ?? deviceInfo.deviceIdentifier,
-        deviceType: deviceInfo.deviceType,
-        ...auditRequestMetadata(request),
-      },
+      metadata: loginAuditMetadata(request, grantType, deviceInfo, deviceSession),
     });
 
     const response: TokenResponse = {
@@ -713,20 +732,14 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     const accountKeys = buildAccountKeys(user);
     const webAuthnPrfOption = buildAccountPasskeyTokenUserDecryptionOption(credential);
     const userDecryptionOptions = buildUserDecryptionOptions(user, webAuthnPrfOption);
-    await safeWriteAuditEvent(env, {
+    await auditAndNotify(env, {
       actorUserId: user.id,
       action: 'auth.passkey.login.success',
       category: 'auth',
       level: 'info',
       targetType: 'accountPasskey',
       targetId: credential.id,
-      metadata: {
-        grantType,
-        webSession: shouldUseWebSession(request),
-        deviceIdentifier: deviceSession?.identifier ?? deviceInfo.deviceIdentifier,
-        deviceType: deviceInfo.deviceType,
-        ...auditRequestMetadata(request),
-      },
+      metadata: loginAuditMetadata(request, grantType, deviceInfo, deviceSession),
     });
 
     const response: TokenResponse = {
@@ -837,20 +850,14 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     const refreshToken = await auth.generateRefreshToken(user, deviceSession, resolveRefreshClientType(request, body));
     const accountKeys = buildAccountKeys(user);
     const userDecryptionOptions = buildUserDecryptionOptions(user);
-    await safeWriteAuditEvent(env, {
+    await auditAndNotify(env, {
       actorUserId: user.id,
       action: 'auth.login.success',
       category: 'auth',
       level: 'info',
       targetType: 'user',
       targetId: user.id,
-      metadata: {
-        grantType,
-        webSession: shouldUseWebSession(request),
-        deviceIdentifier: deviceSession?.identifier ?? deviceInfo.deviceIdentifier,
-        deviceType: deviceInfo.deviceType,
-        ...auditRequestMetadata(request),
-      },
+      metadata: loginAuditMetadata(request, grantType, deviceInfo, deviceSession),
     });
 
     const response: TokenResponse = {

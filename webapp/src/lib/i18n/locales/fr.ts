@@ -1370,6 +1370,7 @@ const fr: Record<string, string> = {
   "txt_log_action_account_totp_disable": "Désactiver la connexion en deux étapes",
   "txt_log_action_account_totp_enable": "Activer la connexion en deux étapes",
   "txt_log_action_account_totp_recover": "Récupérer la connexion en deux étapes",
+  "txt_log_action_account_totp_recovery_create": "Créer un code de récupération de la vérification en deux étapes",
   "txt_log_action_account_verify_devices_update": "Mettre à jour la vérification des appareils",
   "txt_log_action_account_verify_devices_update_rejected": "Modification de vérification des appareils refusée",
   "txt_log_action_account_webauthn_2fa_delete": "Supprimer la clé de connexion en deux étapes",

@@ -30,6 +30,8 @@ export function setSmtpScript(overrides?: Partial<SmtpStubScript>): SmtpStubScri
 export function resetSmtpScript(): void;
 /** 上一次会话里客户端实际发出的命令（按顺序） */
 export function getSmtpCommands(): string[];
+/** 投递出去的邮件正文（每次 DATA 一项）。用来断言信里实际写了什么。 */
+export function getSmtpDataBodies(): string[];
 export function getSmtpConnectCalls(): Array<{
   hostname?: string;
   port?: number;

@@ -6,7 +6,8 @@
  *
  * 三道门禁：`users.mail_opt_in` → `users.email_verified` → 全局发信可用；任一道不过就静默丢弃。
  * **不做发件数量限制**：额度归邮件服务商，自建配额会成为攻击者的静音开关。故本模块无状态。
- * 正文只有「发生了什么 + 时间 + IP」，不含保管库内容、条目数量或用户可控文本。
+ * 正文只有「发生了什么 + 时间 / IP / 来源地区（登录事件另加设备与类型）」，
+ * 不含保管库内容、条目数量或用户可控文本。
  */
 import { waitUntil } from 'cloudflare:workers';
 
@@ -24,6 +25,9 @@ import { StorageService } from './storage';
  * 刻意排除的几类：
  * - `account.api_key.view`（info 级，只是查看）；
  * - `account.keys.update`（改加密密钥对，属主密码修改的连带动作，会重复通知）；
+ * - `account.passkey.encryption.enable`（需要该 passkey 的实物断言，且它紧跟在创建之后，
+ *   再发一封就是「一个动作两封信」）；
+ * - `account.verify_devices.update.rejected`（该功能未实现，`enabled: true` 直接 400 且不改状态）；
  * - `system.yubico.credentials.update`（改服务器的 Yubico 凭据，用户侧触发不了）；
  * - 管理员**启用**账户（恢复访问，不是风险）。
  */
@@ -37,10 +41,19 @@ const RULES: Record<string, NotificationEventKey> = {
   'account.webauthn_2fa.disable': 'two_step_disabled',
   'account.webauthn_2fa.delete': 'two_step_disabled',
   'account.totp.recover': 'two_step_recovery_used',
+  // 恢复码首次铸出（每次打开设置页都会调那个端点，所以只在生成时发）
+  'account.totp.recovery.create': 'two_step_recovery_created',
+  // 登录方式：passkey 是「用什么登录」，与上面的两步登录因素是两回事。
+  // 攻击者给自己加一枚等于留了个持久后门，必须通知。
+  'account.passkey.create': 'passkey_created',
+  'account.passkey.delete': 'passkey_deleted',
   'account.api_key.create': 'api_key_created',
   'account.api_key.rotate': 'api_key_rotated',
   'admin.user.status': 'account_disabled',
   'admin.user.delete': 'account_deleted',
+  // 登录事件：命中后还要看「设备 / 地区是不是新的」才决定发不发，见 resolveNewSignInSignals
+  'auth.login.success': 'new_sign_in',
+  'auth.passkey.login.success': 'new_sign_in',
 };
 
 /**
@@ -89,6 +102,67 @@ function resolveRecipient(event: AuditEventInput): string | null {
   return actorUserId;
 }
 
+function readMetaNumber(metadata: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = metadata?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * 见过多少个不同国家之后就不再为该用户做地区判定。
+ *
+ * 超过这个数说明账号本身就在频繁跨国（或被代理 IP 刷），继续判定只会制造噪声。
+ */
+const MAX_TRACKED_COUNTRIES = 20;
+
+function countriesConfigKey(userId: string): string {
+  return `securityNotify__countries__${userId}`;
+}
+
+function parseCountryList(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 这个国家是不是首次出现；是则记进历史。
+ *
+ * 集合为空（首次登录）时只建立基线、返回 `false` —— 否则每个新用户收到的第一封邮件都是噪声。
+ */
+async function rememberCountry(storage: StorageService, userId: string, country: string): Promise<boolean> {
+  const key = countriesConfigKey(userId);
+  const known = parseCountryList(await storage.getConfigValue(key));
+  if (known.length >= MAX_TRACKED_COUNTRIES || known.includes(country)) return false;
+  await storage.setConfigValue(key, JSON.stringify([...known, country]));
+  return known.length > 0;
+}
+
+interface SignInSignals {
+  isNewDevice: boolean;
+  isNewLocation: boolean;
+}
+
+async function resolveNewSignInSignals(
+  storage: StorageService,
+  userId: string,
+  metadata: Record<string, unknown> | null | undefined
+): Promise<SignInSignals> {
+  const location = readMetaString(metadata, 'country');
+  const flaggedNewDevice = readMetaBoolean(metadata, 'newDevice');
+
+  // 全新用户的第一个设备必然是「新设备」，为此发提醒没有意义
+  const devices = flaggedNewDevice ? await storage.getDevicesByUserId(userId) : [];
+
+  return {
+    isNewDevice: flaggedNewDevice && devices.length > 1,
+    isNewLocation: location ? await rememberCountry(storage, userId, location) : false,
+  };
+}
+
 /**
  * 写审计，并在命中映射表时给相关用户发一封安全通知。
  *
@@ -125,9 +199,26 @@ async function deliver(
     const connection = await resolveMailConnection(env.DB, env);
     if (connection.status !== 'ok') return;
 
+    // 登录事件还要看「设备 / 地区是不是新的」——都不是就别打扰用户
+    const signIn = notificationEvent === 'new_sign_in'
+      ? await resolveNewSignInSignals(storage, recipientUserId, metadata)
+      : null;
+    if (signIn && !signIn.isNewDevice && !signIn.isNewLocation) return;
+
     const mail = renderNotificationEmail(
-      // 时间取「现在」：通知紧跟事件产生，审计行里的时间也是这一刻
-      { event: notificationEvent, occurredAt: new Date(), ip: readMetaString(metadata, 'ip') },
+      {
+        // 时间取「现在」：通知紧跟事件产生，审计行里的时间也是这一刻
+        event: notificationEvent,
+        occurredAt: new Date(),
+        ip: readMetaString(metadata, 'ip'),
+        deviceName: readMetaString(metadata, 'deviceName'),
+        deviceType: readMetaNumber(metadata, 'deviceType'),
+        deviceIsNew: signIn?.isNewDevice,
+        // 来源地区取自 `auditRequestMetadata()`，所以**所有**事件都有；
+        // 地区名由渲染层按收件人语言本地化。「（新）」标记只属于登录事件。
+        location: readMetaString(metadata, 'country'),
+        locationIsNew: signIn?.isNewLocation,
+      },
       resolveMailRenderPreferences(recipient ?? {})
     );
 

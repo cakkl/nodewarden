@@ -20,7 +20,11 @@ export type NotificationEventKey =
   | 'api_key_rotated'
   | 'master_password_changed'
   | 'account_disabled'
-  | 'account_deleted';
+  | 'account_deleted'
+  | 'new_sign_in'
+  | 'two_step_recovery_created'
+  | 'passkey_created'
+  | 'passkey_deleted';
 
 export interface MailCopy {
   /** 邮件顶部与页脚显示的产品名 */
@@ -51,7 +55,7 @@ export interface MailCopy {
     heading: string;
     intro: string;
     detailsTitle: string;
-    labels: { time: string; ip: string };
+    labels: { time: string; ip: string; device: string; type: string; location: string };
     /** 收尾提醒：如非本人操作该怎么办 */
     disclaimer: string;
     /**
@@ -60,6 +64,33 @@ export interface MailCopy {
      * 那两种情况下用户可能已经登不进去了，「改主密码、检查已授权设备」是做不到的建议。
      */
     adminDisclaimer: string;
+    /**
+     * 明细行里标记「本次是新出现的」，如「（新）」/「 (new)」。
+     * **间距由译文自带**：拉丁字母语言需要前导空格，中日文用全角括号则不需要。
+     */
+    newMarker: string;
+    /**
+     * 设备类型名。键名与粒度都对齐网页端设备管理页
+     *（`webapp/src/components/SecurityDevicesPage.tsx` 的 `mapDeviceTypeName`），
+     * 让用户在邮件与界面里看到同一个词。
+     */
+    deviceTypes: {
+      android: string;
+      ios: string;
+      chromeExtension: string;
+      firefoxExtension: string;
+      operaExtension: string;
+      edgeExtension: string;
+      windowsDesktop: string;
+      macosDesktop: string;
+      linuxDesktop: string;
+      chromeBrowser: string;
+      firefoxBrowser: string;
+      operaBrowser: string;
+      edgeBrowser: string;
+      ieBrowser: string;
+      web: string;
+    };
     events: Record<NotificationEventKey, string>;
   };
   /** 页脚统一说明 */
@@ -104,11 +135,29 @@ const en: MailCopy = {
     heading: 'Security alert: {event}',
     intro: 'A change was just made to your NodeWarden account. The details are below.',
     detailsTitle: 'Details',
-    labels: { time: 'Time', ip: 'IP address' },
+    labels: { time: 'Time', ip: 'IP address', device: 'Device', type: 'Type', location: 'Location' },
     disclaimer:
       'If you did not expect this change, someone else may have access to your account. '
       + 'Change your master password and review your authorized devices now.',
     adminDisclaimer: 'If you did not expect this change, contact an administrator immediately.',
+    newMarker: ' (new)',
+    deviceTypes: {
+      android: 'Android',
+      ios: 'iOS',
+      chromeExtension: 'Chrome Extension',
+      firefoxExtension: 'Firefox Extension',
+      operaExtension: 'Opera Extension',
+      edgeExtension: 'Edge Extension',
+      windowsDesktop: 'Windows Desktop',
+      macosDesktop: 'macOS Desktop',
+      linuxDesktop: 'Linux Desktop',
+      chromeBrowser: 'Chrome Browser',
+      firefoxBrowser: 'Firefox Browser',
+      operaBrowser: 'Opera Browser',
+      edgeBrowser: 'Edge Browser',
+      ieBrowser: 'IE Browser',
+      web: 'Web',
+    },
     events: {
       two_step_enabled: 'Two-step login turned on',
       two_step_disabled: 'Two-step login turned off',
@@ -118,6 +167,10 @@ const en: MailCopy = {
       master_password_changed: 'Master password changed',
       account_disabled: 'Account disabled by an administrator',
       account_deleted: 'Account deleted by an administrator',
+      new_sign_in: 'Sign-in from a new device or location',
+      two_step_recovery_created: 'Two-step login recovery code created',
+      passkey_created: 'Sign-in passkey created',
+      passkey_deleted: 'Sign-in passkey deleted',
     },
   },
   preferencesNote: {

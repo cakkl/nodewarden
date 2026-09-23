@@ -99,6 +99,11 @@ const ALLOWED_METADATA_KEYS = new Set([
   'recipientEmail',
   'recipientOptIn',
   'recipientVerified',
+  // 登录事件（auth.login.success / auth.passkey.login.success）：
+  // `newDevice` 只在首次见到该设备标识时写，通知层据此发「新设备 / 新地区」提醒。
+  'newDevice',
+  'deviceName',
+  'country',
 ]);
 
 function normalizePositiveInteger(value: unknown, allowed: readonly number[]): number | null {
@@ -133,6 +138,8 @@ export function auditRequestMetadata(request: Request): Record<string, unknown> 
     path: url.pathname,
     ip: request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || null,
     userAgent: request.headers.get('User-Agent') || null,
+    // Cloudflare 注入的国家/地区码（ISO 3166-1 alpha-2）；本地 dev 下没有，按「拿不到」处理
+    country: request.cf?.country ?? null,
   };
 }
 

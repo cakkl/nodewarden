@@ -1401,6 +1401,17 @@ export async function handleGetTotpRecoveryCode(request: Request, env: Env, user
     user.totpRecoveryCode = createRecoveryCode();
     user.updatedAt = new Date().toISOString();
     await storage.saveUser(user);
+    // ⚠️ 只在**首次铸出**时记录并通知：这个端点每次打开设置页都会被调用（读回同一枚码），
+    // 每次都发信只会变成噪声。恢复码是绕过两步登录的万能钥匙，被铸出来必须留痕。
+    await auditAndNotify(env, {
+      actorUserId: user.id,
+      action: 'account.totp.recovery.create',
+      category: 'security',
+      level: 'security',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: auditRequestMetadata(request),
+    });
   }
 
   return jsonResponse({
