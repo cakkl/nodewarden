@@ -90,7 +90,7 @@ export async function handleSync(request: Request, env: Env, userId: string): Pr
   const userDecryptionOptions = buildUserDecryptionOptions(user, webAuthnPrfOptions[0] || null);
   const validFolderIds = new Set(folders.map((folder) => folder.id));
 
-  const profile: ProfileResponse = buildProfileResponse(user, env);
+  const profile: ProfileResponse = await buildProfileResponse(user, env);
 
   const cipherResponses: CipherResponse[] = [];
   for (const cipher of ciphers) {
