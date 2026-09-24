@@ -13,6 +13,7 @@ import {
   type SmtpStubScript,
 } from './lib/cloudflare-sockets-stub.mjs';
 import { createD1SqliteDatabase } from './lib/d1-sqlite';
+import { recordQueries } from './lib/sql-recorder';
 import {
   SmtpDeliveryError,
   SmtpReplyParser,
@@ -36,6 +37,7 @@ import {
   MailSettingsValidationError,
   getMailSettings,
   inferEncryption,
+  isMailDeliveryAvailable,
   normalizeMailSettingsInput,
   resolveMailConnection,
   saveMailSettings,
@@ -717,6 +719,46 @@ test('端口被写坏时读取回落到默认值而不是崩溃', async () => {
     const settings = await getMailSettings(db);
     assert.equal(settings.port, 587);
     assert.equal(settings.encryption, 'starttls');
+  } finally {
+    close();
+  }
+});
+
+// ── 查询数：判「能不能发信」不该把同一份配置读两遍 ────────────────────────────
+// 该判断已进入 profile / sync / token 签发的热路径，过去会把同批 config 键连查两遍。
+
+test('配了邮件时，判可用性只往返 2 次（读配置 + 读口令）', async () => {
+  const { db, close } = createDb();
+  try {
+    await saveMailSettings(db, ENV, {
+      enabled: true,
+      host: 'smtp.test',
+      port: 587,
+      encryption: 'starttls',
+      username: 'mailer',
+      fromAddress: 'noreply@test',
+      fromName: 'NodeWarden',
+      password: SECRET,
+    });
+
+    const recorder = recordQueries(db);
+    assert.equal(await isMailDeliveryAvailable(recorder.db, ENV), true);
+    assert.equal(
+      recorder.roundTrips,
+      2,
+      `期望 2 次往返（读配置 + 读口令），实际 ${recorder.roundTrips} 次：${recorder.queries.join(' | ')}`
+    );
+  } finally {
+    close();
+  }
+});
+
+test('未配邮件时，判可用性短路为 1 次往返', async () => {
+  const { db, close } = createDb();
+  try {
+    const recorder = recordQueries(db);
+    assert.equal(await isMailDeliveryAvailable(recorder.db, ENV), false);
+    assert.equal(recorder.roundTrips, 1);
   } finally {
     close();
   }

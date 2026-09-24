@@ -338,9 +338,11 @@ export async function clearMailPassword(db: D1Database): Promise<MailSettingsPub
  */
 export async function resolveMailConnection(
   db: D1Database,
-  env: Env
+  env: Env,
+  /** 已经读到的配置。调用方刚读过时传进来，省掉一次完全重复的查询。 */
+  preloaded?: MailSettingsPublic
 ): Promise<MailConnectionResolution> {
-  const settings = await getMailSettings(db);
+  const settings = preloaded ?? (await getMailSettings(db));
   if (!settings.host || !settings.fromAddress) return { status: 'not-configured' };
 
   const password = await readStoredMailPassword(db, env);
@@ -369,7 +371,8 @@ export async function resolveMailConnection(
 export async function isMailDeliveryAvailable(db: D1Database, env: Env): Promise<boolean> {
   const settings = await getMailSettings(db);
   if (!settings.enabled) return false;
-  return (await resolveMailConnection(db, env)).status === 'ok';
+  // 把刚读到的配置传下去，避免 resolveMailConnection 把同样的键再查一遍。
+  return (await resolveMailConnection(db, env, settings)).status === 'ok';
 }
 
 /**

@@ -14,7 +14,7 @@ import { waitUntil } from 'cloudflare:workers';
 import type { Env, User } from '../types';
 import { safeWriteAuditEvent, type AuditEventInput } from './audit-events';
 import { renderNotificationEmail, type NotificationEventKey } from './mail';
-import { isMailDeliveryAvailable, resolveMailConnection, resolveMailRenderPreferences } from './mail-settings';
+import { getMailSettings, resolveMailConnection, resolveMailRenderPreferences } from './mail-settings';
 import { sendSmtpMail } from './smtp-client';
 import { StorageService } from './storage';
 
@@ -195,8 +195,10 @@ async function deliver(
     const verified = recipient ? recipient.emailVerified === true : readMetaBoolean(metadata, 'recipientVerified');
     if (!email || !optedIn || !verified) return;
 
-    if (!(await isMailDeliveryAvailable(env.DB, env))) return;
-    const connection = await resolveMailConnection(env.DB, env);
+    // 一次读配置同时判「是否开启」与「连接是否可用」，不重复查同样的键
+    const mailSettings = await getMailSettings(env.DB);
+    if (!mailSettings.enabled) return;
+    const connection = await resolveMailConnection(env.DB, env, mailSettings);
     if (connection.status !== 'ok') return;
 
     // 登录事件还要看「设备 / 地区是不是新的」——都不是就别打扰用户
