@@ -1,5 +1,5 @@
 /**
- * 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）。
+ * 用户级「语言 / 时区」偏好。
  *
  *   GET  /api/accounts/preferences          读自己的偏好
  *   PUT  /api/accounts/preferences          自己选定

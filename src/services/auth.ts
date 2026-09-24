@@ -180,10 +180,7 @@ export class AuthService {
 
   // Generate access token
   async generateAccessToken(user: User, device?: { identifier: string; sessionStamp: string } | null): Promise<string> {
-    // 真实值，但服务端无法发信时报 true —— 用户根本完不成验证，
-    // 报 false 只会让客户端展示一个改不掉的「未验证」横幅。
-    // 与 profile 响应及设置页徽标的处理保持一致（见 docs/TODO/COMPAT.md 待处理项 2）。
-    // 用 Soft 版：发信可用性只是展示性判断，查不动时不能拖垮 token 签发。
+    // 与 profile 同一口径（见 buildProfileResponse）；Soft 版查询失败不拖垮签发
     const mailAvailable = await isMailDeliveryAvailableSoft(this.env);
     return createJWT(
       {

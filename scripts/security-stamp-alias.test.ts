@@ -1,11 +1,8 @@
 // POST /api/accounts/security-stamp 别名端点的行为测试
 //
-// 背景：官方客户端的「撤销所有会话」走 POST /api/accounts/security-stamp
-// （客户端 `libs/common/src/services/api.service.ts` 的 `postSecurityStamp`），
-// 而本站的等价实现是 DELETE /api/devices。二者功能相同、路径不同 ⇒
-// 客户端拿到 404。这里为客户端加别名，测试同时覆盖：
-//   · 路由层：别名路径确实命中该处理函数（而非落到 router 的 404）
-//   · 行为层：校验规则与撤销效果（换 securityStamp、清设备与令牌）
+// 官方客户端的「撤销所有会话」走该路径，本站等价实现是 DELETE /api/devices
+// ⇒ 路径不同会让客户端拿到 404。覆盖路由确实命中（而非落到 404），
+// 以及校验规则与撤销效果（换 securityStamp、清设备与令牌）。
 //
 // 运行方式：npm run test:security-stamp-alias
 import assert from 'node:assert/strict';
@@ -25,19 +22,18 @@ const SCHEMA_SQL = readFileSync(path.join(REPO_ROOT, 'migrations', '0001_init.sq
 const USER_ID = 'stamp-user';
 const EMAIL = 'stamp@example.com';
 const NOW = '2026-01-01T00:00:00.000Z';
-// 测试里存「非服务端哈希格式」的旧式行 ⇒ verifyPassword 走常量时间直接比较，
-// 于是可以直接传同一个字符串作为 masterPasswordHash。
+// 存「非服务端哈希格式」的旧式行 ⇒ verifyPassword 走常量时间直接比较，
+// 于是可以直接传同一个字符串当 masterPasswordHash。
 const MASTER_PASSWORD_HASH = 'legacy-client-hash';
 const OLD_STAMP = 'stamp-before';
 
 function makeEnv(): Env {
-  // 与 scripts/sync-handler.test.ts 一致：先建 D1 兼容句柄，再手动执行建表 SQL。
-  // `handle.db` 才是交给被测代码当 D1Database 用的对象。
+  // `handle.db` 才是交给被测代码当 D1Database 用的对象（同 sync-handler.test.ts）
   const handle = createD1SqliteDatabase();
   handle.connection.exec(SCHEMA_SQL);
   const db = handle.db;
-  // 注意 users 表有若干 NOT NULL 且无默认值的列：master_password_hash / key /
-  // kdf_type / kdf_iterations / security_stamp / created_at / updated_at（见 storage-schema.ts）
+  // 这些列 NOT NULL 且无默认值，必须显式给：
+  // master_password_hash / key / kdf_type / kdf_iterations / security_stamp / created_at / updated_at
   db.prepare(
     'INSERT INTO users (id, email, name, master_password_hash, key, kdf_type, kdf_iterations, security_stamp, role, status, verify_devices, created_at, updated_at) ' +
       "VALUES (?,?,?,?,?,?,?,?,'user','active',0,?,?)"
@@ -46,8 +42,7 @@ function makeEnv(): Env {
     .run();
   return {
     DB: db,
-    // 桩掉 NOTIFICATIONS_HUB：撤销成功时 handler 会调 notifyUserLogout，缺绑定虽被吞掉，
-    // 但每次往 stderr 打一行错误，容易淹没真正的失败信息（与 sync-handler.test.ts 一致）。
+    // 撤销成功会调 notifyUserLogout；缺绑定虽被吞掉，但会往 stderr 刷错误
     NOTIFICATIONS_HUB: {
       idFromName: (name: string) => ({ toString: () => name }),
       get: () => ({ fetch: async () => new Response('{}', { status: 200 }) }),
@@ -159,7 +154,7 @@ test('成功时：更换 securityStamp 并清空设备，返回 success', async 
   const payload = (await response.json()) as Record<string, unknown>;
   assert.equal(payload.success, true, '响应应当包含 success: true');
 
-  // 客户端对该响应体不做解析（Promise<any>），所以字段名只作稳定性保证
+  // 客户端对该响应体不做解析（Promise<any>），字段名只作稳定性保证
   assert.ok('removedDevices' in payload, '响应应当报告清掉的设备数');
   assert.equal(payload.removedDevices, 1);
 

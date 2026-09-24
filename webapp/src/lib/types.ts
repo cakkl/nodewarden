@@ -444,7 +444,7 @@ export interface MailSettings {
 }
 
 /**
- * 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）。
+ * 用户级「语言 / 时区」偏好。
  *
  * `locale` 与界面语言是**同一个值**（合并设置）；`null` = 未设定。
  * `auto*` 为 true 表示该值是自动检测来的，登录时可按浏览器刷新。

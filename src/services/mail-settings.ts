@@ -373,11 +373,8 @@ export async function isMailDeliveryAvailable(db: D1Database, env: Env): Promise
 }
 
 /**
- * `isMailDeliveryAvailable` 的**容错版**，只用于「要不要给客户端报未验证」这类**展示性**判断。
- *
- * 那条判断唯一的作用是决定客户端是否显示「邮箱未验证」横幅 ⇒ 绝不能因为一次发信配置
- * 查询失败（DB 异常等）而拖垮 `/accounts/profile`、`/sync` 或 **access token 的签发**。
- * ⇒ 查不动时按「不能发信」处理（调用方据此报 `emailVerified: true`，不打扰用户）。
+ * `isMailDeliveryAvailable` 的**容错版**，供展示性判断用：查询失败按「不能发信」处理
+ *（调用方据此报 `emailVerified: true`）—— 不能让一次查询拖垮 profile / sync / token 签发。
  */
 export async function isMailDeliveryAvailableSoft(env: Env | undefined): Promise<boolean> {
   if (!env) return false;

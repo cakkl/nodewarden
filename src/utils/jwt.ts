@@ -39,9 +39,8 @@ function getHmacKey(secret: string): Promise<CryptoKey> {
 }
 
 // Create JWT
-// 注意：`email_verified` 由调用方传入（取自 `users.email_verified`），不在此处硬编码 ——
-// 客户端的 TokenService.getEmailVerified() 会读这个 claim，且**字段缺失会抛错**；
-// 所以下面始终写成布尔值，保证不缺失。
+// `email_verified` 由调用方传入（不在此处硬编码）：客户端的 TokenService 会读这个 claim，
+// 且**字段缺失会抛错** ⇒ 下面统一写成布尔值。
 export async function createJWT(payload: Omit<JWTPayload, 'iat' | 'exp' | 'iss' | 'premium' | 'amr'>, secret: string, expiresIn: number = LIMITS.auth.accessTokenTtlSeconds): Promise<string> {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);

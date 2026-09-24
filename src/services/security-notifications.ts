@@ -1,5 +1,5 @@
 /**
- * 安全通知邮件（见 `docs/TODO.md` 第 30 条）。
+ * 安全通知邮件。
  *
  * 映射表集中在这里，handler 侧用 `auditAndNotify(env, {...})` 代替 `safeWriteAuditEvent`：
  * 一处覆盖所有事件，且「这一操作会发信」在调用点可见。不挂在审计层内部（会形成循环依赖）。

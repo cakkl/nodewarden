@@ -159,7 +159,7 @@ export interface AppMainRoutesProps {
   onLoadMailSettings: () => Promise<MailSettings>;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
-  /** 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md） */
+  /** 用户级「语言 / 时区」偏好 */
   mailPreferences: MailPreferences | null;
   onSaveMailPreferences: (update: MailPreferencesUpdate) => Promise<MailPreferences>;
   onListAccountPasskeys: () => Promise<AccountPasskeyCredential[]>;

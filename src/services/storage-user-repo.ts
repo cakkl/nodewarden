@@ -143,7 +143,7 @@ export async function setEmailVerified(db: D1Database, userId: string, verified:
     .run();
 }
 
-// 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）同样走**专用 UPDATE**，不进 `saveUser`。
+// 用户级「语言 / 时区」偏好同样走**专用 UPDATE**，不进 `saveUser`。
 // `auto_* = 1` = 值来自自动检测（登录时可按浏览器刷新）；`0` = 用户自己选定，永不被自动改写。
 
 /**

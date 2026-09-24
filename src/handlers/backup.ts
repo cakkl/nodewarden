@@ -352,7 +352,7 @@ export async function executeConfiguredBackup(
 
   const now = new Date();
   await touchLease();
-  // ⚠️ 这里刻意**不**清空 `lastErrorAt` / `lastErrorMessage`（docs/TODO 第 18 条）：
+  // ⚠️ 这里刻意**不**清空 `lastErrorAt` / `lastErrorMessage`：
   // 失败不会更新 `lastSuccessAt` ⇒ 计划任务会在容差窗口内**立刻重试**，
   // 若在尝试开始时就清空，错误就会在「清空 → 30 s 后写回 → 立刻又清空」的循环里
   // 几乎永远看不到（真机验收时 `backup.runtime` 读到 None，而同一时刻审计日志
@@ -600,8 +600,8 @@ async function runScheduledBackupsInDurableObject(env: Env): Promise<void> {
   if (response.status === 409) {
     // 租约还在上一次运行手里（最长 10 分钟，`BACKUP_JOB_LEASE_MS`）。
     // 这里过去是**直接 return** ⇒ 「这一轮计划任务被跳过」没有任何留痕
-    // （不报错、日志里全 200），排查时极易误判成「超时没生效 / 计划任务没跑」
-    // （docs/TODO 第 19 条）。cron 是每 5 分钟一次、只在真有重叠时才会走到这里，
+    // （不报错、日志里全 200），排查时极易误判成「超时没生效 / 计划任务没跑」。
+    // cron 是每 5 分钟一次、只在真有重叠时才会走到这里，
     // 所以不会刷屏；审计事件让它能在日志中心里被看到。
     let message = 'Another backup run is already in progress';
     try {
