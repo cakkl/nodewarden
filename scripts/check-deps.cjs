@@ -3,12 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // CONTRACT:
-// Run this before a commit that touches dependencies (or before any commit, when
-// you want that commit to carry current versions). It answers two questions:
-//   1. Is every declared dependency already at its latest published version?
-//   2. Does `allowScripts` still match the versions actually installed?
-//
-// 用法：npm run deps:check   （`--offline` 只做第 2 项，不访问 registry）
+// 提交前跑：① 每个依赖是否已是最新发布版；② `allowScripts` 是否仍与实际安装版本一致。
+// 用法：npm run deps:check   （`--offline` 只做第 ② 项，不访问 registry）
 
 const root = path.join(__dirname, '..');
 let pkg;
@@ -47,7 +43,7 @@ if (!offline) {
   try {
     raw = execFileSync(npm, ['outdated', '--json'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (error) {
-    // 有落后依赖时 npm outdated 退出码为 1，stdout 仍是完整 JSON
+    // 有落后依赖时 npm outdated 退出码为 1，但 stdout 仍是完整 JSON
     raw = String(error.stdout || '');
     if (!raw.trim()) {
       console.warn('⚠️  拿不到 npm outdated 的输出（离线或 registry 不可达）⇒ 本次只检查了 allowScripts');
@@ -55,13 +51,7 @@ if (!offline) {
   }
   if (raw.trim()) {
     comparedLatest = true;
-    let outdated = {};
-    try {
-      outdated = JSON.parse(raw);
-    } catch {
-      outdated = {};
-    }
-    for (const [name, info] of Object.entries(outdated)) {
+    for (const [name, info] of Object.entries(JSON.parse(raw))) {
       const scope = info.type === 'devDependencies' ? 'dev ' : '';
       problems.push(`${name}（${scope}当前 ${info.current} → 最新 ${info.latest}）`);
     }
