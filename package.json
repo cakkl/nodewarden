@@ -15,6 +15,7 @@
     "domains:sync": "node scripts/sync-global-domains.mjs",
     "i18n": "node scripts/i18n-validate.cjs",
     "i18n:validate": "node scripts/i18n-validate.cjs",
+    "deps:check": "node scripts/check-deps.cjs",
     "test:config-compatibility": "tsx --test scripts/config-compatibility.test.ts",
     "test:web-crypto": "tsx --test scripts/web-crypto-availability.test.ts",
     "test:notifications-security": "tsx --test scripts/notifications-security.test.ts",
@@ -95,33 +96,33 @@
     "browserslist": "^4.28.9"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260918.1",
+    "@cloudflare/workers-types": "^5.20260925.1",
     "@preact/preset-vite": "^2.10.6",
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.2",
     "autoprefixer": "^10.6.1",
     "opencc-js": "^1.4.2",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.23.13",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.0",
-    "wrangler": "^4.134.0"
+    "vite": "^8.3.1",
+    "wrangler": "^4.139.0"
   },
   "dependencies": {
     "@noble/hashes": "^2.4.0",
     "@simplewebauthn/server": "^14.0.2",
-    "@tanstack/react-query": "^5.103.1",
-    "@zip.js/zip.js": "^2.15.0",
+    "@tanstack/react-query": "^5.103.2",
+    "@zip.js/zip.js": "^2.18.2",
     "fflate": "^0.8.3",
     "jsqr": "1.4.0",
-    "lucide-preact": "^1.47.0",
+    "lucide-preact": "^1.48.0",
     "preact": "^10.29.8",
     "qrcode-generator": "^2.0.4",
     "wouter": "^3.11.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
-    "workerd@1.20260917.1": true
+    "workerd@1.20260923.1": true
   }
 }
