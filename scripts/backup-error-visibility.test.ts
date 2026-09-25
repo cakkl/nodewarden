@@ -66,7 +66,7 @@ async function captureWarnings(run: () => Promise<void>): Promise<string[]> {
   return warnings;
 }
 
-// ---------------------------------------------------------------- 第 19 条
+// ----------------------------------------------- 行为：计划任务被跳过须留痕
 test('租约被占用（409）：写一条 system 审计事件 + 一条 console.warn，而不是静默返回', async () => {
   const h = await createHarness();
   const env = h.envFor(async () =>
@@ -109,7 +109,7 @@ test('真正的失败（500）仍然照旧抛错 —— 留痕不改变失败语
   assert.deepEqual(skippedAuditRows(h), [], '500 不是「被跳过」，不该写 skipped 事件');
 });
 
-// ---------------------------------------------------------------- 第 18 条
+// ----------------------------------- 源码护栏：尝试开始不得清空 lastError*
 test('源码护栏：备份尝试开始时不得清空 lastError*（否则错误会被重试循环吃掉）', () => {
   const source = readFileSync(BACKUP_HANDLER_PATH, 'utf8');
 
@@ -119,7 +119,7 @@ test('源码护栏：备份尝试开始时不得清空 lastError*（否则错误
   const attemptUpdate = source.slice(anchorIndex, anchorIndex + 400).split('}));')[0];
   assert.ok(
     !attemptUpdate.includes('lastErrorMessage'),
-    '尝试开始时不得清空 lastErrorMessage：失败会让计划任务立刻重试，错误就在「清空 ↔ 写回」循环里消失（第 18 条）'
+    '尝试开始时不得清空 lastErrorMessage：失败会让计划任务立刻重试，错误就在「清空 ↔ 写回」循环里消失'
   );
   assert.ok(!attemptUpdate.includes('lastErrorAt'), '同上：lastErrorAt 也要保留，否则无法判断错误是什么时候的');
 
