@@ -1,6 +1,7 @@
 import { Env, JWTPayload, User } from '../types';
 import { verifyJWT, createJWT, createRefreshToken } from '../utils/jwt';
 import { getRefreshTokenSlidingTtlMs, LIMITS } from '../config/limits';
+import { isMailDeliveryAvailableSoft } from './mail-settings';
 import { StorageService } from './storage';
 
 // Server-side iterations for second-layer hashing.
@@ -179,12 +180,15 @@ export class AuthService {
 
   // Generate access token
   async generateAccessToken(user: User, device?: { identifier: string; sessionStamp: string } | null): Promise<string> {
+    // 与 profile 同一口径（见 buildProfileResponse）；Soft 版查询失败不拖垮签发
+    const mailAvailable = await isMailDeliveryAvailableSoft(this.env);
     return createJWT(
       {
         sub: user.id,
         email: user.email,
         name: user.name,
         sstamp: user.securityStamp,
+        email_verified: user.emailVerified === true || !mailAvailable,
         ...(device?.identifier ? { did: device.identifier, dstamp: device.sessionStamp } : {}),
       },
       this.env.JWT_SECRET

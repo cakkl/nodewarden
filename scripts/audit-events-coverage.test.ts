@@ -9,7 +9,7 @@
 // 三组断言：
 //   ① 源码里出现的每个动作，在**每个**语言包都有标签（动作标签，或 `auth.refresh.failed.*` 的 reason 标签）；
 //   ② 源码里出现的每个元数据键都能通过 `isAuditableMetadataKey`（= 不会被静默丢弃）；
-//   ③ 行为验收（`docs/TODO.md` 第 29 条）：API 密钥创建/轮换、主密码修改、账户资料修改
+//   ③ 行为验收：API 密钥创建/轮换、主密码修改、账户资料修改
 //      真的落进 `audit_logs`，且元数据**落库后依然存在**（②的端到端版本）。
 //
 // 运行方式：npm run test:audit-events
@@ -216,7 +216,7 @@ test('源码里出现的每个审计元数据键都不会被静默丢弃', () =>
   assert.deepStrictEqual(dropped, [], `以下元数据键会被 sanitizeMetadata 丢弃，日志中心只剩动作名：\n${dropped.join('\n')}`);
 });
 
-// ─────────────────────────── 行为验收（docs/TODO.md 第 29 条） ───────────────────────────
+// ─────────────────── 行为验收 ───────────────────
 
 const USER_ID = 'audit-cover-user';
 const USER_EMAIL = 'audit-cover@example.test';

@@ -41,7 +41,7 @@ interface SettingsPageProps {
   onLoadMailSettings: () => Promise<MailSettings>;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
-  /** 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）；未提供时偏好页不显示时区块。 */
+  /** 用户级「语言 / 时区」偏好；未提供时偏好页不显示时区块。 */
   mailPreferences?: MailPreferences | null;
   onSaveMailPreferences?: (update: MailPreferencesUpdate) => Promise<MailPreferences>;
   // 邮箱验证。未提供时账户选项卡不显示该模块。
@@ -578,7 +578,7 @@ export default function SettingsPage(props: SettingsPageProps) {
   }
 
   /**
-   * 切换语言：界面语言与邮件语言是**同一个值**（见 docs/TODO/MAIL-PREFS.md），
+   * 切换语言：界面语言与邮件语言是**同一个值**，
    * 既立刻应用到界面，也落库给服务端渲染邮件用。
    * 选「自动」时写当前浏览器语言并标记为自动档，此后每次登录可按浏览器刷新。
    */
@@ -1024,7 +1024,7 @@ export default function SettingsPage(props: SettingsPageProps) {
                   </div>
                   <p className="field-help">{t('txt_change_email_unavailable')}</p>
                   {/* 是否接收安全通知邮件。两个前提缺一不可：服务端**能**发信（否则开关无意义）、
-                      且邮箱**已验证**（未验证按第 31 条的 gate 语义本来就不会发通知）。
+                      且邮箱**已验证**（未验证时按发信 gate 本来就不会发通知）。
                       放在邮箱区最后：它属于「意愿」，与地址/验证（事实）分层。 */}
                   {emailVerification?.available && emailVerification.verified && (
                     <div className="settings-checkbox-block" style={{ marginTop: '14px' }}>

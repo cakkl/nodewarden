@@ -15,7 +15,7 @@ import type { Env, User } from '../types';
 import { jsonResponse, errorResponse } from '../utils/response';
 import { StorageService } from '../services/storage';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
-import { resolveMailConnection, isMailDeliveryAvailable, resolveMailRenderPreferences } from '../services/mail-settings';
+import { getMailSettings, resolveMailConnection, isMailDeliveryAvailable, resolveMailRenderPreferences } from '../services/mail-settings';
 import { sendSmtpMail, SmtpDeliveryError } from '../services/smtp-client';
 import { renderVerificationEmail } from '../services/mail';
 import { setEmailVerified } from '../services/storage-user-repo';
@@ -116,7 +116,9 @@ export async function handleSendEmailVerificationCode(
     return errorResponse('This server does not support changing the account email address', 409);
   }
 
-  if (!(await isMailDeliveryAvailable(env.DB, env))) {
+  // 一次读配置同时拿到「是否开启」与连接参数，避免 resolveMailConnection 再查一遍
+  const mailSettings = await getMailSettings(env.DB);
+  if (!mailSettings.enabled) {
     return errorResponse('Email delivery is not configured on this server', 503);
   }
 
@@ -131,8 +133,8 @@ export async function handleSendEmailVerificationCode(
     return errorResponse('The daily verification email limit has been reached', 429);
   }
 
-  const connection = await resolveMailConnection(env.DB, env);
-  // 上面刚查过可用性，这里失败说明配置在两步之间被改没了 —— 按不可用处理
+  // 复用上面那份配置；失败即主机 / 发件人没配全，或口令解不开
+  const connection = await resolveMailConnection(env.DB, env, mailSettings);
   if (connection.status !== 'ok') {
     return errorResponse('Email delivery is not configured on this server', 503);
   }

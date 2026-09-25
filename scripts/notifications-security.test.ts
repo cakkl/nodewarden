@@ -105,6 +105,8 @@ async function validAccessToken(): Promise<string> {
     email: 'user@example.test',
     name: 'Test User',
     sstamp: securityStamp,
+    // 与 websocket 认证无关，但该 claim 必须显式给出（客户端字段缺失会抛错）
+    email_verified: true,
   }, secret);
 }
 

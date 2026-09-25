@@ -715,7 +715,7 @@ export const DEMO_BACKUP_SETTINGS: AdminBackupSettings = {
       },
     },
     // 第二个目标刻意处于「上次成功过、之后一直失败」的状态：
-    // 后端的 `lastErrorMessage` 只在**成功**时清空（docs/TODO 第 18 条），
+    // 后端的 `lastErrorMessage` 只在**成功**时清空，
     // 所以这两个字段可以同时存在 —— 演示站要能展示这种真实形态，
     // 否则「上次失败」那一行在演示里永远看不到（失败的原文走 translateServerError
     // 映射成可读文案，这里用的是超时那种）。

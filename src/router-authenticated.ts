@@ -83,6 +83,7 @@ import {
   handleUpdateAttachmentMetadata,
   handleDeleteAttachment,
 } from './handlers/attachments';
+import { handleDeleteAllDevices } from './handlers/devices';
 import { handleAuthenticatedDeviceRoute } from './router-devices';
 import { handleAdminRoute } from './router-admin';
 import { handleGetDomains, handleUpdateDomains } from './handlers/domains';
@@ -277,6 +278,12 @@ export async function handleAuthenticatedRoute(
 
   if (path === '/api/accounts/verify-devices' && (method === 'PUT' || method === 'POST')) {
     return handleSetVerifyDevices(request, env, userId);
+  }
+
+  // 官方客户端「撤销所有会话」走 POST /api/accounts/security-stamp（`postSecurityStamp`）；
+  // 本站等价实现是 DELETE /api/devices，加别名让官方客户端也能用上。
+  if (path === '/api/accounts/security-stamp' && method === 'POST') {
+    return handleDeleteAllDevices(request, env, userId);
   }
 
   if ((path === '/api/accounts/api-key' || path === '/api/accounts/api_key') && method === 'POST') {

@@ -157,10 +157,10 @@ test('webapp/src/lib/api 下所有失败分支都必须接住服务端文案', (
   assert.deepEqual(
     violations,
     [],
-    '这些失败分支把服务端文案丢掉了（用户会看到一句笼统的「失败」，无法自救，见 docs/TODO 第 21 条）：\n'
+    '这些失败分支把服务端文案丢掉了（用户会看到一句笼统的「失败」，无法自救）：\n'
       + `${violations.join('\n')}\n`
       + "修法：throw new Error(await parseErrorMessage(resp, t('txt_…')))—— "
-      + 'fallback 文案用已有的键，别新造（第 21 条实测 32 处全部能复用现有键）'
+      + 'fallback 文案用已有的键，别新造（实测 32 处全部能复用现有键）'
   );
 
   // 防「正则失效 ⇒ 静默扫到 0 个守卫」：那时上面那条断言永远是绿的

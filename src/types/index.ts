@@ -70,7 +70,7 @@ export interface User {
   apiKey: string | null;
   emailVerified?: boolean;
   /**
-   * 用户级语言（**界面 + 邮件共用**，见 docs/TODO/MAIL-PREFS.md）。
+   * 用户级语言（**界面 + 邮件共用**）。
    * `null` / `undefined` = 未设定：邮件回退英文并在正文追加提示。
    */
   locale?: string | null;

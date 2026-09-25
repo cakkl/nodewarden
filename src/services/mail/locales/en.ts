@@ -96,7 +96,7 @@ export interface MailCopy {
   /** 页脚统一说明 */
   footer: string;
   /**
-   * 收件人还没设定偏好时的提示句（见 docs/TODO/MAIL-PREFS.md §6）。
+   * 收件人还没设定偏好时的提示句。
    *
    * ⚠️ `locale` / `both` **只可能用到英文那一份**：语言未设定 ⇒ 邮件就用默认语言（英文）渲染，
    * 于是选中的文案也是英文 ⇒ 其余 9 个语言包只需提供 `timezone`（所以那两项是可选的）。

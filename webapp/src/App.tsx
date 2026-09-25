@@ -1129,7 +1129,7 @@ export default function App() {
   }, [profileQuery.data]);
 
   /**
-   * 用户级「语言 / 时区」偏好（见 docs/TODO/MAIL-PREFS.md）。
+   * 用户级「语言 / 时区」偏好。
    *
    * queryFn 顺带调 `detect`：每次登录都上报浏览器检测值，由服务端条件写
    *（只在未设定或自动档时才写），因此重复调用安全；返回值即最新偏好。

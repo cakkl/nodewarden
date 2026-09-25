@@ -39,13 +39,15 @@ function getHmacKey(secret: string): Promise<CryptoKey> {
 }
 
 // Create JWT
-export async function createJWT(payload: Omit<JWTPayload, 'iat' | 'exp' | 'iss' | 'premium' | 'email_verified' | 'amr'>, secret: string, expiresIn: number = LIMITS.auth.accessTokenTtlSeconds): Promise<string> {
+// `email_verified` 由调用方传入（不在此处硬编码）：客户端的 TokenService 会读这个 claim，
+// 且**字段缺失会抛错** ⇒ 下面统一写成布尔值。
+export async function createJWT(payload: Omit<JWTPayload, 'iat' | 'exp' | 'iss' | 'premium' | 'amr'>, secret: string, expiresIn: number = LIMITS.auth.accessTokenTtlSeconds): Promise<string> {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
 
   const fullPayload: JWTPayload = {
     ...payload,
-    email_verified: true,  // required by mobile client
+    email_verified: payload.email_verified === true,
     amr: ['Application'],  // authentication methods reference - required by mobile client
     iat: now,
     exp: now + expiresIn,
