@@ -545,9 +545,12 @@
     justify-content: flex-start;
   }
 
+  /* 窄态下「刷新」仍要与「根目录 / 上一级」同一行：基础规则已是
+     `flex items-center justify-between`，这里只允许换行兜底（极窄时才折行），
+     不再改成 column —— 那会把「刷新」挤到第二行，而面板宽度本就比视口窄得多，
+     这个断点很容易命中。 */
   .backup-browser-nav {
-    align-items: flex-start;
-    flex-direction: column;
+    flex-wrap: wrap;
   }
 }
 
