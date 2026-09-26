@@ -19,6 +19,14 @@ const it: MailCopy = {
     expiresLabel: 'Questo codice scade il',
     outro: 'Se non hai richiesto tu questa operazione, ignora questo messaggio. Il tuo indirizzo resterà non confermato e non verranno inviate notifiche.',
   },
+  twoFactor: {
+    subject: 'Il tuo codice di accesso NodeWarden',
+    heading: 'Conferma l’accesso',
+    intro: 'Inserisci questo codice per completare l’accesso a NodeWarden. Serve solo per questo tentativo di accesso.',
+    codeLabel: 'Codice di accesso',
+    expiresLabel: 'Questo codice scade il',
+    outro: 'Se non hai tentato di accedere, qualcun altro potrebbe conoscere la tua password principale. Cambiala e controlla le sessioni attive.',
+  },
   notifications: {
     subject: 'Avviso di sicurezza: {event}',
     heading: 'Avviso di sicurezza: {event}',

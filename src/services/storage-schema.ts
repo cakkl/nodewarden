@@ -44,11 +44,21 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // 是否允许本服务向该用户发送**通知类**邮件（安全通知等）；默认 0 = 关闭。
   // 只约束服务端主动发送的通知，用户主动请求的验证码不受影响。
   'ALTER TABLE users ADD COLUMN mail_opt_in INTEGER NOT NULL DEFAULT 0',
+  // 邮件两步登录（2FA provider 1）是否启用；默认 0 = 关闭。
+  // 启用前置：邮箱已验证 **且** 服务端能发信。
+  'ALTER TABLE users ADD COLUMN two_factor_email_enabled INTEGER NOT NULL DEFAULT 0',
 
   // 邮箱验证码。`user_id` 作主键 ⇒ 每个用户同时只有一个待用码（新码覆盖旧码）。
   // 存 `email` 是为了让「发码后用户改了邮箱」的旧码立即失效。
   'CREATE TABLE IF NOT EXISTS email_verification_tokens (' +
     'user_id TEXT PRIMARY KEY, email TEXT NOT NULL, code_hash TEXT NOT NULL, ' +
+    'expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, ' +
+    'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)',
+
+  // 邮件两步登录的登录挑战码。与 email_verification_tokens **分开存**：
+  // 后者表示「验证邮箱归属」，本表表示「登录挑战」，复用会互相覆盖。
+  'CREATE TABLE IF NOT EXISTS two_factor_email_tokens (' +
+    'user_id TEXT PRIMARY KEY, code_hash TEXT NOT NULL, ' +
     'expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, ' +
     'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)',
 

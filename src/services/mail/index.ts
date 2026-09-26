@@ -13,7 +13,7 @@ import de from './locales/de';
 import fr from './locales/fr';
 import it from './locales/it';
 import sv from './locales/sv';
-import { renderTestMail, renderVerificationMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
+import { renderTestMail, renderVerificationMail, renderTwoFactorMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
 
 export type MailLocale = 'en' | 'zh-CN' | 'zh-TW' | 'ru' | 'es' | 'fi' | 'de' | 'fr' | 'it' | 'sv';
 
@@ -79,6 +79,15 @@ export function renderNotificationEmail(
 ): RenderedMail & { locale: MailLocale } {
   const { locale: resolved, copy } = resolveMailCopy(context.locale);
   return { ...renderNotificationMail(copy, input, { ...context, locale: resolved }), locale: resolved };
+}
+
+/** 邮件两步登录的登录挑战码。 */
+export function renderTwoFactorEmail(
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail & { locale: MailLocale } {
+  const { locale: resolved, copy } = resolveMailCopy(context.locale);
+  return { ...renderTwoFactorMail(copy, input, { ...context, locale: resolved }), locale: resolved };
 }
 
 export type { NotificationEventKey } from './locales/en';

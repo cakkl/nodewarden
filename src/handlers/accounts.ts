@@ -13,6 +13,11 @@ import { createRecoveryCode, recoveryCodeEquals } from '../utils/recovery-code';
 import { buildAccountKeys } from '../utils/user-decryption';
 import { buildProfileResponse } from '../utils/profile-response';
 import { isYubiKeyEnabled, isYubiKeyPublicId, requestYubicoApiCredentials, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
+import { clearChallengeCode, issueChallengeCode, checkSendQuota } from '../services/email-2fa';
+import { isMailDeliveryAvailableSoft, resolveMailConnection, resolveMailRenderPreferences } from '../services/mail-settings';
+import { renderTwoFactorEmail } from '../services/mail';
+import { sendSmtpMail } from '../services/smtp-client';
+import { getUser, saveUserPreferences } from '../services/storage-user-repo';
 import {
   getYubicoCredentials,
   initializeYubicoCredentialsOnce,
@@ -1645,4 +1650,186 @@ function randomStringAlphanum(length: number): string {
   }
 
   return result;
+}
+
+// ─────────────────────────── 邮件两步登录（2FA provider 1） ───────────────────────────
+
+/**
+ * 邮件 2FA 的启用前置：邮箱已验证 **且** 服务端能发信。
+ * 少了任何一条，用户都会陷入「开了但收不到码」的死局。
+ */
+async function emailTwoFactorAvailability(env: Env, user: User): Promise<{ ok: true } | { ok: false; reason: 'email-unverified' | 'mail-unavailable' }> {
+  if (user.emailVerified !== true) {
+    return { ok: false, reason: 'email-unverified' };
+  }
+  if (!(await isMailDeliveryAvailableSoft(env))) {
+    return { ok: false, reason: 'mail-unavailable' };
+  }
+  return { ok: true };
+}
+
+// POST /api/two-factor/get-email
+export async function handleGetTwoFactorEmail(request: Request, env: Env, userId: string): Promise<Response> {
+  void request;
+  const storage = new StorageService(env.DB);
+  const user = await storage.getUserById(userId);
+  if (!user) return errorResponse('User not found', 404);
+
+  const availability = await emailTwoFactorAvailability(env, user);
+  // 结构必须与客户端契约一致：外层 `Email` 是**对象**，内层才是 `Enabled` / `Email`。
+  // 客户端执行 `new TwoFactorEmailDetailsResponse(getResponseProperty('Email'))`，
+  // 若外层给字符串，内层字段取不到 ⇒ 界面上的邮箱占位符不会被替换（显示成 `__$1__`）。
+  return jsonResponse({
+    Email: {
+      Enabled: user.twoFactorEmailEnabled === true,
+      Email: user.email,
+    },
+    // 客户端据此决定是否允许开启；未验证邮箱 / 未配 SMTP 时为 false。
+    Available: availability.ok,
+  });
+}
+
+// PUT/POST /api/two-factor/email
+export async function handlePutTwoFactorEmail(request: Request, env: Env, userId: string): Promise<Response> {
+  const storage = new StorageService(env.DB);
+  const auth = new AuthService(env);
+  const user = await storage.getUserById(userId);
+  if (!user) return errorResponse('User not found', 404);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
+
+  const secret = readBodyString(body, ['masterPasswordHash', 'MasterPasswordHash', 'otp', 'OTP', 'secret', 'Secret']);
+  const verified = await verifyUserSecret(auth, user, secret);
+  if (!verified) return errorResponse('User verification failed.', 400);
+
+  const availability = await emailTwoFactorAvailability(env, user);
+  if (!availability.ok) {
+    return errorResponse(
+      availability.reason === 'email-unverified'
+        ? 'Verify your email address before enabling email two-step login.'
+        : 'Email delivery is not configured on this server',
+      400
+    );
+  }
+
+  await saveUserPreferences(env.DB, user.id, { twoFactorEmailEnabled: true });
+  await writeAuditEvent(storage, {
+    actorUserId: user.id,
+    action: 'account.two_factor.email.enable',
+    category: 'security',
+    level: 'security',
+    targetType: 'user',
+    targetId: user.id,
+    metadata: { ...auditRequestMetadata(request) },
+  });
+  return jsonResponse({ Enabled: true, Email: user.email });
+}
+
+// DELETE /api/two-factor/email
+export async function handleDeleteTwoFactorEmail(request: Request, env: Env, userId: string): Promise<Response> {
+  const storage = new StorageService(env.DB);
+  const auth = new AuthService(env);
+  const user = await storage.getUserById(userId);
+  if (!user) return errorResponse('User not found', 404);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
+
+  const secret = readBodyString(body, ['masterPasswordHash', 'MasterPasswordHash', 'otp', 'OTP', 'secret', 'Secret']);
+  const verified = await verifyUserSecret(auth, user, secret);
+  if (!verified) return errorResponse('User verification failed.', 400);
+
+  await saveUserPreferences(env.DB, user.id, { twoFactorEmailEnabled: false });
+  // 停用后立即作废待用码：否则已发出的码在有效期内仍能通过校验。
+  await clearChallengeCode(env.DB, user.id);
+  await writeAuditEvent(storage, {
+    actorUserId: user.id,
+    action: 'account.two_factor.email.disable',
+    category: 'security',
+    level: 'security',
+    targetType: 'user',
+    targetId: user.id,
+    metadata: { ...auditRequestMetadata(request) },
+  });
+  return jsonResponse({ Enabled: false, Email: user.email });
+}
+
+/**
+ * POST /api/two-factor/send-email-login —— 登录流程中发送挑战码。
+ *
+ * **公开端点**（登录前调用）⇒ 必须限流，否则会被当作发信跳板。
+ * 发信失败返回明确的 5xx，**不能**表现为「登录失败」（用户会以为密码错了）。
+ */
+export async function handleSendEmailTwoFactorLogin(request: Request, env: Env): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
+
+  const email = readBodyString(body, ['email', 'Email']).trim().toLowerCase();
+  if (!email) return errorResponse('Email is required', 400);
+
+  const storage = new StorageService(env.DB);
+  const user = await getUser(env.DB, email);
+  // 不区分「用户不存在」与「未启用」：避免把「这个邮箱在本站注册过」暴露给未认证的调用方。
+  if (!user || user.twoFactorEmailEnabled !== true || user.emailVerified !== true) {
+    return errorResponse('Email two-step login is not enabled for this account', 400);
+  }
+
+  const quota = await checkSendQuota(env.DB, user.id);
+  if (!quota.allowed) {
+    if (quota.reason === 'too-soon') {
+      return errorResponse('Please wait before requesting another code', 429);
+    }
+    if (quota.reason === 'hourly-limit') {
+      return errorResponse('Too many codes were requested this hour', 429);
+    }
+    return errorResponse('The daily code limit has been reached', 429);
+  }
+
+  const connection = await resolveMailConnection(env.DB, env);
+  if (connection.status !== 'ok') {
+    return errorResponse('Email delivery is not configured on this server', 503);
+  }
+
+  const issued = await issueChallengeCode(env.DB, user.id, env.JWT_SECRET);
+  const mail = renderTwoFactorEmail(
+    { code: issued.code, expiresAt: new Date(issued.expiresAt) },
+    resolveMailRenderPreferences(user)
+  );
+  try {
+    await sendSmtpMail(connection.settings, {
+      to: user.email,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+    });
+  } catch (error) {
+    // 发信失败：作废刚写入的码（否则用户拿不到码、库里却留着一枚有效码），
+    // 并返回明确的 503 —— 不是「密码错误」，用户重试即可。
+    await clearChallengeCode(env.DB, user.id);
+    await writeAuditEvent(storage, {
+      actorUserId: user.id,
+      action: 'auth.two_factor.email.send_failed',
+      category: 'auth',
+      level: 'warn',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { reason: error instanceof Error ? error.message : String(error), ...auditRequestMetadata(request) },
+    });
+    return errorResponse('Unable to send the verification code. Please try again.', 503);
+  }
+
+  return jsonResponse({ Object: 'twoFactorEmail', Sent: true, ExpiresAt: issued.expiresAt });
 }

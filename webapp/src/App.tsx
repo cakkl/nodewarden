@@ -25,6 +25,8 @@ import {
   saveProfileSnapshot,
   revokeCurrentSession,
   getTwoFactorProviderStatus,
+  getEmailTwoFactorStatus,
+  sendEmailTwoFactorLoginCode,
   getVaultRevisionDate,
   saveSession,
   stripProfileSecrets,
@@ -136,6 +138,7 @@ const SIGNALR_UPDATE_TYPE_AUTH_REQUEST = 15;
 const SIGNALR_UPDATE_TYPE_AUTH_REQUEST_RESPONSE = 16;
 const SIGNALR_UPDATE_TYPE_DEVICE_STATUS = 101;
 const SIGNALR_UPDATE_TYPE_BACKUP_RESTORE_PROGRESS = 102;
+const TWO_FACTOR_PROVIDER_EMAIL = 1;
 const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
 const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
 /**
@@ -218,6 +221,10 @@ export default function App() {
   const [inviteCodeFromUrl, setInviteCodeFromUrl] = useState(initialInviteCode);
   const [unlockPassword, setUnlockPassword] = useState('');
   const [pendingTotp, setPendingTotp] = useState<PendingTotp | null>(null);
+  const [emailCodeResending, setEmailCodeResending] = useState(false);
+  // 防重入必须用 ref：`setEmailCodeResending(true)` 是异步的，同一 tick 内连续调用两次时
+  // 第二次读到的仍是旧值 ⇒ 会真的发出两封信（进入挑战与切换 provider 可能同时触发）。
+  const emailCodeSendingRef = useRef(false);
   // 只保留 setter：这里写入的值当前没有任何读取点（CodeQL js/unused-local-variable）。
   // 7 处 setPendingTotpMode 调用保持原样、行为不变；将来真要用这个状态时把首项命名回来即可。
   const [, setPendingTotpMode] = useState<'login' | 'unlock' | null>(null);
@@ -607,6 +614,10 @@ export default function App() {
         setPendingTotpMode('login');
         setTotpCode('');
         setRememberDevice(true);
+        // 邮件 2FA：进入挑战时自动发一次码（否则用户面对一个空输入框、不知道要去哪拿码）。
+        if (result.pendingTotp.providerType === TWO_FACTOR_PROVIDER_EMAIL) {
+          void sendEmailTwoFactorCode(result.pendingTotp.email);
+        }
         return;
       }
       pushToast('error', result.message || t('txt_login_failed'));
@@ -702,6 +713,31 @@ export default function App() {
       };
     });
     setTotpCode('');
+    // 切到邮件方式时同样要发码（用户主动选了它，不能让他等一个不会来的码）。
+    if (providerType === TWO_FACTOR_PROVIDER_EMAIL && pendingTotp) {
+      void sendEmailTwoFactorCode(pendingTotp.email);
+    }
+  }
+
+  /**
+   * 发送邮件 2FA 的登录验证码。
+   *
+   * 失败时**只提示、不中断登录流程** —— 邮件服务的问题不该表现为「登录失败」，
+   * 用户看到「验证码发送失败」才知道该重试，而不是以为密码错了。
+   */
+  async function sendEmailTwoFactorCode(email: string): Promise<void> {
+    if (emailCodeSendingRef.current) return;
+    emailCodeSendingRef.current = true;
+    setEmailCodeResending(true);
+    try {
+      await sendEmailTwoFactorLoginCode(email);
+      pushToast('success', t('txt_email_code_sent_to_your_address'));
+    } catch (error) {
+      pushToast('error', error instanceof Error ? error.message : t('txt_email_code_send_failed'));
+    } finally {
+      emailCodeSendingRef.current = false;
+      setEmailCodeResending(false);
+    }
   }
 
   async function handleTotpVerify() {
@@ -2118,6 +2154,8 @@ export default function App() {
     onBootstrapYubiKeyApiCredentials: accountSecurityActions.bootstrapYubiKeyApiCredentials,
     onDisableYubiKey: accountSecurityActions.disableYubiKey,
     onGetTwoFactorPasskeySettings: accountSecurityActions.getTwoFactorPasskeySettings,
+    onGetEmailTwoFactor: () => getEmailTwoFactorStatus(authedFetch),
+    onSetEmailTwoFactor: accountSecurityActions.setEmailTwoFactor,
     onCreateTwoFactorPasskey: accountSecurityActions.createTwoFactorPasskey,
     onDeleteTwoFactorPasskey: accountSecurityActions.deleteTwoFactorPasskey,
     onDisableTwoFactorPasskeys: accountSecurityActions.disableTwoFactorPasskeys,
@@ -2374,6 +2412,10 @@ export default function App() {
             navigate(ROUTES.recoverTwoFactor);
           }}
           totpSubmitting={totpSubmitting}
+          onResendEmailCode={() => {
+            if (pendingTotp) void sendEmailTwoFactorCode(pendingTotp.email);
+          }}
+          emailCodeResending={emailCodeResending}
           disableTotpOpen={false}
           disableTotpPassword=""
           onDisableTotpPasswordChange={() => {}}

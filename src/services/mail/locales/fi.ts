@@ -19,6 +19,14 @@ const fi: MailCopy = {
     expiresLabel: 'Koodi vanhenee',
     outro: 'Jos et pyytänyt tätä, jätä viesti huomiotta. Osoite pysyy vahvistamattomana eikä ilmoituksia lähetetä.',
   },
+  twoFactor: {
+    subject: 'NodeWarden-kirjautumiskoodisi',
+    heading: 'Vahvista kirjautuminen',
+    intro: 'Syötä tämä koodi viimeistelläksesi kirjautumisen NodeWardeniin. Se tarvitaan vain tälle kirjautumisyritykselle.',
+    codeLabel: 'Kirjautumiskoodi',
+    expiresLabel: 'Koodi vanhenee',
+    outro: 'Jos et yrittänyt kirjautua, jollain muulla saattaa olla pääsalasanasi. Vaihda se ja tarkista aktiiviset istunnot.',
+  },
   notifications: {
     subject: 'Tietoturvailmoitus: {event}',
     heading: 'Tietoturvailmoitus: {event}',

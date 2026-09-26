@@ -28,9 +28,13 @@ import { createPasskeyUserVerificationToken } from '../utils/user-verification-t
 import { constantTimeEquals, verifyApiKey } from '../utils/api-key';
 import { isYubiKeyEnabled, userYubiKeyPublicIds, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
 import { getYubicoCredentials, initializeYubicoCredentialsOnce } from '../services/yubico-config';
+import { verifyChallengeCode, clearChallengeCode } from '../services/email-2fa';
+import { isMailDeliveryAvailableSoft } from '../services/mail-settings';
+import { saveUserPreferences } from '../services/storage-user-repo';
 
 const TWO_FACTOR_REMEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const TWO_FACTOR_PROVIDER_AUTHENTICATOR = 0;
+const TWO_FACTOR_PROVIDER_EMAIL = 1;
 const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
 const TWO_FACTOR_PROVIDER_REMEMBER = 5;
 const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
@@ -285,6 +289,11 @@ async function twoFactorRequiredResponse(
   let webAuthnOptions: Record<string, unknown> | null = null;
   if (!user || resolveTotpSecret(user.totpSecret)) providers.push(String(TWO_FACTOR_PROVIDER_AUTHENTICATOR));
   if (user && isYubiKeyEnabled(user)) providers.push(String(TWO_FACTOR_PROVIDER_YUBIKEY));
+  // 邮件 2FA：只有「用户已启用 + 邮箱已验证 + 服务端能发信」三者齐备才列出。
+  // 少了任何一条，客户端会展示一个必然失败的选项（发不出码 / 码发到不属于用户的邮箱）。
+  if (user && user.twoFactorEmailEnabled === true && user.emailVerified === true && await isMailDeliveryAvailableSoft(env)) {
+    providers.push(String(TWO_FACTOR_PROVIDER_EMAIL));
+  }
   if (user) {
     webAuthnOptions = await buildTwoFactorPasskeyAssertionOptions(request, env, storage, user) as Record<string, unknown> | null;
     if (webAuthnOptions) providers.push(String(TWO_FACTOR_PROVIDER_WEBAUTHN));
@@ -295,7 +304,11 @@ async function twoFactorRequiredResponse(
       ? { Nfc: user?.yubikeyNfc ?? false }
       : provider === String(TWO_FACTOR_PROVIDER_WEBAUTHN) && webAuthnOptions
         ? webAuthnOptions
-        : null;
+        : provider === String(TWO_FACTOR_PROVIDER_EMAIL)
+          // 客户端从**这里**读邮箱地址（`providers.get(Email).Email`）来渲染
+          // 「邮件将发送至 <地址>」；给 null 会让占位符原样显示成 `__$1__`。
+          ? { Email: user?.email ?? '' }
+          : null;
   }
   const customResponse = {
     TwoFactorProviders: providers,
@@ -494,7 +507,8 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     const effectiveTotpSecret = resolveTotpSecret(user.totpSecret);
     const effectiveYubiKeyPublicIds = userYubiKeyPublicIds(user);
     const effectiveWebAuthnCredentials = await storage.getAccountPasskeyCredentialsByUserId(user.id, 'twoFactor');
-    if (effectiveTotpSecret || effectiveYubiKeyPublicIds.length > 0 || effectiveWebAuthnCredentials.length > 0) {
+    const emailTwoFactorEnabled = user.twoFactorEmailEnabled === true && user.emailVerified === true;
+    if (effectiveTotpSecret || effectiveYubiKeyPublicIds.length > 0 || effectiveWebAuthnCredentials.length > 0 || emailTwoFactorEnabled) {
       const normalizedTwoFactorProvider = String(twoFactorProvider ?? '').trim();
       const normalizedTwoFactorToken = String(twoFactorToken ?? '').trim();
       let rememberRequested = ['1', 'true', 'True', 'TRUE', 'on', 'yes', 'Yes', 'YES'].includes(String(twoFactorRemember || '').trim());
@@ -531,6 +545,15 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
         }
         const consumed = await storage.consumeTotpLoginCounter(user.id, matchedCounter);
         if (!consumed) {
+          return recordFailedTwoFactorAndBuildResponse(rateLimit, loginIdentifier);
+        }
+      } else if (normalizedTwoFactorProvider === String(TWO_FACTOR_PROVIDER_EMAIL)) {
+        // 邮件 2FA：校验挑战码。与 TOTP 同构 —— 失败计入登录失败次数，成功即消费。
+        if (!emailTwoFactorEnabled) {
+          return recordFailedTwoFactorAndBuildResponse(rateLimit, loginIdentifier);
+        }
+        const outcome = await verifyChallengeCode(env.DB, user.id, normalizedTwoFactorToken, env.JWT_SECRET);
+        if (outcome !== 'ok') {
           return recordFailedTwoFactorAndBuildResponse(rateLimit, loginIdentifier);
         }
       } else if (normalizedTwoFactorProvider === String(TWO_FACTOR_PROVIDER_YUBIKEY)) {
@@ -588,6 +611,12 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
         user.securityStamp = generateUUID();
         user.updatedAt = new Date().toISOString();
         await storage.saveUser(user);
+        // 邮件 2FA 也要一并停用：恢复码的语义是「无法访问两步登录提供程序时用它停用两步登录」，
+        // 而邮件恰恰是最容易「无法访问」的那个（收不到信 / SMTP 挂了）⇒ 漏掉它会让用户陷入
+        // 「收不到邮件 → 用恢复码 → 邮件 2FA 仍在 → 下次登录又要邮件码」的死循环。
+        // 开关走专用 UPDATE（不进 saveUser，与 mail_opt_in 一致）。
+        await saveUserPreferences(env.DB, user.id, { twoFactorEmailEnabled: false });
+        await clearChallengeCode(env.DB, user.id);
         await storage.deleteRefreshTokensByUserId(user.id);
         AuthService.invalidateUserCache(user.id);
         rememberRequested = false;

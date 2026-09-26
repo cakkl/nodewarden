@@ -1137,7 +1137,7 @@ export async function getVaultRevisionDate(authedFetch: AuthedFetch): Promise<nu
   return stamp;
 }
 
-export async function getTwoFactorProviderStatus(authedFetch: AuthedFetch): Promise<{ totpEnabled: boolean; yubikeyEnabled: boolean; passkeyEnabled: boolean }> {
+export async function getTwoFactorProviderStatus(authedFetch: AuthedFetch): Promise<{ totpEnabled: boolean; yubikeyEnabled: boolean; passkeyEnabled: boolean; emailEnabled: boolean }> {
   const resp = await authedFetch('/api/two-factor');
   if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
   const body = (await parseJson<{ data?: unknown[]; Data?: unknown[] }>(resp)) || {};
@@ -1151,7 +1151,51 @@ export async function getTwoFactorProviderStatus(authedFetch: AuthedFetch): Prom
     totpEnabled: enabledTypes.has(0),
     yubikeyEnabled: enabledTypes.has(3),
     passkeyEnabled: enabledTypes.has(7),
+    emailEnabled: enabledTypes.has(1),
   };
+}
+
+/** 发送邮件两步登录的登录验证码。**公开端点**（登录前调用，无会话）。 */
+export async function sendEmailTwoFactorLoginCode(email: string): Promise<void> {
+  const resp = await fetch('/api/two-factor/send-email-login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim().toLowerCase() }),
+  });
+  if (!resp.ok) {
+    const body = await parseJson<TokenError>(resp);
+    throw new Error(translateServerError(body?.error_description || body?.error, t('txt_email_code_send_failed')));
+  }
+}
+
+/** 邮件两步登录的状态。`Available` 由服务端判定（邮箱已验证 + 能发信）。 */
+export async function getEmailTwoFactorStatus(
+  authedFetch: AuthedFetch
+): Promise<{ enabled: boolean; available: boolean; email: string }> {
+  const resp = await authedFetch('/api/two-factor/get-email', { method: 'POST' });
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
+  const body = (await parseJson<any>(resp)) || {};
+  // 服务端按客户端契约返回嵌套结构：外层 `Email` 是对象，内层才是 `Enabled` / `Email`。
+  const details = body.Email ?? body.email ?? {};
+  return {
+    enabled: details.Enabled === true || details.enabled === true,
+    available: body.Available === true || body.available === true,
+    email: String(details.Email ?? details.email ?? ''),
+  };
+}
+
+/** 启用 / 停用邮件两步登录。两者都需要主密码。 */
+export async function setEmailTwoFactorEnabled(
+  authedFetch: AuthedFetch,
+  enabled: boolean,
+  masterPasswordHash: string
+): Promise<void> {
+  const resp = await authedFetch('/api/two-factor/email', {
+    method: enabled ? 'PUT' : 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ masterPasswordHash }),
+  });
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_save_failed')));
 }
 
 export async function getTotpRecoveryCode(

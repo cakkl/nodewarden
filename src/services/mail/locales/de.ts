@@ -19,6 +19,14 @@ const de: MailCopy = {
     expiresLabel: 'Dieser Code läuft ab am',
     outro: 'Wenn du das nicht angefordert hast, ignoriere diese Nachricht. Deine Adresse bleibt unbestätigt und es werden keine Benachrichtigungen gesendet.',
   },
+  twoFactor: {
+    subject: 'Dein NodeWarden-Anmeldecode',
+    heading: 'Bestätige deine Anmeldung',
+    intro: 'Gib diesen Code ein, um die Anmeldung bei NodeWarden abzuschließen. Er gilt nur für diesen Anmeldeversuch.',
+    codeLabel: 'Anmeldecode',
+    expiresLabel: 'Dieser Code läuft ab am',
+    outro: 'Wenn du dich nicht anmelden wolltest, kennt jemand anderes möglicherweise dein Master-Passwort. Ändere es und prüfe deine aktiven Sitzungen.',
+  },
   notifications: {
     subject: 'Sicherheitshinweis: {event}',
     heading: 'Sicherheitshinweis: {event}',

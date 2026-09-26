@@ -19,6 +19,14 @@ const zhCN: MailCopy = {
     expiresLabel: '验证码有效期至',
     outro: '如果你没有发起这个操作，忽略本邮件即可。该邮箱会保持未确认状态，不会收到任何通知。',
   },
+  twoFactor: {
+    subject: '你的 NodeWarden 登录验证码',
+    heading: '确认本次登录',
+    intro: '输入以下验证码以完成 NodeWarden 登录。该验证码仅对本次登录有效。',
+    codeLabel: '登录验证码',
+    expiresLabel: '验证码有效期至',
+    outro: '如果你没有尝试登录，说明他人可能已知道你的主密码。请立即修改主密码并检查已登录的设备。',
+  },
   notifications: {
     subject: '安全提醒：{event}',
     heading: '安全提醒：{event}',

@@ -19,6 +19,14 @@ const fr: MailCopy = {
     expiresLabel: 'Ce code expire le',
     outro: 'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message. Votre adresse restera non confirmée et aucune notification ne sera envoyée.',
   },
+  twoFactor: {
+    subject: 'Votre code de connexion NodeWarden',
+    heading: 'Confirmez votre connexion',
+    intro: 'Saisissez ce code pour terminer la connexion à NodeWarden. Il n’est nécessaire que pour cette tentative.',
+    codeLabel: 'Code de connexion',
+    expiresLabel: 'Ce code expire le',
+    outro: 'Si vous n’avez pas tenté de vous connecter, quelqu’un d’autre connaît peut-être votre mot de passe principal. Changez-le et vérifiez vos sessions actives.',
+  },
   notifications: {
     subject: 'Alerte de sécurité : {event}',
     heading: 'Alerte de sécurité : {event}',

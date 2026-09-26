@@ -203,12 +203,51 @@ export function renderVerificationMail(
   };
 }
 
+/** 邮件两步登录的登录挑战码。与验证码邮件同构，但文案与语义不同（登录 vs 验证邮箱归属）。 */
+export function renderTwoFactorMail(
+  copy: MailCopy,
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  const expiresAt = formatMailTime(input.expiresAt, context.timezone);
+  const expiryLine = `${copy.twoFactor.expiresLabel} ${expiresAt}`;
+  const preferencesNote = preferencesNoteFor(copy, context.preferencesUnset);
+
+  return {
+    subject: copy.twoFactor.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.twoFactor.heading,
+      bodyHtml:
+        mailParagraph(copy.twoFactor.intro) +
+        mailCodeBlock(copy.twoFactor.codeLabel, input.code) +
+        mailParagraph(expiryLine, { muted: true }) +
+        mailParagraph(copy.twoFactor.outro, { muted: true }) +
+        (preferencesNote ? mailParagraph(preferencesNote, { muted: true }) : ''),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.twoFactor.heading,
+      '',
+      copy.twoFactor.intro,
+      '',
+      `${copy.twoFactor.codeLabel}: ${input.code}`,
+      expiryLine,
+      '',
+      copy.twoFactor.outro,
+      ...(preferencesNote ? ['', preferencesNote] : []),
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
 /**
  * 由管理员发起的事件：此时用户可能已经登不进去了，
  * 「改主密码、检查已授权设备」是做不到的建议。
  */
-const ADMIN_INITIATED_EVENTS: ReadonlySet<NotificationEventKey> = new Set([
-  'account_disabled',
+const ADMIN_INITIATED_EVENTS: ReadonlySet<NotificationEventKey> = new Set([  'account_disabled',
   'account_deleted',
 ]);
 

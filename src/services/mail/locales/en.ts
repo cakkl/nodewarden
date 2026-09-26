@@ -46,6 +46,15 @@ export interface MailCopy {
     expiresLabel: string;
     outro: string;
   };
+  /** 邮件两步登录的登录挑战码。与 `verification` 分开：语义不同（登录 vs 验证邮箱归属）。 */
+  twoFactor: {
+    subject: string;
+    heading: string;
+    intro: string;
+    codeLabel: string;
+    expiresLabel: string;
+    outro: string;
+  };
   /**
    * 安全通知。**单模板 + 事件名映射**：`events` 只提供「发生了什么」，其余文案十种语言共用。
    * `subject` / `heading` 里的 `{event}` 由对应短句填充；正文不含保管库内容或条目数量。
@@ -129,6 +138,14 @@ const en: MailCopy = {
     codeLabel: 'Verification code',
     expiresLabel: 'This code expires at',
     outro: 'If you did not request this, ignore this message. Your address stays unconfirmed and no notifications will be sent.',
+  },
+  twoFactor: {
+    subject: 'Your NodeWarden login code',
+    heading: 'Confirm your sign-in',
+    intro: 'Enter this code to finish signing in to NodeWarden. It is only needed for this sign-in attempt.',
+    codeLabel: 'Login code',
+    expiresLabel: 'This code expires at',
+    outro: 'If you did not try to sign in, someone else may have your master password. Change it and review your active sessions.',
   },
   notifications: {
     subject: 'Security alert: {event}',

@@ -147,6 +147,8 @@ export interface AppMainRoutesProps {
   onBootstrapYubiKeyApiCredentials: (otp: string, masterPassword: string) => Promise<YubiKeyOtpSettings>;
   onDisableYubiKey: (masterPassword: string) => Promise<void>;
   onGetTwoFactorPasskeySettings: (masterPassword: string) => Promise<TwoFactorPasskeySettings>;
+  onGetEmailTwoFactor: () => Promise<{ enabled: boolean; available: boolean; email: string }>;
+  onSetEmailTwoFactor: (enabled: boolean, masterPassword: string) => Promise<void>;
   onCreateTwoFactorPasskey: (name: string, masterPassword: string) => Promise<TwoFactorPasskeySettings>;
   onDeleteTwoFactorPasskey: (id: number, masterPassword: string) => Promise<TwoFactorPasskeySettings>;
   onDisableTwoFactorPasskeys: (masterPassword: string) => Promise<void>;
@@ -356,6 +358,8 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onBootstrapYubiKeyApiCredentials={props.onBootstrapYubiKeyApiCredentials}
                 onDisableYubiKey={props.onDisableYubiKey}
                 onGetTwoFactorPasskeySettings={props.onGetTwoFactorPasskeySettings}
+                onGetEmailTwoFactor={props.onGetEmailTwoFactor}
+                onSetEmailTwoFactor={props.onSetEmailTwoFactor}
                 onCreateTwoFactorPasskey={props.onCreateTwoFactorPasskey}
                 onDeleteTwoFactorPasskey={props.onDeleteTwoFactorPasskey}
                 onDisableTwoFactorPasskeys={props.onDisableTwoFactorPasskeys}

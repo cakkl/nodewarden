@@ -22,6 +22,9 @@ import {
   handleGetDeviceVerificationSettings,
   handlePutDeviceVerificationSettings,
   handleDisableTwoFactorProvider,
+  handleGetTwoFactorEmail,
+  handlePutTwoFactorEmail,
+  handleDeleteTwoFactorEmail,
   handleGetApiKey,
   handleRotateApiKey,
 } from './handlers/accounts';
@@ -144,18 +147,17 @@ export async function handleAuthenticatedRoute(
     return unsupportedResponse('Email link and email OTP flows are not implemented by this server.');
   }
 
-  const emailTwoFactorPaths = new Set([
-    '/api/two-factor/get-email',
-    '/two-factor/get-email',
-    '/api/two-factor/send-email',
-    '/two-factor/send-email',
-    '/api/two-factor/send-email-login',
-    '/two-factor/send-email-login',
-    '/api/two-factor/email',
-    '/two-factor/email',
-  ]);
-  if (emailTwoFactorPaths.has(path) && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
-    return unsupportedResponse('Email two-step login is not supported by this server.');
+  // 邮件两步登录（2FA provider 1）的开关端点。发码端点 `/api/two-factor/send-email-login`
+  // 是**公开**的（登录前调用、无会话）⇒ 在 router-public 里处理，不在这里。
+  if (path === '/api/two-factor/get-email' || path === '/two-factor/get-email') {
+    if (method === 'POST') return handleGetTwoFactorEmail(request, env, userId);
+    return errorResponse('Method not allowed', 405);
+  }
+
+  if (path === '/api/two-factor/email' || path === '/two-factor/email') {
+    if (method === 'PUT' || method === 'POST') return handlePutTwoFactorEmail(request, env, userId);
+    if (method === 'DELETE') return handleDeleteTwoFactorEmail(request, env, userId);
+    return errorResponse('Method not allowed', 405);
   }
 
   if (path === '/api/accounts/profile') {

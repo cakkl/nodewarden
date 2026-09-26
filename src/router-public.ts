@@ -18,6 +18,7 @@ import {
   handleRegister,
   handleGetPasswordHint,
   handleRecoverTwoFactor,
+  handleSendEmailTwoFactorLogin,
 } from './handlers/accounts';
 import {
   handleCreateAuthRequest,
@@ -454,13 +455,20 @@ export async function handlePublicRoute(
     '/identity/accounts/register/finish',
     '/api/accounts/verify-email-token',
     '/accounts/verify-email-token',
-    '/api/two-factor/send-email-login',
-    '/two-factor/send-email-login',
   ]);
   if (publicMailBackedPaths.has(path) && method === 'POST') {
     const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
     if (blocked) return blocked;
     return unsupportedResponse('Email link and email OTP flows are not implemented by this server.');
+  }
+
+  // 邮件两步登录的发码端点：**公开**（登录前调用、无会话）⇒ 必须限流。
+  // 服务端内部还有按用户的配额（见 email-2fa.ts），两层各管一件事：
+  // 这里防「同一 IP 刷爆」，那里防「同一账号被反复发信」。
+  if ((path === '/api/two-factor/send-email-login' || path === '/two-factor/send-email-login') && method === 'POST') {
+    const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
+    if (blocked) return blocked;
+    return handleSendEmailTwoFactorLogin(request, env);
   }
 
   if (path === '/api/accounts/password-hint' && method === 'POST') {

@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- 默认 0 = 关闭：与「服务端能联系用户」构成双向自愿。
   -- 只约束服务端主动发送的通知；用户主动请求的验证码邮件不受影响。
   mail_opt_in INTEGER NOT NULL DEFAULT 0,
+  -- 邮件两步登录（2FA provider 1）是否启用。默认 0 = 关闭。
+  -- 启用前置：邮箱已验证 **且** 服务端能发信 —— 否则等于把登录码发给不属于用户的邮箱。
+  two_factor_email_enabled INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -66,6 +69,18 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS email_verification_tokens (
   user_id TEXT PRIMARY KEY,
   email TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- 邮件两步登录的登录挑战码。与 email_verification_tokens **分开存**：
+-- 后者表示「验证邮箱归属」，本表表示「登录挑战」，复用会互相覆盖。
+-- user_id 作主键 ⇒ 每个用户同时只有一个待用码（新码覆盖旧码）。
+CREATE TABLE IF NOT EXISTS two_factor_email_tokens (
+  user_id TEXT PRIMARY KEY,
   code_hash TEXT NOT NULL,
   expires_at TEXT NOT NULL,
   attempts INTEGER NOT NULL DEFAULT 0,

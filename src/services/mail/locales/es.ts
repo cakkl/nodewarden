@@ -19,6 +19,14 @@ const es: MailCopy = {
     expiresLabel: 'Este código caduca el',
     outro: 'Si no solicitaste esto, ignora este mensaje. Tu dirección quedará sin confirmar y no se enviarán notificaciones.',
   },
+  twoFactor: {
+    subject: 'Tu código de inicio de sesión de NodeWarden',
+    heading: 'Confirma tu inicio de sesión',
+    intro: 'Introduce este código para terminar de iniciar sesión en NodeWarden. Solo es necesario para este intento.',
+    codeLabel: 'Código de inicio de sesión',
+    expiresLabel: 'Este código caduca el',
+    outro: 'Si no intentaste iniciar sesión, alguien más podría conocer tu contraseña maestra. Cámbiala y revisa tus sesiones activas.',
+  },
   notifications: {
     subject: 'Aviso de seguridad: {event}',
     heading: 'Aviso de seguridad: {event}',

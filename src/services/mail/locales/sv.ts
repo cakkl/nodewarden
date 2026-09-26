@@ -19,6 +19,14 @@ const sv: MailCopy = {
     expiresLabel: 'Koden gäller till',
     outro: 'Om du inte begärde detta kan du ignorera meddelandet. Adressen förblir obekräftad och inga aviseringar skickas.',
   },
+  twoFactor: {
+    subject: 'Din inloggningskod för NodeWarden',
+    heading: 'Bekräfta din inloggning',
+    intro: 'Ange den här koden för att slutföra inloggningen i NodeWarden. Den behövs bara för detta inloggningsförsök.',
+    codeLabel: 'Inloggningskod',
+    expiresLabel: 'Koden gäller till',
+    outro: 'Om du inte försökte logga in kan någon annan ha ditt huvudlösenord. Byt det och granska dina aktiva sessioner.',
+  },
   notifications: {
     subject: 'Säkerhetsvarning: {event}',
     heading: 'Säkerhetsvarning: {event}',

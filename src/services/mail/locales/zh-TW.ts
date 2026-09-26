@@ -19,6 +19,14 @@ const zhTW: MailCopy = {
     expiresLabel: '驗證碼有效期至',
     outro: '如果你沒有發起這個操作，忽略本郵件即可。該地址會保持未確認狀態，不會收到任何通知。',
   },
+  twoFactor: {
+    subject: '你的 NodeWarden 登入驗證碼',
+    heading: '確認本次登入',
+    intro: '輸入以下驗證碼以完成 NodeWarden 登入。該驗證碼僅對本次登入有效。',
+    codeLabel: '登入驗證碼',
+    expiresLabel: '驗證碼有效期至',
+    outro: '如果你沒有嘗試登入，表示他人可能已知悉你的主密碼。請立即變更主密碼並檢查已登入的裝置。',
+  },
   notifications: {
     subject: '安全提醒：{event}',
     heading: '安全提醒：{event}',
