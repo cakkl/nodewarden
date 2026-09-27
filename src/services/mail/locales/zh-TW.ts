@@ -27,6 +27,14 @@ const zhTW: MailCopy = {
     expiresLabel: '驗證碼有效期至',
     outro: '如果你沒有嘗試登入，表示他人可能已知悉你的主密碼。請立即變更主密碼並檢查已登入的裝置。',
   },
+  passwordHint: {
+    subject: '你的 NodeWarden 主密碼提示',
+    heading: '主密碼提示',
+    intro: '你請求查看 NodeWarden 帳戶中儲存的主密碼提示。',
+    hintLabel: '你的提示',
+    noHint: '該帳戶沒有儲存主密碼提示。',
+    outro: '如果你沒有發起這個操作，忽略本郵件即可。主密碼本身絕不會透過郵件寄送。',
+  },
   notifications: {
     subject: '安全提醒：{event}',
     heading: '安全提醒：{event}',

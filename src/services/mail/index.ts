@@ -13,7 +13,7 @@ import de from './locales/de';
 import fr from './locales/fr';
 import it from './locales/it';
 import sv from './locales/sv';
-import { renderTestMail, renderVerificationMail, renderTwoFactorMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
+import { renderTestMail, renderVerificationMail, renderTwoFactorMail, renderPasswordHintMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
 
 export type MailLocale = 'en' | 'zh-CN' | 'zh-TW' | 'ru' | 'es' | 'fi' | 'de' | 'fr' | 'it' | 'sv';
 
@@ -88,6 +88,15 @@ export function renderTwoFactorEmail(
 ): RenderedMail & { locale: MailLocale } {
   const { locale: resolved, copy } = resolveMailCopy(context.locale);
   return { ...renderTwoFactorMail(copy, input, { ...context, locale: resolved }), locale: resolved };
+}
+
+/** 主密码提示邮件。`hint` 为 `null` 时发「未设置提示」的版本（避免枚举）。 */
+export function renderPasswordHintEmail(
+  input: { hint: string | null },
+  context: MailRenderContext = {}
+): RenderedMail & { locale: MailLocale } {
+  const { locale: resolved, copy } = resolveMailCopy(context.locale);
+  return { ...renderPasswordHintMail(copy, input, { ...context, locale: resolved }), locale: resolved };
 }
 
 export type { NotificationEventKey } from './locales/en';

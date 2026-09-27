@@ -1,4 +1,5 @@
 import { useMemo } from 'preact/hooks';
+import type { QueryClient } from '@tanstack/react-query';
 import {
   MailDeliveryError,
   getMailSettings,
@@ -17,6 +18,8 @@ interface UseAdminMailActionsOptions {
   profile: Profile | null;
   defaultKdfIterations: number;
   onNotify: Notify;
+  /** 保存邮件配置后要失效 `server-config` 缓存（主密码提示的文案依赖它）。 */
+  queryClient: QueryClient;
 }
 
 /** 失败环节 → 文案键；只区分用户能采取不同动作的几类。 */
@@ -43,6 +46,7 @@ export function useAdminMailActions({
   profile,
   defaultKdfIterations,
   onNotify,
+  queryClient,
 }: UseAdminMailActionsOptions) {
   return useMemo(() => {
     async function deriveHash(masterPassword: string): Promise<string> {
@@ -59,6 +63,9 @@ export function useAdminMailActions({
 
       async saveMailSettings(input: MailSettingsInput, masterPassword: string): Promise<MailSettings> {
         const settings = await saveMailSettingsApi(authedFetch, input, await deriveHash(masterPassword));
+        // 主密码提示的说明文案依赖 `mailDeliveryAvailable` ⇒ 改完配置立即失效，
+        // 否则管理员会看到「改了但文案没变」（缓存最多 5 分钟）。
+        await queryClient.invalidateQueries({ queryKey: ['server-config'] });
         onNotify('success', t('txt_mail_settings_saved'));
         return settings;
       },
@@ -69,7 +76,7 @@ export function useAdminMailActions({
         return result;
       },
     };
-  }, [authedFetch, profile, defaultKdfIterations, onNotify]);
+  }, [authedFetch, profile, defaultKdfIterations, onNotify, queryClient]);
 }
 
 export default useAdminMailActions;

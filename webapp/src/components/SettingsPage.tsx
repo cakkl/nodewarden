@@ -42,6 +42,8 @@ interface SettingsPageProps {
   onGetApiKey: (masterPassword: string) => Promise<string>;
   onRotateApiKey: (masterPassword: string) => Promise<string>;
   onLoadMailSettings: () => Promise<MailSettings>;
+  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到你的邮箱」。 */
+  mailDeliveryAvailable?: boolean;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
   /** 用户级「语言 / 时区」偏好；未提供时偏好页不显示时区块。 */
@@ -1127,7 +1129,9 @@ export default function SettingsPage(props: SettingsPageProps) {
                     placeholder={t('txt_password_hint_placeholder')}
                     onInput={(e) => setPasswordHint((e.currentTarget as HTMLInputElement).value)}
                   />
-                  <div className="field-help">{t('txt_password_hint_register_help')}</div>
+                  <div className="field-help">
+                    {t(props.mailDeliveryAvailable ? 'txt_password_hint_register_help_email' : 'txt_password_hint_register_help')}
+                  </div>
                 </label>
                 <button
                   type="button"

@@ -243,6 +243,45 @@ export function renderTwoFactorMail(
   };
 }
 
+/** 主密码提示邮件。**无提示时也发信**（防枚举，见 `MailCopy.passwordHint`）。 */
+export function renderPasswordHintMail(
+  copy: MailCopy,
+  input: { hint: string | null },
+  context: MailRenderContext = {}
+): RenderedMail {
+  const preferencesNote = preferencesNoteFor(copy, context.preferencesUnset);
+  const hasHint = !!input.hint;
+
+  return {
+    subject: copy.passwordHint.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.passwordHint.heading,
+      bodyHtml:
+        mailParagraph(copy.passwordHint.intro) +
+        (hasHint
+          ? mailCodeBlock(copy.passwordHint.hintLabel, input.hint as string)
+          : mailParagraph(copy.passwordHint.noHint, { muted: true })) +
+        mailParagraph(copy.passwordHint.outro, { muted: true }) +
+        (preferencesNote ? mailParagraph(preferencesNote, { muted: true }) : ''),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.passwordHint.heading,
+      '',
+      copy.passwordHint.intro,
+      '',
+      hasHint ? `${copy.passwordHint.hintLabel}: ${input.hint}` : copy.passwordHint.noHint,
+      '',
+      copy.passwordHint.outro,
+      ...(preferencesNote ? ['', preferencesNote] : []),
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
 /**
  * 由管理员发起的事件：此时用户可能已经登不进去了，
  * 「改主密码、检查已授权设备」是做不到的建议。

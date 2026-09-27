@@ -27,6 +27,14 @@ const es: MailCopy = {
     expiresLabel: 'Este código caduca el',
     outro: 'Si no intentaste iniciar sesión, alguien más podría conocer tu contraseña maestra. Cámbiala y revisa tus sesiones activas.',
   },
+  passwordHint: {
+    subject: 'Tu pista de contraseña maestra de NodeWarden',
+    heading: 'Pista de contraseña maestra',
+    intro: 'Has solicitado la pista de contraseña maestra guardada en tu cuenta de NodeWarden.',
+    hintLabel: 'Tu pista',
+    noHint: 'Esta cuenta no tiene guardada ninguna pista de contraseña maestra.',
+    outro: 'Si no solicitaste esto, ignora este mensaje. La contraseña maestra nunca se envía por correo.',
+  },
   notifications: {
     subject: 'Aviso de seguridad: {event}',
     heading: 'Aviso de seguridad: {event}',

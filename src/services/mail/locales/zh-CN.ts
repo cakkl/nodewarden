@@ -27,6 +27,14 @@ const zhCN: MailCopy = {
     expiresLabel: '验证码有效期至',
     outro: '如果你没有尝试登录，说明他人可能已知道你的主密码。请立即修改主密码并检查已登录的设备。',
   },
+  passwordHint: {
+    subject: '你的 NodeWarden 主密码提示',
+    heading: '主密码提示',
+    intro: '你请求查看 NodeWarden 账户中保存的主密码提示。',
+    hintLabel: '你的提示',
+    noHint: '该账户没有保存主密码提示。',
+    outro: '如果你没有发起这个操作，忽略本邮件即可。主密码本身绝不会通过邮件发送。',
+  },
   notifications: {
     subject: '安全提醒：{event}',
     heading: '安全提醒：{event}',

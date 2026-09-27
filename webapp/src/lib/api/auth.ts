@@ -490,7 +490,20 @@ export async function registerAccount(args: {
   }
 }
 
-export async function getPasswordHint(email: string): Promise<{ masterPasswordHint: string | null }> {
+/** 读服务端配置。目前只用到 `mailDeliveryAvailable`（决定主密码提示的说明文案）。 */
+export async function getServerConfig(): Promise<{ mailDeliveryAvailable: boolean }> {
+  const resp = await fetch('/api/config', { cache: 'no-store' });
+  if (!resp.ok) return { mailDeliveryAvailable: false };
+  const body = (await parseJson<{ mailDeliveryAvailable?: boolean }>(resp)) || {};
+  return { mailDeliveryAvailable: body.mailDeliveryAvailable === true };
+}
+
+/**
+ * 请求主密码提示。配了 SMTP ⇒ 走邮箱（只有 `sent: true`）；未配 ⇒ 明文（`null` = 无提示）。
+ */
+export async function getPasswordHint(
+  email: string
+): Promise<{ sent: boolean; masterPasswordHint: string | null }> {
   const resp = await fetch('/api/accounts/password-hint', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -500,8 +513,11 @@ export async function getPasswordHint(email: string): Promise<{ masterPasswordHi
     const body = await parseJson<TokenError>(resp);
     throw new Error(translateServerError(body?.error_description || body?.error, t('txt_password_hint_load_failed')));
   }
-  const body = (await parseJson<{ masterPasswordHint?: string | null }>(resp)) || {};
-  return { masterPasswordHint: body.masterPasswordHint ?? null };
+  const body = (await parseJson<{ sent?: boolean; masterPasswordHint?: string | null }>(resp)) || {};
+  return {
+    sent: body.sent === true,
+    masterPasswordHint: body.masterPasswordHint ?? null,
+  };
 }
 
 export function createAuthedFetch(getSession: () => SessionState | null, setSession: SessionSetter) {

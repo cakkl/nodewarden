@@ -27,6 +27,14 @@ const de: MailCopy = {
     expiresLabel: 'Dieser Code läuft ab am',
     outro: 'Wenn du dich nicht anmelden wolltest, kennt jemand anderes möglicherweise dein Master-Passwort. Ändere es und prüfe deine aktiven Sitzungen.',
   },
+  passwordHint: {
+    subject: 'Dein NodeWarden-Master-Passwort-Hinweis',
+    heading: 'Master-Passwort-Hinweis',
+    intro: 'Du hast den in deinem NodeWarden-Konto gespeicherten Master-Passwort-Hinweis angefordert.',
+    hintLabel: 'Dein Hinweis',
+    noHint: 'Für dieses Konto ist kein Master-Passwort-Hinweis gespeichert.',
+    outro: 'Wenn du das nicht angefordert hast, ignoriere diese Nachricht. Das Master-Passwort wird niemals per E-Mail versendet.',
+  },
   notifications: {
     subject: 'Sicherheitshinweis: {event}',
     heading: 'Sicherheitshinweis: {event}',

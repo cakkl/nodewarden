@@ -1,4 +1,6 @@
 import { LIMITS } from './config/limits';
+import { isMailDeliveryAvailableSoft } from './services/mail-settings';
+import type { Env } from './types';
 
 function buildIconServiceTemplate(origin: string): string {
   return `${origin}/icons/{}/icon.png`;
@@ -8,8 +10,11 @@ function buildIconServiceCsp(origin: string): string {
   return `img-src 'self' data: ${origin}`;
 }
 
-export function buildConfigResponse(origin: string) {
+export async function buildConfigResponse(origin: string, env?: Env) {
   const fillAssistBase = `${origin}/fill-assist/`;
+  // 前端据此决定「主密码提示」的说明文案（能发信 ⇒ 会发到邮箱，否则 ⇒ 在登录页显示）。
+  // 非敏感信息：客户端本就能从其它字段推断部署形态。
+  const mailDeliveryAvailable = await isMailDeliveryAvailableSoft(env);
   return {
     version: LIMITS.compatibility.bitwardenServerVersion,
     gitHash: 'nodewarden',
@@ -35,6 +40,8 @@ export function buildConfigResponse(origin: string) {
     },
     _icon_service_url: buildIconServiceTemplate(origin),
     _icon_service_csp: buildIconServiceCsp(origin),
+    // 非 Bitwarden 标准字段：本站前端用它决定主密码提示的说明文案。
+    mailDeliveryAvailable,
     featureStates: {
       'cipher-key-encryption': LIMITS.compatibility.cipherKeyEncryptionFeatureEnabled,
       'desktop-ui-settings-dialog': true,

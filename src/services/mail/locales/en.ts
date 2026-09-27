@@ -55,6 +55,15 @@ export interface MailCopy {
     expiresLabel: string;
     outro: string;
   };
+  /** 主密码提示（两个模板：有提示 / 无提示）。**无提示也发信** —— 否则「收到信」本身即可枚举账号。 */
+  passwordHint: {
+    subject: string;
+    heading: string;
+    intro: string;
+    hintLabel: string;
+    noHint: string;
+    outro: string;
+  };
   /**
    * 安全通知。**单模板 + 事件名映射**：`events` 只提供「发生了什么」，其余文案十种语言共用。
    * `subject` / `heading` 里的 `{event}` 由对应短句填充；正文不含保管库内容或条目数量。
@@ -130,6 +139,14 @@ const en: MailCopy = {
     detailsTitle: 'Connection details',
     labels: { server: 'Server', encryption: 'Encryption', sentAt: 'Sent at' },
     outro: 'If you did not expect this message, someone with administrator access changed the mail settings.',
+  },
+  passwordHint: {
+    subject: 'Your NodeWarden master password hint',
+    heading: 'Master password hint',
+    intro: 'You asked for the master password hint saved on your NodeWarden account.',
+    hintLabel: 'Your hint',
+    noHint: 'This account has no master password hint saved.',
+    outro: 'If you did not request this, ignore this message. Your master password is never sent by email.',
   },
   verification: {
     subject: 'Verify your NodeWarden email address',

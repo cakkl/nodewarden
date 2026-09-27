@@ -27,6 +27,14 @@ const sv: MailCopy = {
     expiresLabel: 'Koden gäller till',
     outro: 'Om du inte försökte logga in kan någon annan ha ditt huvudlösenord. Byt det och granska dina aktiva sessioner.',
   },
+  passwordHint: {
+    subject: 'Din ledtråd till huvudlösenordet i NodeWarden',
+    heading: 'Ledtråd till huvudlösenordet',
+    intro: 'Du begärde ledtråden till huvudlösenordet som sparats på ditt NodeWarden-konto.',
+    hintLabel: 'Din ledtråd',
+    noHint: 'Det finns ingen sparad ledtråd till huvudlösenordet för det här kontot.',
+    outro: 'Om du inte begärde detta kan du ignorera meddelandet. Huvudlösenordet skickas aldrig via e-post.',
+  },
   notifications: {
     subject: 'Säkerhetsvarning: {event}',
     heading: 'Säkerhetsvarning: {event}',

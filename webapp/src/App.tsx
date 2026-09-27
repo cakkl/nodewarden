@@ -20,6 +20,7 @@ import {
   clearProfileSnapshot,
   getCurrentDeviceIdentifier,
   getPasswordHint,
+  getServerConfig,
   getProfile,
   loadProfileSnapshot,
   saveProfileSnapshot,
@@ -866,6 +867,12 @@ export default function App() {
     try {
       const result = await getPasswordHint(email);
       if (loginHintRequestSeqRef.current !== requestSeq || loginEmailRef.current.trim().toLowerCase() !== email) return;
+      // 配了 SMTP：提示走邮箱，页面上只告知「已发送」（不显示内容）。
+      if (result.sent) {
+        pushToast('success', t('txt_password_hint_sent_to_email'));
+        setLoginHintState({ email: '', loading: false, hint: null });
+        return;
+      }
       openPasswordHintDialog(result.masterPasswordHint);
       setLoginHintState({
         email,
@@ -1159,6 +1166,16 @@ export default function App() {
     enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken,
     staleTime: 30_000,
   });
+
+  // 服务端配置：目前只用于「主密码提示」的说明文案（能发信 ⇒ 说会发到邮箱）。
+  // 登录前就要用（注册页），所以不依赖会话。
+  const serverConfigQuery = useQuery({
+    queryKey: ['server-config'],
+    queryFn: getServerConfig,
+    enabled: !IS_DEMO_MODE,
+    staleTime: 5 * 60_000,
+  });
+  const mailDeliveryAvailable = serverConfigQuery.data?.mailDeliveryAvailable === true;
   useEffect(() => {
     if (!profileQuery.data) return;
     setProfile(profileQuery.data);
@@ -1987,6 +2004,7 @@ export default function App() {
     profile,
     defaultKdfIterations,
     onNotify: pushToast,
+    queryClient,
   });
 
   refreshAuthorizedDevicesRef.current = async () => {
@@ -2165,6 +2183,7 @@ export default function App() {
     onLoadMailSettings: adminMailActions.loadMailSettings,
     onSaveMailSettings: adminMailActions.saveMailSettings,
     onSendTestMail: adminMailActions.sendTestMail,
+    mailDeliveryAvailable,
     mailPreferences,
     onSaveMailPreferences: async (update: MailPreferencesUpdate) => {
       const next = await savePreferences(authedFetch, update);
@@ -2341,6 +2360,7 @@ export default function App() {
           passkeyPassword={passkeyPassword}
           registerValues={registerValues}
           registrationInviteRequired={registrationInviteRequired}
+          mailDeliveryAvailable={mailDeliveryAvailable}
           unlockPassword={unlockPassword}
           emailForLock={profile?.email || session?.email || ''}
           loginHintLoading={loginHintState.loading}

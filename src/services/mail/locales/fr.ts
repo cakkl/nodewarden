@@ -27,6 +27,14 @@ const fr: MailCopy = {
     expiresLabel: 'Ce code expire le',
     outro: 'Si vous n’avez pas tenté de vous connecter, quelqu’un d’autre connaît peut-être votre mot de passe principal. Changez-le et vérifiez vos sessions actives.',
   },
+  passwordHint: {
+    subject: 'Votre indice de mot de passe principal NodeWarden',
+    heading: 'Indice de mot de passe principal',
+    intro: 'Vous avez demandé l’indice de mot de passe principal enregistré sur votre compte NodeWarden.',
+    hintLabel: 'Votre indice',
+    noHint: 'Aucun indice de mot de passe principal n’est enregistré pour ce compte.',
+    outro: 'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message. Le mot de passe principal n’est jamais envoyé par courriel.',
+  },
   notifications: {
     subject: 'Alerte de sécurité : {event}',
     heading: 'Alerte de sécurité : {event}',

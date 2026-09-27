@@ -27,6 +27,14 @@ const fi: MailCopy = {
     expiresLabel: 'Koodi vanhenee',
     outro: 'Jos et yrittänyt kirjautua, jollain muulla saattaa olla pääsalasanasi. Vaihda se ja tarkista aktiiviset istunnot.',
   },
+  passwordHint: {
+    subject: 'NodeWarden-pääsalasanavihjeesi',
+    heading: 'Pääsalasanan vihje',
+    intro: 'Pyysit NodeWarden-tilillesi tallennettua pääsalasanan vihjettä.',
+    hintLabel: 'Vihjeesi',
+    noHint: 'Tälle tilille ei ole tallennettu pääsalasanan vihjettä.',
+    outro: 'Jos et pyytänyt tätä, jätä viesti huomiotta. Pääsalasanaa ei koskaan lähetetä sähköpostitse.',
+  },
   notifications: {
     subject: 'Tietoturvailmoitus: {event}',
     heading: 'Tietoturvailmoitus: {event}',

@@ -27,6 +27,14 @@ const it: MailCopy = {
     expiresLabel: 'Questo codice scade il',
     outro: 'Se non hai tentato di accedere, qualcun altro potrebbe conoscere la tua password principale. Cambiala e controlla le sessioni attive.',
   },
+  passwordHint: {
+    subject: 'Il tuo suggerimento per la password principale di NodeWarden',
+    heading: 'Suggerimento per la password principale',
+    intro: 'Hai richiesto il suggerimento per la password principale salvato nel tuo account NodeWarden.',
+    hintLabel: 'Il tuo suggerimento',
+    noHint: 'Per questo account non è salvato alcun suggerimento per la password principale.',
+    outro: 'Se non hai richiesto tu questa operazione, ignora questo messaggio. La password principale non viene mai inviata via email.',
+  },
   notifications: {
     subject: 'Avviso di sicurezza: {event}',
     heading: 'Avviso di sicurezza: {event}',

@@ -15,7 +15,8 @@ import { buildProfileResponse } from '../utils/profile-response';
 import { isYubiKeyEnabled, isYubiKeyPublicId, requestYubicoApiCredentials, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
 import { clearChallengeCode, issueChallengeCode, checkSendQuota } from '../services/email-2fa';
 import { isMailDeliveryAvailableSoft, resolveMailConnection, resolveMailRenderPreferences } from '../services/mail-settings';
-import { renderTwoFactorEmail } from '../services/mail';
+import { renderTwoFactorEmail, renderPasswordHintEmail } from '../services/mail';
+import { waitUntil } from 'cloudflare:workers';
 import { sendSmtpMail } from '../services/smtp-client';
 import { getUser, saveUserPreferences } from '../services/storage-user-repo';
 import {
@@ -441,44 +442,33 @@ export async function handleGetPasswordHint(request: Request, env: Env): Promise
   }
 
   const rateLimit = new RateLimitService(env.DB);
+  // 两级限流各算各的固定窗口。若只报先撞上的那个，用户会看到「40 秒」→ 重试 →「1975 秒」
+  // （分钟窗口刚过、小时窗口还没过）⇒ 先都检查一遍，报**最长**的那个，让用户一次就知道要等多久。
   const minuteBudget = await rateLimit.consumeStrictBudgetWithWindow(
     `${clientIdentifier}:password-hint`,
     LIMITS.rateLimit.passwordHintRequestsPerMinute,
     60
   );
-  if (!minuteBudget.allowed) {
-    return new Response(
-      JSON.stringify({
-        error: 'Too many requests',
-        error_description: `Rate limit exceeded. Try again in ${minuteBudget.retryAfterSeconds || 60} seconds.`,
-      }),
-      {
-        status: 429,
-        headers: {
-          'Content-Type': 'application/json',
-          'Retry-After': String(minuteBudget.retryAfterSeconds || 60),
-          'X-RateLimit-Remaining': '0',
-        },
-      }
-    );
-  }
-
   const hourlyBudget = await rateLimit.consumeStrictBudgetWithWindow(
     `${clientIdentifier}:password-hint-hour`,
     LIMITS.rateLimit.passwordHintRequestsPerHour,
     60 * 60
   );
-  if (!hourlyBudget.allowed) {
+  if (!minuteBudget.allowed || !hourlyBudget.allowed) {
+    const retryAfterSeconds = Math.max(
+      minuteBudget.allowed ? 0 : minuteBudget.retryAfterSeconds || 60,
+      hourlyBudget.allowed ? 0 : hourlyBudget.retryAfterSeconds || 3600
+    );
     return new Response(
       JSON.stringify({
         error: 'Too many requests',
-        error_description: `Rate limit exceeded. Try again in ${hourlyBudget.retryAfterSeconds || 3600} seconds.`,
+        error_description: `Rate limit exceeded. Try again in ${retryAfterSeconds} seconds.`,
       }),
       {
         status: 429,
         headers: {
           'Content-Type': 'application/json',
-          'Retry-After': String(hourlyBudget.retryAfterSeconds || 3600),
+          'Retry-After': String(retryAfterSeconds),
           'X-RateLimit-Remaining': '0',
         },
       }
@@ -487,11 +477,53 @@ export async function handleGetPasswordHint(request: Request, env: Env): Promise
 
   const user = await storage.getUser(email);
   const hint = user?.status === 'active' ? normalizeMasterPasswordHint(user.masterPasswordHint) : null;
+
+  // 配了 SMTP 时**一律走邮箱**：四种情况（已验证 / 未验证 / 不存在 / 被禁用）响应**完全一致**，
+  // 否则「响应不同」即可枚举账号。未验证邮箱不发信 —— 那个地址不能保证真是用户的。
+  if (await isMailDeliveryAvailableSoft(env)) {
+    if (user && user.status === 'active' && user.emailVerified === true) {
+      // 发信排在响应之后：waitUntil 只延长生命周期，不拖慢本次响应。
+      waitUntil(sendPasswordHintMail(env, storage, user, hint, request));
+    }
+    return jsonResponse({ object: 'passwordHint', sent: true });
+  }
+
+  // 未配 SMTP：保持明文（无更好选择）。`hasHint` 已移除 —— 它直接暴露账号是否存在。
   return jsonResponse({
     object: 'passwordHint',
-    hasHint: !!hint,
     masterPasswordHint: hint,
   });
+}
+
+/** 发送主密码提示邮件。**失败不能让请求失败**（用户会以为邮箱不存在），只写审计事件。 */
+async function sendPasswordHintMail(
+  env: Env,
+  storage: StorageService,
+  user: User,
+  hint: string | null,
+  request: Request
+): Promise<void> {
+  try {
+    const connection = await resolveMailConnection(env.DB, env);
+    if (connection.status !== 'ok') return;
+    const mail = renderPasswordHintEmail({ hint }, resolveMailRenderPreferences(user));
+    await sendSmtpMail(connection.settings, {
+      to: user.email,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+    });
+  } catch (error) {
+    await writeAuditEvent(storage, {
+      actorUserId: user.id,
+      action: 'auth.password_hint.send_failed',
+      category: 'auth',
+      level: 'warn',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { reason: error instanceof Error ? error.message : String(error), ...auditRequestMetadata(request) },
+    });
+  }
 }
 
 // GET /api/accounts/profile
