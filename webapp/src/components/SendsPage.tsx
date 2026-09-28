@@ -44,6 +44,8 @@ function buildDefaultDraft(): SendDraft {
     deletionDays: '7',
     expirationDays: '0',
     maxAccessCount: '',
+    accessMode: 'anyone',
+    emails: '',
     password: '',
     hasPassword: false,
     disabled: false,
@@ -61,6 +63,8 @@ function draftFromSend(send: Send): SendDraft {
     deletionDays: daysFromNow(send.deletionDate, 7),
     expirationDays: daysFromNow(send.expirationDate, 0),
     maxAccessCount: send.maxAccessCount !== null && send.maxAccessCount !== undefined ? String(send.maxAccessCount) : '',
+    accessMode: send.emails ? 'emails' : send.password ? 'password' : 'anyone',
+    emails: send.emails || '',
     password: '',
     hasPassword: !!send.password,
     disabled: !!send.disabled,
@@ -238,13 +242,17 @@ export default function SendsPage(props: SendsPageProps) {
     }
   }
 
+  /**
+   * 公开链接：`<origin>/send/<accessId>/<key>`。
+   * ⚠️ 密钥只在解密后才有 ⇒ 有 `decShareKey` 就重建，不用 `shareUrl`（旧数据可能是 `#/send/...`）。
+   */
   function getAccessUrl(send: Send): string {
-    const rawUrl = send.shareUrl || `/send/${send.accessId}`;
-    if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
-    if (rawUrl.startsWith('/#/')) return `${window.location.origin}${rawUrl}`;
-    if (rawUrl.startsWith('#/')) return `${window.location.origin}/${rawUrl}`;
-    if (rawUrl.startsWith('/')) return `${window.location.origin}/#${rawUrl}`;
-    return `${window.location.origin}/#/${rawUrl.replace(/^\/+/, '')}`;
+    const { origin } = window.location;
+    if (send.decShareKey) return `${origin}/send/${send.accessId}/${send.decShareKey}`;
+    const raw = String(send.shareUrl || '');
+    if (/^https?:\/\//i.test(raw)) return raw;
+    const path = raw ? `/${raw.replace(/^\/+/, '').replace(/^#\//, '')}` : `/send/${send.accessId}`;
+    return `${origin}${path}`;
   }
 
   function copyAccessUrl(send: Send): void {
@@ -419,7 +427,7 @@ export default function SendsPage(props: SendsPageProps) {
                 <div className="list-text">
                   <span className="list-title" title={send.decName || t('txt_no_name')}>{send.decName || t('txt_no_name')}</span>
                   <span className="list-sub">
-                    {!!send.password && <><Lock size={12} className="inline-icon" /> </>}
+                    {(!!send.password || !!send.emails) && <><Lock size={12} className="inline-icon" /> </>}
                     {Number(send.type) === 1 ? t('txt_file') : t('txt_text')} - {t('txt_accessed_count_times', { count: send.accessCount || 0 })}
                   </span>
                 </div>
@@ -509,26 +517,68 @@ export default function SendsPage(props: SendsPageProps) {
                 <span>{t('txt_max_access_count')}</span>
                 <input className="input" value={draft.maxAccessCount} onInput={(e) => setDraft({ ...draft, maxAccessCount: (e.currentTarget as HTMLInputElement).value })} />
               </label>
-              <label className="field">
-                <span>{t('txt_password')}</span>
-                {draft.hasPassword ? (
-                  <div className="password-wrap">
-                    <input className="input" aria-label={t('txt_password')} type="password" value="••••••••" disabled />
-                    {!isCreating && (
-                      <button type="button" className="password-toggle danger" onClick={() => setDraft({ ...draft, hasPassword: false, password: '' })} title={t('txt_remove')}>
-                        <Trash2 size={16} />
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="password-wrap">
-                    <input className="input" aria-label={t('txt_password')} type={showPassword ? 'text' : 'password'} value={draft.password} onInput={(e) => setDraft({ ...draft, password: (e.currentTarget as HTMLInputElement).value })} />
-                    <button type="button" className="password-toggle" title={showPassword ? t('txt_hide') : t('txt_reveal')} aria-label={showPassword ? t('txt_hide') : t('txt_reveal')} onClick={() => setShowPassword((v) => !v)}>
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-                )}
+              <label className="field field-span-2">
+                <span>{t('txt_send_access_mode')}</span>
+                <div className="send-options">
+                  <label>
+                    <input
+                      type="radio"
+                      checked={draft.accessMode === 'anyone'}
+                      onInput={() => setDraft({ ...draft, accessMode: 'anyone' })}
+                    />
+                    {t('txt_send_access_anyone')}
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      checked={draft.accessMode === 'password'}
+                      onInput={() => setDraft({ ...draft, accessMode: 'password' })}
+                    />
+                    {t('txt_send_access_password')}
+                  </label>
+                  <label>
+                    <input
+                      type="radio"
+                      checked={draft.accessMode === 'emails'}
+                      onInput={() => setDraft({ ...draft, accessMode: 'emails' })}
+                    />
+                    {t('txt_send_access_emails')}
+                  </label>
+                </div>
               </label>
+              {draft.accessMode === 'password' && (
+                <label className="field">
+                  <span>{t('txt_password')}</span>
+                  {draft.hasPassword ? (
+                    <div className="password-wrap">
+                      <input className="input" aria-label={t('txt_password')} type="password" value="••••••••" disabled />
+                      {!isCreating && (
+                        <button type="button" className="password-toggle danger" onClick={() => setDraft({ ...draft, hasPassword: false, password: '' })} title={t('txt_remove')}>
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="password-wrap">
+                      <input className="input" aria-label={t('txt_password')} type={showPassword ? 'text' : 'password'} value={draft.password} onInput={(e) => setDraft({ ...draft, password: (e.currentTarget as HTMLInputElement).value })} />
+                      <button type="button" className="password-toggle" title={showPassword ? t('txt_hide') : t('txt_reveal')} aria-label={showPassword ? t('txt_hide') : t('txt_reveal')} onClick={() => setShowPassword((v) => !v)}>
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
+                  )}
+                </label>
+              )}
+              {draft.accessMode === 'emails' && (
+                <label className="field field-span-2">
+                  <span>{t('txt_send_emails_label')}</span>
+                  <input
+                    className="input"
+                    value={draft.emails}
+                    placeholder="name@example.com, other@example.com"
+                    onInput={(e) => setDraft({ ...draft, emails: (e.currentTarget as HTMLInputElement).value })}
+                  />
+                </label>
+              )}
               <label className="field field-span-2">
                 <span>{t('txt_notes')}</span>
                 <textarea className="input textarea" rows={5} value={draft.notes} onInput={(e) => setDraft({ ...draft, notes: (e.currentTarget as HTMLTextAreaElement).value })} />

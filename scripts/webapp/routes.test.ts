@@ -17,6 +17,7 @@ import {
   ROUTES,
   SHELL_ROUTE_PATHS,
   isKnownRoutePath,
+  legacyPublicSendPath,
   normalizeRoutePath,
 } from '../../webapp/src/lib/routes';
 
@@ -198,4 +199,22 @@ test('normalizeRoutePath：丢掉 hash 与 query 片段', () => {
   assert.equal(normalizeRoutePath('vault'), '/vault');
   assert.equal(normalizeRoutePath(''), '/');
   assert.equal(normalizeRoutePath('/'), '/');
+});
+
+// ------------------------------------------------- 旧 hash 分享链接的归一化
+//
+// 路由只读路径 ⇒ `#/send/<id>/<key>` 会被当成根路径、直接落到登录页。
+// 已发出去的链接没法收回，所以 `main.tsx` 在渲染前把它换成路径形态。
+
+test('legacyPublicSendPath：只认公开 Send 链接，带上密钥', () => {
+  assert.equal(legacyPublicSendPath('#/send/abc/key-part'), '/send/abc/key-part');
+  assert.equal(legacyPublicSendPath('#/send/abc'), '/send/abc');
+  assert.equal(legacyPublicSendPath('#send/abc/key'), '/send/abc/key');
+  assert.equal(legacyPublicSendPath('#/send/abc/key/'), '/send/abc/key');
+});
+
+test('legacyPublicSendPath：其它 hash 一律不动', () => {
+  for (const hash of ['', '#', '#/vault', '#/send/abc/key/extra', '#/sends/abc/key', '#not-a-hash']) {
+    assert.equal(legacyPublicSendPath(hash), null, `${hash} 不该被改写`);
+  }
 });

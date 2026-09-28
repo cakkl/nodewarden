@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { initI18n } from './lib/i18n';
 import { registerNodeWardenServiceWorker } from './lib/pwa';
+import { legacyPublicSendPath } from './lib/routes';
 import './tailwind.css';
 import './styles.css';
 
@@ -32,6 +33,9 @@ function renderApp(): void {
 }
 
 void initI18n().finally(() => {
+  // 渲染前先把旧 hash 分享链接换成路径形态，否则它会落到登录页。
+  const legacyPath = legacyPublicSendPath(window.location.hash);
+  if (legacyPath) window.history.replaceState(null, '', legacyPath);
   renderApp();
   registerNodeWardenServiceWorker();
 });

@@ -478,7 +478,11 @@ export default function App() {
         ? (window.location.hash || '').replace(/^#/, '').split('?')[0].split('#')[0]
         : '';
       const normalizedCurrentHashPath = currentHashPath.replace(/^\/+/, '').replace(/\/+$/, '');
-      const isDemoPublicSendRoute = /^send\/[^/]+(?:\/[^/]+)?$/i.test(normalizedCurrentHashPath);
+      // demo 站点也要能直接打开公开链接：既认路径形态，也认已发出去的旧 hash 形态
+      const isDemoPublicSendRoute = typeof window !== 'undefined' && (
+        PUBLIC_SEND_PATH_PATTERN.test(normalizeRoutePath(window.location.pathname)) ||
+        /^send\/[^/]+(?:\/[^/]+)?$/i.test(normalizedCurrentHashPath)
+      );
       setDefaultKdfIterations(initialBootstrap.defaultKdfIterations);
       setRegistrationInviteRequired(initialBootstrap.registrationInviteRequired);
       setJwtWarning(null);
@@ -2328,7 +2332,11 @@ export default function App() {
   if (publicSendMatch) {
     return (
       <>
-        <PublicSendPage accessId={decodeURIComponent(publicSendMatch[1])} keyPart={publicSendMatch[2] ? decodeURIComponent(publicSendMatch[2]) : null} />
+        <PublicSendPage
+          accessId={decodeURIComponent(publicSendMatch[1])}
+          keyPart={publicSendMatch[2] ? decodeURIComponent(publicSendMatch[2]) : null}
+          onNotify={pushToast}
+        />
         {renderPassiveOverlays()}
       </>
     );

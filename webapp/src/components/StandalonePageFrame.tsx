@@ -20,7 +20,7 @@ export default function StandalonePageFrame(props: StandalonePageFrameProps) {
 
       <div className="auth-card">
         {props.eyebrow && <div className="standalone-eyebrow">{props.eyebrow}</div>}
-        <div className="standalone-title-row">
+        <div className={`standalone-title-row${props.titleAccessory ? ' has-accessory' : ''}`}>
           <h1 className="standalone-title">{props.title}</h1>
           {props.titleAccessory}
         </div>

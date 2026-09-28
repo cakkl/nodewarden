@@ -329,8 +329,12 @@ export function importCipherToDraft(cipher: Record<string, unknown>, folderId: s
   return draft;
 }
 
+/**
+ * 拼公开 Send 链接：`<origin>/send/<accessId>/<key>`。
+ * ⚠️ 必须是**路径**形态 —— `#/send/...` 会被当成根路径、直接落到登录页。
+ */
 export function buildPublicSendUrl(origin: string, accessId: string, keyPart: string): string {
-  return `${origin}/#/send/${accessId}/${keyPart}`;
+  return `${origin}/send/${accessId}/${keyPart}`;
 }
 
 export function parseSignalRTextFrames(raw: string): WebVaultSignalRInvocation[] {
@@ -355,4 +359,3 @@ export async function deriveSendKeyParts(sendKeyMaterial: Uint8Array): Promise<{
   const derived = await hkdf(sendKeyMaterial, SEND_KEY_SALT, SEND_KEY_PURPOSE, 64);
   return { enc: derived.slice(0, 32), mac: derived.slice(32, 64) };
 }
-

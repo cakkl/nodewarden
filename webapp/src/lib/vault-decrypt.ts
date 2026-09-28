@@ -321,7 +321,7 @@ export async function decryptSends(args: DecryptSendsArgs): Promise<Send[]> {
             .replace(/\+/g, '-')
             .replace(/\//g, '_')
             .replace(/=+$/g, '');
-          nextSend.shareUrl = `${args.origin}/#/send/${send.accessId}/${nextSend.decShareKey}`;
+          nextSend.shareUrl = `${args.origin}/send/${send.accessId}/${nextSend.decShareKey}`;
         } else {
           nextSend.decName = '';
           nextSend.decNotes = '';

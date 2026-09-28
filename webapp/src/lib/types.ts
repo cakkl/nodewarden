@@ -283,6 +283,8 @@ export interface Send {
   maxAccessCount?: number | null;
   accessCount?: number;
   password?: string | null;
+  /** 「限特定邮箱」的名单（小写逗号串）；非空即表示该 Send 需要邮箱验证码 */
+  emails?: string | null;
   authType?: number | null;
   disabled?: boolean;
   revisionDate?: string;
@@ -292,6 +294,7 @@ export interface Send {
   decNotes?: string;
   decText?: string;
   decShareKey?: string;
+  /** 分享链接（解密后生成，形态固定为 `<origin>/send/<accessId>/<key>`；hash 写法已废弃） */
   shareUrl?: string;
   file?: {
     id?: string;
@@ -311,6 +314,10 @@ export interface SendDraft {
   deletionDays: string;
   expirationDays: string;
   maxAccessCount: string;
+  /** 谁可以访问：任何人 / 密码 / 特定邮箱（对应服务端的 `authType`） */
+  accessMode: 'anyone' | 'password' | 'emails';
+  /** 特定邮箱名单（逗号分隔的原始输入，服务端会规范化） */
+  emails: string;
   password: string;
   hasPassword?: boolean;
   disabled: boolean;

@@ -561,7 +561,7 @@ export const DEMO_SENDS: Send[] = [
     deletionDate: '2026-05-18T08:00:00.000Z',
     expirationDate: null,
     revisionDate: DEMO_NOW,
-    shareUrl: '/#/send/demo-note/demo-key',
+    shareUrl: '/send/demo-note/demo-key',
   },
   {
     id: 'send-demo-file',
@@ -577,7 +577,7 @@ export const DEMO_SENDS: Send[] = [
     deletionDate: '2026-05-11T08:00:00.000Z',
     expirationDate: '2026-05-08T08:00:00.000Z',
     revisionDate: DEMO_NOW,
-    shareUrl: '/#/send/demo-file/demo-key',
+    shareUrl: '/send/demo-file/demo-key',
     file: {
       id: 'send-file-001',
       fileName: 'design-handoff.zip',
@@ -1320,7 +1320,7 @@ function sendFromDraft(draft: SendDraft, current?: Send | null): Send {
     deletionDate: new Date(Date.now() + deletionDays * 86400_000).toISOString(),
     expirationDate: expirationDays > 0 ? new Date(Date.now() + expirationDays * 86400_000).toISOString() : null,
     revisionDate: now,
-    shareUrl: current?.shareUrl || (isFile ? '/#/send/demo-file/demo-key' : '/#/send/demo-note/demo-key'),
+    shareUrl: current?.shareUrl || (isFile ? '/send/demo-file/demo-key' : '/send/demo-note/demo-key'),
     file: isFile ? {
       id: current?.file?.id || createDemoId('send-file'),
       fileName,

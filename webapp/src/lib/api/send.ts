@@ -34,6 +34,72 @@ const SEND_KEY_PURPOSE = 'send';
 const SEND_KEY_SEED_BYTES = 16;
 const SEND_PASSWORD_ITERATIONS = 100000;
 
+/**
+ * 访问 Send 时的错误类型。与官方服务端逐字一致（见 `src/handlers/sends-shared.ts`），
+ * 页面靠它决定该显示密码框、邮箱框还是验证码框。
+ */
+export type SendAccessErrorType =
+  | 'send_id_required'
+  | 'send_id_invalid'
+  | 'password_hash_b64_required'
+  | 'password_hash_b64_invalid'
+  | 'email_required'
+  | 'email_and_otp_required'
+  | 'email_delivery_unavailable';
+
+/** 访问 Send 的凭据。按 Send 的认证方式二选一。 */
+export interface PublicSendAccessCredentials {
+  password?: string;
+  /** 邮箱 OTP：先只给 email（服务端发码），再带上 otp */
+  email?: string;
+  otp?: string;
+}
+
+interface SendAccessError extends Error {
+  status?: number;
+  sendAccessErrorType?: SendAccessErrorType;
+}
+
+/**
+ * 读 Send 访问失败的原因。
+ *
+ * 不能复用 `parseErrorMessage`：它会先读走 body，而这里还要拿 `send_access_error_type`。
+ */
+async function readSendAccessError(resp: Response, fallback: string): Promise<SendAccessError> {
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = (await resp.json()) as Record<string, unknown>;
+  } catch {
+    payload = null;
+  }
+  const description = payload?.error_description ?? payload?.error ?? payload?.Message;
+  const error = createApiError(
+    typeof description === 'string' && description.trim() ? description : fallback,
+    resp.status
+  ) as SendAccessError;
+  const errorType = payload?.send_access_error_type;
+  if (typeof errorType === 'string') error.sendAccessErrorType = errorType as SendAccessErrorType;
+  return error;
+}
+
+/** 认证方式（与服务端 `SendAuthType` 对齐） */
+const SEND_AUTH_EMAIL = 0;
+const SEND_AUTH_PASSWORD = 1;
+const SEND_AUTH_NONE = 2;
+
+/**
+ * 把草稿里的访问设置转成请求字段。
+ *
+ * ⚠️ 邮箱认证与密码**互斥**：服务端在名单非空时会清掉密码，所以前端也不该两个都发
+ * （编辑中用密码的 Send 改成邮箱时，草稿里可能还留着旧密码文本）。
+ */
+function sendAccessPayload(draft: SendDraft): { authType: number; emails: string | null; password: string | null } {
+  const emails = draft.accessMode === 'emails' ? String(draft.emails || '').trim() : '';
+  if (emails) return { authType: SEND_AUTH_EMAIL, emails, password: null };
+  const password = draft.accessMode === 'password' ? String(draft.password || '') : '';
+  return { authType: password ? SEND_AUTH_PASSWORD : SEND_AUTH_NONE, emails: null, password };
+}
+
 async function encryptTextValue(value: string, enc: Uint8Array, mac: Uint8Array): Promise<string | null> {
   const s = String(value || '');
   if (!s.trim()) return null;
@@ -97,8 +163,8 @@ export async function createSend(
   const deletionIso = toIsoDateFromDays(draft.deletionDays, true)!;
   const expirationIso = toIsoDateFromDays(draft.expirationDays, false);
   const maxAccessCount = parseMaxAccessCountRaw(draft.maxAccessCount);
-  const password = String(draft.password || '');
-  const passwordHash = password ? await hashSendPasswordB64(password, sendKeyMaterial) : null;
+  const access = sendAccessPayload(draft);
+  const passwordHash = access.password ? await hashSendPasswordB64(access.password, sendKeyMaterial) : null;
 
   if (draft.type === 'text') {
     const text = String(draft.text || '').trim();
@@ -116,6 +182,8 @@ export async function createSend(
       },
       maxAccessCount,
       password: passwordHash,
+      emails: access.emails,
+      authType: access.authType,
       hideEmail: false,
       disabled: !!draft.disabled,
       deletionDate: deletionIso,
@@ -153,6 +221,8 @@ export async function createSend(
       fileLength: encryptedFileBytes.byteLength,
       maxAccessCount,
       password: passwordHash,
+      emails: access.emails,
+      authType: access.authType,
       hideEmail: false,
       disabled: !!draft.disabled,
       deletionDate: deletionIso,
@@ -205,8 +275,8 @@ export async function updateSend(
 
   const textCipher = await encryptTextValue(String(draft.text || ''), sendKey.enc, sendKey.mac);
 
-  const passwordRaw = String(draft.password || '');
-  const passwordHash = passwordRaw ? await hashSendPasswordB64(passwordRaw, sendKeyMaterial) : null;
+  const access = sendAccessPayload(draft);
+  const passwordHash = access.password ? await hashSendPasswordB64(access.password, sendKeyMaterial) : null;
 
   const payload = {
     id: send.id,
@@ -220,6 +290,8 @@ export async function updateSend(
     },
     maxAccessCount,
     password: passwordHash,
+    emails: access.emails,
+    authType: access.authType,
     hideEmail: false,
     disabled: !!draft.disabled,
     deletionDate: deletionIso,
@@ -254,55 +326,72 @@ export async function bulkDeleteSends(authedFetch: AuthedFetch, ids: string[]): 
   }
 }
 
-async function buildPublicSendAccessPayload(password?: string, keyPart?: string | null): Promise<Record<string, unknown>> {
-  const payload: Record<string, unknown> = {};
-  const plainPassword = String(password || '').trim();
-  if (!plainPassword) return payload;
-
-  if (keyPart) {
-    try {
-      const sendKeyMaterial = base64UrlToBytes(keyPart);
-      const passwordHashB64 = await hashSendPasswordB64(plainPassword, sendKeyMaterial);
-      payload.passwordHash = passwordHashB64;
-      payload.password_hash_b64 = passwordHashB64;
-      payload.passwordHashB64 = passwordHashB64;
-    } catch {
-      // Key material invalid; server will reject as unauthorized.
-    }
-  }
-  return payload;
-}
-
-export async function accessPublicSend(
+/**
+ * 用 `send_id` + 凭据换访问令牌（官方客户端同款：`grant_type=send_access`，表单编码）。
+ * ⚠️ **必须两步走**：验证码是一次性的，拿到令牌后再取数据 / 下载文件都不能重新提交验证码。
+ */
+export async function requestSendAccessToken(
   accessId: string,
   keyPart?: string | null,
-  password?: string,
+  credentials: PublicSendAccessCredentials = {},
   options?: { signal?: AbortSignal }
-): Promise<unknown> {
-  const payload = await buildPublicSendAccessPayload(password, keyPart);
-  const resp = await fetch(`/api/sends/access/${encodeURIComponent(accessId)}`, {
+): Promise<string> {
+  const form = new URLSearchParams({
+    grant_type: 'send_access',
+    // SDK 固定值：服务端目前不校验，但保持一致便于排查
+    client_id: 'send',
+    scope: 'api.send',
+    send_id: accessId,
+  });
+  const email = String(credentials.email || '').trim();
+  if (email) form.set('email', email);
+  const otp = String(credentials.otp || '').trim();
+  if (otp) form.set('otp', otp);
+
+  const plainPassword = String(credentials.password || '').trim();
+  if (plainPassword && keyPart) {
+    try {
+      const passwordHashB64 = await hashSendPasswordB64(plainPassword, base64UrlToBytes(keyPart));
+      form.set('password_hash_b64', passwordHashB64);
+    } catch {
+      // 密钥材料不合法：不提交密码，服务端会按「缺凭据」拒绝
+    }
+  }
+
+  const resp = await fetch('/identity/connect/token', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: form.toString(),
     signal: options?.signal,
   });
   if (!resp.ok) {
-    const message = await parseErrorMessage(resp, 'Failed to access send');
-    throw createApiError(message, resp.status);
+    throw await readSendAccessError(resp, 'Failed to access send');
+  }
+  const body = await parseJson<{ access_token?: string }>(resp);
+  if (!body?.access_token) throw new Error('Failed to access send');
+  return body.access_token;
+}
+
+/** 用访问令牌取 Send 内容（`POST /api/sends/access`）。 */
+export async function accessSendWithToken(accessToken: string): Promise<unknown> {
+  const resp = await fetch('/api/sends/access', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!resp.ok) {
+    throw await readSendAccessError(resp, 'Failed to access send');
   }
   return (await parseJson<unknown>(resp)) || null;
 }
 
-export async function accessPublicSendFile(sendId: string, fileId: string, keyPart?: string | null, password?: string): Promise<string> {
-  const payload = await buildPublicSendAccessPayload(password, keyPart);
-  const resp = await fetch(`/api/sends/${encodeURIComponent(sendId)}/access/file/${encodeURIComponent(fileId)}`, {
+/** 用访问令牌取文件下载地址（`POST /api/sends/access/file/{fileId}`）。 */
+export async function requestSendFileUrl(accessToken: string, fileId: string): Promise<string> {
+  const resp = await fetch(`/api/sends/access/file/${encodeURIComponent(fileId)}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (!resp.ok) {
-    const message = await parseErrorMessage(resp, 'Failed to access send file');
-    throw createApiError(message, resp.status);
+    throw await readSendAccessError(resp, 'Failed to access send file');
   }
   const body = await parseJson<{ url?: string }>(resp);
   if (!body?.url) throw new Error('Missing file URL');
