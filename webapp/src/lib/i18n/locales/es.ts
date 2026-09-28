@@ -75,6 +75,7 @@ const es: Record<string, string> = {
   "txt_settings_account": "Cuenta",
   "txt_email_verification": "Verificación de correo",
   "txt_email_verification_description": "Confirma que esta dirección es tuya. Las notificaciones de seguridad solo se envían a una dirección confirmada.",
+  "txt_email_verification_unverified_warning": "Tu correo no está verificado, así que no recibirás la pista por correo. Verifícalo en {where}.",
   "txt_email_verification_verified_badge": "Verificada",
   "txt_email_verification_unverified_badge": "Sin verificar",
   "txt_email_verification_resend_code": "Enviar un código nuevo",

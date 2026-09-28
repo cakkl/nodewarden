@@ -75,6 +75,7 @@ const zhTW: Record<string, string> = {
   "txt_settings_account": "帳戶",
   "txt_email_verification": "電子郵件驗證",
   "txt_email_verification_description": "確認這個電子郵件地址屬於你。安全通知只會寄送到已確認的地址。",
+  "txt_email_verification_unverified_warning": "信箱尚未驗證，忘記主密碼時收不到提示郵件。請在{where}中完成驗證。",
   "txt_email_verification_verified_badge": "已驗證",
   "txt_email_verification_unverified_badge": "未驗證",
   "txt_email_verification_resend_code": "重新傳送驗證碼",

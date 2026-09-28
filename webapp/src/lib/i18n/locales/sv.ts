@@ -75,6 +75,7 @@ const sv: Record<string, string> = {
   "txt_settings_account": "Konto",
   "txt_email_verification": "E-postverifiering",
   "txt_email_verification_description": "Bekräfta att adressen tillhör dig. Säkerhetsaviseringar skickas bara till en bekräftad adress.",
+  "txt_email_verification_unverified_warning": "Din e-postadress är inte verifierad, så du får ingen ledtråd via e-post. Verifiera den under {where}.",
   "txt_email_verification_verified_badge": "Bekräftad",
   "txt_email_verification_unverified_badge": "Inte bekräftad",
   "txt_email_verification_resend_code": "Skicka en ny kod",

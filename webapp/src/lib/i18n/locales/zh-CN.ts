@@ -75,6 +75,7 @@ const zhCN: Record<string, string> = {
   "txt_settings_account": "账户",
   "txt_email_verification": "邮箱验证",
   "txt_email_verification_description": "确认这个邮箱地址属于你。安全通知只会发送到已确认的邮箱。",
+  "txt_email_verification_unverified_warning": "邮箱尚未验证，忘记主密码时收不到提示邮件。请在{where}中完成验证。",
   "txt_email_verification_verified_badge": "已验证",
   "txt_email_verification_unverified_badge": "未验证",
   "txt_email_verification_resend_code": "重新发送验证码",

@@ -19,6 +19,8 @@ export interface Profile {
   privateKey?: string | null;
   publicKey?: string | null;
   role: 'admin' | 'user';
+  /** 邮箱是否已验证。服务端保证「不能发信时恒报 true」⇒ 只能用它判断是否需要提醒验证。 */
+  emailVerified?: boolean;
   [k: string]: unknown;
 }
 

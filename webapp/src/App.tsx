@@ -73,6 +73,7 @@ import useBackupActions from '@/hooks/useBackupActions';
 import useVaultSendActions from '@/hooks/useVaultSendActions';
 import { useToastManager } from '@/hooks/useToastManager';
 import { detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import { shouldWarnUnverifiedEmail } from '@/lib/email-verification-warning';
 import { detectPreferences, savePreferences } from '@/lib/api/preferences';
 import { detectBrowserTimeZone } from '@/lib/datetime';
 import { APP_NOTIFY_EVENT, type AppNotifyDetail } from '@/lib/app-notify';
@@ -294,6 +295,19 @@ export default function App() {
     window.addEventListener(APP_NOTIFY_EVENT, handleAppNotify as EventListener);
     return () => window.removeEventListener(APP_NOTIFY_EVENT, handleAppNotify as EventListener);
   }, [pushToast]);
+
+  // 已提醒过「邮箱未验证」的用户 id：profile 会反复刷新，同一次登录只提醒一次。
+  const warnedUnverifiedEmailRef = useRef<string | null>(null);
+
+  // 提醒「邮箱未验证」：服务端只对已验证邮箱发信 ⇒ 忘记主密码时收不到提示邮件。
+  useEffect(() => {
+    if (!shouldWarnUnverifiedEmail(profile, warnedUnverifiedEmailRef.current)) return;
+    warnedUnverifiedEmailRef.current = String(profile?.id || '');
+    pushToast(
+      'warning',
+      t('txt_email_verification_unverified_warning', { where: t('nav_account_settings') })
+    );
+  }, [profile, pushToast]);
 
   useEffect(() => {
     const syncUrlState = () => {
@@ -969,6 +983,8 @@ export default function App() {
     clearOfflineUnlockRecord();
     clearPasswordSecurityCache();
     setProfile(null);
+    // 清空「已提醒」标记 ⇒ 下次登录重新提醒一次。
+    warnedUnverifiedEmailRef.current = null;
     setUnlockPreparing(false);
     setPendingTotp(null);
     setPendingTotpMode(null);
