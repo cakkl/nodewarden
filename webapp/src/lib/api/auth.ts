@@ -989,7 +989,7 @@ export async function getEmailVerificationStatus(authedFetch: AuthedFetch): Prom
 export async function sendEmailVerificationCode(
   authedFetch: AuthedFetch
 ): Promise<{ email: string; expiresAt: string | null }> {
-  const resp = await authedFetch('/api/accounts/email-token', {
+  const resp = await authedFetch('/api/accounts/email-verification/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
@@ -1003,7 +1003,7 @@ export async function sendEmailVerificationCode(
 }
 
 export async function submitEmailVerificationCode(authedFetch: AuthedFetch, code: string): Promise<void> {
-  const resp = await authedFetch('/api/accounts/verify-email', {
+  const resp = await authedFetch('/api/accounts/email-verification/confirm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),

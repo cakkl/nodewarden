@@ -1,9 +1,9 @@
 /**
  * 邮箱验证：已登录用户确认「这个邮箱确实是我的」。
  *
- * GET  /api/accounts/email-verification  可用性与当前状态
- * POST /api/accounts/email-token         发送验证码
- * POST /api/accounts/verify-email        提交验证码
+ * GET  /api/accounts/email-verification              可用性与当前状态
+ * POST /api/accounts/email-verification/send         发送验证码
+ * POST /api/accounts/email-verification/confirm      提交验证码
  *
  * 只处理**当前账户自己的**邮箱。请求体里若带了一个不同的邮箱，直接拒绝而不是静默忽略：
  * 本服务器不支持改邮箱，忽略会让调用方以为改成功了。
@@ -98,7 +98,7 @@ export async function handleGetEmailVerificationStatus(
   );
 }
 
-// POST /api/accounts/email-token
+// POST /api/accounts/email-verification/send
 export async function handleSendEmailVerificationCode(
   request: Request,
   env: Env,
@@ -172,7 +172,7 @@ export async function handleSendEmailVerificationCode(
   });
 }
 
-// POST /api/accounts/verify-email
+// POST /api/accounts/email-verification/confirm
 export async function handleVerifyEmailCode(
   request: Request,
   env: Env,

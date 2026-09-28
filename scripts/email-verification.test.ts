@@ -195,7 +195,7 @@ test('邮件未配置时状态查询返回 available=false', async () => {
 
 test('邮件未配置时发码返回 503，且不写入验证码', async () => {
   const { handle, user, env } = await setup();
-  const resp = await handleSendEmailVerificationCode(post('/api/accounts/email-token', {}), env, user);
+  const resp = await handleSendEmailVerificationCode(post('/api/accounts/email-verification/send', {}), env, user);
   assert.equal(resp.status, 503);
   const row = handle.connection.prepare('SELECT COUNT(*) AS count FROM email_verification_tokens').get() as { count: number };
   assert.equal(row.count, 0);
@@ -204,7 +204,7 @@ test('邮件未配置时发码返回 503，且不写入验证码', async () => {
 test('请求体里带别的邮箱会被拒绝（本服务器不支持改邮箱）', async () => {
   const { user, env } = await setup();
   const resp = await handleSendEmailVerificationCode(
-    post('/api/accounts/email-token', { email: 'other@example.test' }),
+    post('/api/accounts/email-verification/send', { email: 'other@example.test' }),
     env,
     user
   );
@@ -214,14 +214,14 @@ test('请求体里带别的邮箱会被拒绝（本服务器不支持改邮箱�
 test('已验证状态下再发码返回 409', async () => {
   const { handle, env } = await setup();
   const verified = { ...(await getUserById(handle.db, USER_ID))!, emailVerified: true };
-  const resp = await handleSendEmailVerificationCode(post('/api/accounts/email-token', {}), env, verified);
+  const resp = await handleSendEmailVerificationCode(post('/api/accounts/email-verification/send', {}), env, verified);
   assert.equal(resp.status, 409);
 });
 
 test('验证码格式不合法时返回 400', async () => {
   const { user, env } = await setup();
   for (const code of ['', '12345', '1234567', 'abcdef', '12 456']) {
-    const resp = await handleVerifyEmailCode(post('/api/accounts/verify-email', { code }), env, user);
+    const resp = await handleVerifyEmailCode(post('/api/accounts/email-verification/confirm', { code }), env, user);
     assert.equal(resp.status, 400, `code=${JSON.stringify(code)} 应被拒绝`);
   }
 });
@@ -229,7 +229,7 @@ test('验证码格式不合法时返回 400', async () => {
 test('提交正确码后落库并返回 verified=true', async () => {
   const { handle, user, env } = await setup();
   const issued = await issueVerificationCode(handle.db, USER_ID, USER_EMAIL, TEST_JWT_SECRET);
-  const resp = await handleVerifyEmailCode(post('/api/accounts/verify-email', { code: issued.code }), env, user);
+  const resp = await handleVerifyEmailCode(post('/api/accounts/email-verification/confirm', { code: issued.code }), env, user);
   assert.equal(resp.status, 200);
   const body = await resp.json() as Record<string, unknown>;
   assert.equal(body.verified, true);
@@ -247,7 +247,7 @@ test('提交正确码后落库并返回 verified=true', async () => {
 test('提交错误码返回 400 并带上具体原因', async () => {
   const { handle, user, env } = await setup();
   await issueVerificationCode(handle.db, USER_ID, USER_EMAIL, TEST_JWT_SECRET);
-  const resp = await handleVerifyEmailCode(post('/api/accounts/verify-email', { code: '000000' }), env, user);
+  const resp = await handleVerifyEmailCode(post('/api/accounts/email-verification/confirm', { code: '000000' }), env, user);
   assert.equal(resp.status, 400);
   const body = await resp.json() as Record<string, unknown>;
   assert.equal(body.reason, 'mismatch');
@@ -257,7 +257,7 @@ test('提交错误码返回 400 并带上具体原因', async () => {
 
 test('没有待用码时提交返回 400', async () => {
   const { user, env } = await setup();
-  const resp = await handleVerifyEmailCode(post('/api/accounts/verify-email', { code: '123456' }), env, user);
+  const resp = await handleVerifyEmailCode(post('/api/accounts/email-verification/confirm', { code: '123456' }), env, user);
   assert.equal(resp.status, 400);
   assert.equal((await resp.json() as Record<string, unknown>).reason, 'no-code');
 });
