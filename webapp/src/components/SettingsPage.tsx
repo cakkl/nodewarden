@@ -6,6 +6,7 @@ import qrcode from 'qrcode-generator';
 import type { AccountPasskeyCredential, MailEncryption, MailPreferences, MailPreferencesUpdate, MailSettings, MailSettingsInput, MailTestResult, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
 import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { describeMailFailure } from '@/hooks/useAdminMailActions';
+import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
 import { AVAILABLE_LOCALES, detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
 import { useDateTimeFormat } from '@/lib/datetime';
 import { detectBrowserTimeZone } from '@/lib/datetime';
@@ -1124,7 +1125,7 @@ export default function SettingsPage(props: SettingsPageProps) {
                   <span>{t('txt_password_hint_optional')}</span>
                   <input
                     className="input"
-                    maxLength={120}
+                    maxLength={PASSWORD_HINT_MAX_LENGTH}
                     value={passwordHint}
                     placeholder={t('txt_password_hint_placeholder')}
                     onInput={(e) => setPasswordHint((e.currentTarget as HTMLInputElement).value)}

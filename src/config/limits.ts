@@ -1,4 +1,6 @@
-﻿export const LIMITS = {
+﻿import { PASSWORD_HINT_MAX_LENGTH } from '../../shared/password-hint';
+
+export const LIMITS = {
   auth: {
     // Access token lifetime in seconds.
     // 访问令牌有效期（秒）。
@@ -29,6 +31,9 @@
     // clientSecret length
     // clientSecret 长度
     clientSecretLength: 30,
+    // Maximum master password hint length (characters).
+    // 主密码提示最大长度（字符）。真值在 `shared/password-hint.ts`（前端也用）。
+    passwordHintMaxLength: PASSWORD_HINT_MAX_LENGTH,
   },
   rateLimit: {
     // Max failed login attempts before temporary lock.

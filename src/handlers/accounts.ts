@@ -314,8 +314,11 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
   if (!looksLikeEncString(privateKey)) {
     return errorResponse('encryptedPrivateKey is not a valid encrypted string', 400);
   }
-  if (masterPasswordHint && masterPasswordHint.length > 120) {
-    return errorResponse('masterPasswordHint must be 120 characters or fewer', 400);
+  if (masterPasswordHint && masterPasswordHint.length > LIMITS.auth.passwordHintMaxLength) {
+    return errorResponse(
+      `masterPasswordHint must be ${LIMITS.auth.passwordHintMaxLength} characters or fewer`,
+      400
+    );
   }
 
   const kdfErr = validateKdfParams(body.kdf, body.kdfIterations, body.kdfMemory, body.kdfParallelism);
@@ -551,8 +554,11 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
   }
 
   const masterPasswordHint = normalizeMasterPasswordHint(body.masterPasswordHint);
-  if (masterPasswordHint && masterPasswordHint.length > 120) {
-    return errorResponse('masterPasswordHint must be 120 characters or fewer', 400);
+  if (masterPasswordHint && masterPasswordHint.length > LIMITS.auth.passwordHintMaxLength) {
+    return errorResponse(
+      `masterPasswordHint must be ${LIMITS.auth.passwordHintMaxLength} characters or fewer`,
+      400
+    );
   }
 
   user.masterPasswordHint = masterPasswordHint;
@@ -803,8 +809,11 @@ export async function handleChangePassword(request: Request, env: Env, userId: s
   }
   const shouldUpdateHint = typeof body.masterPasswordHint === 'string' || body.masterPasswordHint === null;
   const nextMasterPasswordHint = shouldUpdateHint ? normalizeMasterPasswordHint(body.masterPasswordHint) : undefined;
-  if (nextMasterPasswordHint && nextMasterPasswordHint.length > 120) {
-    return errorResponse('masterPasswordHint must be 120 characters or fewer', 400);
+  if (nextMasterPasswordHint && nextMasterPasswordHint.length > LIMITS.auth.passwordHintMaxLength) {
+    return errorResponse(
+      `masterPasswordHint must be ${LIMITS.auth.passwordHintMaxLength} characters or fewer`,
+      400
+    );
   }
 
   user.masterPasswordHash = await auth.hashPasswordServer(newMasterPasswordHash, user.email);

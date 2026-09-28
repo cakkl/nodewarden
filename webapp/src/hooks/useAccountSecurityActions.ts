@@ -43,6 +43,7 @@ import {
   createTwoFactorPasskeyCredential,
 } from '@/lib/account-passkeys';
 import { t } from '@/lib/i18n';
+import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
 import type { AppConfirmState } from '@/components/AppGlobalOverlays';
 import type { AuthedFetch } from '@/lib/api/shared';
 import type { AccountPasskeyCredential, AuthorizedDevice, Profile, SessionState, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
@@ -146,8 +147,8 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
       async savePasswordHint(masterPasswordHint: string) {
         if (!profile) return;
         const normalized = String(masterPasswordHint || '').trim();
-        if (normalized.length > 120) {
-          onNotify('error', t('txt_password_hint_too_long'));
+        if (normalized.length > PASSWORD_HINT_MAX_LENGTH) {
+          onNotify('error', t('txt_password_hint_too_long', { count: PASSWORD_HINT_MAX_LENGTH }));
           return;
         }
         try {
