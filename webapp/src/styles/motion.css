@@ -34,6 +34,12 @@
   to   { opacity: 1; transform: translateX(0) scale(1); }
 }
 
+/* `toast-in` 的精确反向：退场也往右滑出，与入场对称。 */
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(16px) scale(0.96); }
+}
+
 @keyframes stagger-rise {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }

@@ -282,7 +282,7 @@ export default function App() {
   const domainRulesSaveSeqRef = useRef(0);
   const loginEmailRef = useRef(loginValues.email);
   const loginHintRequestSeqRef = useRef(0);
-  const { toasts, pushToast, removeToast } = useToastManager();
+  const { toasts, pushToast, removeToast, pauseToasts, resumeToasts } = useToastManager();
 
   useEffect(() => {
     const handleAppNotify = (event: Event) => {
@@ -1048,6 +1048,8 @@ export default function App() {
       <AppGlobalOverlays
         toasts={toasts}
         onCloseToast={removeToast}
+        onPauseToasts={pauseToasts}
+        onResumeToasts={resumeToasts}
         confirm={null}
         onCancelConfirm={() => {}}
         pendingTotpOpen={false}
@@ -2405,6 +2407,8 @@ export default function App() {
         <AppGlobalOverlays
           toasts={toasts}
           onCloseToast={removeToast}
+          onPauseToasts={pauseToasts}
+          onResumeToasts={resumeToasts}
           confirm={confirm}
           onCancelConfirm={() => setConfirm(null)}
           pendingTotpOpen={!!pendingTotp}
@@ -2469,6 +2473,8 @@ export default function App() {
       <AppGlobalOverlays
         toasts={toasts}
         onCloseToast={removeToast}
+        onPauseToasts={pauseToasts}
+        onResumeToasts={resumeToasts}
         confirm={confirm}
         onCancelConfirm={() => setConfirm(null)}
         pendingTotpOpen={false}

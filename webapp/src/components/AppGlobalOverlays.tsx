@@ -21,6 +21,9 @@ export interface AppConfirmState {
 interface AppGlobalOverlaysProps {
   toasts: ToastMessage[];
   onCloseToast: (id: string) => void;
+  /** 鼠标悬停在通知区时暂停全部 toast 计时；移开继续。 */
+  onPauseToasts?: () => void;
+  onResumeToasts?: () => void;
   confirm: AppConfirmState | null;
   onCancelConfirm: () => void;
   pendingTotpOpen: boolean;
@@ -228,7 +231,12 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
         </label>
       </ConfirmDialog>
 
-      <ToastHost toasts={props.toasts} onClose={props.onCloseToast} />
+      <ToastHost
+        toasts={props.toasts}
+        onClose={props.onCloseToast}
+        onPause={props.onPauseToasts}
+        onResume={props.onResumeToasts}
+      />
     </>
   );
 }

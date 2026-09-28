@@ -600,6 +600,8 @@ export interface ToastMessage {
   id: string;
   type: 'success' | 'error' | 'warning';
   text: string;
+  /** 正在播放退场动画；动画放完才从列表里移除。 */
+  closing?: boolean;
 }
 
 export interface AdminUser {

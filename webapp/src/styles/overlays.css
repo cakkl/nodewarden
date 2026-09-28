@@ -226,6 +226,12 @@
   animation: toast-in 240ms var(--ease-out-strong) both;
 }
 
+/* 退场：与弹窗同一套口味（略短 + `--ease-smooth`）。
+   `.closing` 由 `useToastManager` 在移除前标上，动画放完才真正出队。 */
+.toast-item.closing {
+  animation: toast-out 220ms var(--ease-smooth) both;
+}
+
 .toast-item.error {
   border-color: #f2b8c1;
   background: #fde7eb;
@@ -272,4 +278,10 @@
   @apply absolute bottom-0 left-0 h-[3px] w-full;
   background: rgba(15, 23, 42, 0.2);
   animation: toast-life 4.5s linear forwards;
+}
+
+/* 悬停在通知区**任意**一条 ⇒ 全部暂停。光靠 CSS 不够 —— 移除 toast 的 setTimeout
+   由 `pauseToasts` 同步暂停；4.5s 必须与 `useToastManager` 的 `TOAST_DURATION_MS` 一致。 */
+.toast-stack:hover .toast-progress {
+  animation-play-state: paused;
 }
