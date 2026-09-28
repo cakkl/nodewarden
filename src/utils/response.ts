@@ -141,11 +141,16 @@ export function jsonResponse(data: any, status: number = 200, headers: Record<st
 }
 
 // Error response helper
+//
+// ⚠️ 顶层 `Message` **必需、非冗余**：官方客户端在顶层按 `Message`/`message`/`MESSAGE` 查文案
+// （嵌套 `ErrorModel.Message` 只对 identity 端点有效）⇒ 缺了它客户端读到的就是空白。
+// `error`/`error_description` 留给本站 Web 前端。护栏：`scripts/error-response-shape.test.ts`。
 export function errorResponse(message: string, status: number = 400): Response {
   return jsonResponse(
     {
       error: message,
       error_description: message,
+      Message: message,
       ErrorModel: {
         Message: message,
         Object: 'error',
