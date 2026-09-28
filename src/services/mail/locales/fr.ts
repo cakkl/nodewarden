@@ -27,6 +27,14 @@ const fr: MailCopy = {
     expiresLabel: 'Ce code expire le',
     outro: 'Si vous n’avez pas tenté de vous connecter, quelqu’un d’autre connaît peut-être votre mot de passe principal. Changez-le et vérifiez vos sessions actives.',
   },
+  sendOtp: {
+    subject: 'Votre code de vérification NodeWarden Send',
+    heading: 'Code de vérification Send',
+    intro: 'Cette adresse e-mail est autorisée à ouvrir un envoi NodeWarden. Saisissez ce code pour continuer.',
+    codeLabel: 'Code de vérification',
+    expiresLabel: 'Ce code expire le',
+    outro: 'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message et ne partagez le code avec personne.',
+  },
   passwordHint: {
     subject: 'Votre indice de mot de passe principal NodeWarden',
     heading: 'Indice de mot de passe principal',

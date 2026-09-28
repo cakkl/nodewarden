@@ -36,7 +36,7 @@ async function hashCode(userId: string, email: string, code: string, secret: str
   return bytesToBase64(new Uint8Array(signature));
 }
 
-function randomCode(): string {
+export function randomCode(): string {
   // 用拒绝采样避免取模偏置：2^32 不是 10^6 的整数倍。
   const limit = Math.floor(0x100000000 / 1_000_000) * 1_000_000;
   const buf = new Uint32Array(1);

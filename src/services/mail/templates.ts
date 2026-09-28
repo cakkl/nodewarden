@@ -243,6 +243,52 @@ export function renderTwoFactorMail(
   };
 }
 
+/**
+ * Send 邮箱 OTP 邮件。
+ *
+ * 与其他验证码邮件同构，但**不应当在正文里拉「偏好未设定」提示句** ——
+ * 收件人往往是**外部邮箱**（不是本服务用户），提示他「未设定时区」很莫名其妙。
+ * 调用方不传 `preferencesUnset` 即可（详见 `sends-public.ts` 的调用处）。
+ */
+export function renderSendOtpMail(
+  copy: MailCopy,
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  const expiresAt = formatMailTime(input.expiresAt, context.timezone);
+  const expiryLine = `${copy.sendOtp.expiresLabel} ${expiresAt}`;
+  const preferencesNote = preferencesNoteFor(copy, context.preferencesUnset);
+
+  return {
+    subject: copy.sendOtp.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.sendOtp.heading,
+      bodyHtml:
+        mailParagraph(copy.sendOtp.intro) +
+        mailCodeBlock(copy.sendOtp.codeLabel, input.code) +
+        mailParagraph(expiryLine, { muted: true }) +
+        mailParagraph(copy.sendOtp.outro, { muted: true }) +
+        (preferencesNote ? mailParagraph(preferencesNote, { muted: true }) : ''),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.sendOtp.heading,
+      '',
+      copy.sendOtp.intro,
+      '',
+      `${copy.sendOtp.codeLabel}: ${input.code}`,
+      expiryLine,
+      '',
+      copy.sendOtp.outro,
+      ...(preferencesNote ? ['', preferencesNote] : []),
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
 /** 主密码提示邮件。**无提示时也发信**（防枚举，见 `MailCopy.passwordHint`）。 */
 export function renderPasswordHintMail(
   copy: MailCopy,

@@ -197,17 +197,24 @@ test('verifySendPassword：清除密码后任何输入都不通过', async () =>
 
 // ---------------------------------------------------------------- 公开访问校验
 
+/** 纯函数用例的最小 Env：这些分支不会碰 DB（邮箱 OTP 的完整流程在主用例与新测试文件里） */
+const PURE_ENV = { JWT_SECRET: TEST_JWT_SECRET } as unknown as Env;
+
 test('validatePublicSendAccess：无密码的 Send 直接放行', async () => {
-  const result = await validatePublicSendAccess(buildSend(), {});
+  const result = await validatePublicSendAccess(PURE_ENV, buildSend(), {});
   assert.equal(result.ok, true);
 });
 
-test('validatePublicSendAccess：邮件认证方式本服务不支持，返回 501', async () => {
-  const result = await validatePublicSendAccess(buildSend({ authType: SendAuthType.Email }), {});
+test('validatePublicSendAccess：邮箱认证的 Send 缺 email 时要求先提供邮箱', async () => {
+  const result = await validatePublicSendAccess(
+    PURE_ENV,
+    buildSend({ authType: SendAuthType.Email, emails: 'a@b.test' }),
+    {}
+  );
   assert.equal(result.ok, false);
   if (!result.ok) {
-    assert.equal(result.reason, 'email_auth_unsupported');
-    assert.equal(result.response.status, 501);
+    assert.equal(result.reason, 'email_required');
+    assert.equal(result.response.status, 400);
   }
 });
 
@@ -215,25 +222,25 @@ test('validatePublicSendAccess：受密码保护时，缺密码 401、错密码 
   const send = buildSend();
   await setSendPassword(send, 'letmein');
 
-  const missing = await validatePublicSendAccess(send, {});
+  const missing = await validatePublicSendAccess(PURE_ENV, send, {});
   assert.equal(missing.ok, false);
   if (!missing.ok) {
-    assert.equal(missing.reason, 'password_missing');
+    assert.equal(missing.reason, 'password_hash_b64_required');
     assert.equal(missing.response.status, 401);
   }
 
-  const wrong = await validatePublicSendAccess(send, { password: 'nope' });
+  const wrong = await validatePublicSendAccess(PURE_ENV, send, { password: 'nope' });
   assert.equal(wrong.ok, false);
   if (!wrong.ok) {
-    assert.equal(wrong.reason, 'invalid_password');
+    assert.equal(wrong.reason, 'password_hash_b64_invalid');
     assert.equal(wrong.response.status, 400);
   }
 
-  const right = await validatePublicSendAccess(send, { password: 'letmein' });
+  const right = await validatePublicSendAccess(PURE_ENV, send, { password: 'letmein' });
   assert.equal(right.ok, true, '正确密码应放行');
 
   // 官方客户端会发大写别名 Password
-  const aliased = await validatePublicSendAccess(send, { Password: 'letmein' });
+  const aliased = await validatePublicSendAccess(PURE_ENV, send, { Password: 'letmein' });
   assert.equal(aliased.ok, true, '应接受 PascalCase 别名');
 });
 

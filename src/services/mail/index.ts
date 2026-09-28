@@ -13,7 +13,7 @@ import de from './locales/de';
 import fr from './locales/fr';
 import it from './locales/it';
 import sv from './locales/sv';
-import { renderTestMail, renderVerificationMail, renderTwoFactorMail, renderPasswordHintMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
+import { renderTestMail, renderVerificationMail, renderTwoFactorMail, renderSendOtpMail, renderPasswordHintMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
 
 export type MailLocale = 'en' | 'zh-CN' | 'zh-TW' | 'ru' | 'es' | 'fi' | 'de' | 'fr' | 'it' | 'sv';
 
@@ -88,6 +88,15 @@ export function renderTwoFactorEmail(
 ): RenderedMail & { locale: MailLocale } {
   const { locale: resolved, copy } = resolveMailCopy(context.locale);
   return { ...renderTwoFactorMail(copy, input, { ...context, locale: resolved }), locale: resolved };
+}
+
+/** Send 邮箱 OTP：给「仅特定邮箱可用」的 Send 的收件人发验证码。 */
+export function renderSendOtpEmail(
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail & { locale: MailLocale } {
+  const { locale: resolved, copy } = resolveMailCopy(context.locale);
+  return { ...renderSendOtpMail(copy, input, { ...context, locale: resolved }), locale: resolved };
 }
 
 /** 主密码提示邮件。`hint` 为 `null` 时发「未设置提示」的版本（避免枚举）。 */

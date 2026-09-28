@@ -55,6 +55,18 @@ export interface MailCopy {
     expiresLabel: string;
     outro: string;
   };
+  /**
+   * Send 邮箱 OTP：打开「仅特定邮箱可用」的 Send 时的验证码。
+   * 与 `verification` 分开：收件人可能是**任意外部邮箱**，不是在验证账号邮箱归属。
+   */
+  sendOtp: {
+    subject: string;
+    heading: string;
+    intro: string;
+    codeLabel: string;
+    expiresLabel: string;
+    outro: string;
+  };
   /** 主密码提示（两个模板：有提示 / 无提示）。**无提示也发信** —— 否则「收到信」本身即可枚举账号。 */
   passwordHint: {
     subject: string;
@@ -163,6 +175,14 @@ const en: MailCopy = {
     codeLabel: 'Login code',
     expiresLabel: 'This code expires at',
     outro: 'If you did not try to sign in, someone else may have your master password. Change it and review your active sessions.',
+  },
+  sendOtp: {
+    subject: 'Your NodeWarden Send verification code',
+    heading: 'Send verification code',
+    intro: 'A NodeWarden Send was shared with this email address. Enter this code to open it.',
+    codeLabel: 'Verification code',
+    expiresLabel: 'This code expires at',
+    outro: 'If you did not expect this, ignore this message and do not share the code with anyone.',
   },
   notifications: {
     subject: 'Security alert: {event}',

@@ -19,12 +19,14 @@ import {
   fromAccessId,
   getCreatorIdentifier,
   getSafeJwtSecret,
-  hasEmailAuth,
   isSendAvailable,
   notifySendUpdateForRequest,
   notifyVaultSyncForRequest,
   parseStoredSendData,
+  resolveSendAuthMethod,
+  resolveSendEmailOtpAccess,
   resolveSendFromIdOrAccessId,
+  sendAccessErrorResponse,
   sendPasswordLimitKey,
   sendPasswordLockedErrorResponse,
   sendPasswordLockedOAuthResponse,
@@ -76,9 +78,9 @@ export async function handleAccessSend(request: Request, env: Env, accessId: str
     }
   }
 
-  const validation = await validatePublicSendAccess(send, body);
+  const validation = await validatePublicSendAccess(env, send, body);
   if (!validation.ok) {
-    if (validation.reason === 'invalid_password' && sendPasswordRateLimit && sendPasswordLimitIpKey) {
+    if (validation.reason === 'password_hash_b64_invalid' && sendPasswordRateLimit && sendPasswordLimitIpKey) {
       const failed = await sendPasswordRateLimit.recordFailedLogin(sendPasswordLimitIpKey);
       if (failed.locked) {
         return sendPasswordLockedErrorResponse(failed.retryAfterSeconds || 60);
@@ -150,9 +152,9 @@ export async function handleAccessSendFile(
     }
   }
 
-  const validation = await validatePublicSendAccess(send, body);
+  const validation = await validatePublicSendAccess(env, send, body);
   if (!validation.ok) {
-    if (validation.reason === 'invalid_password' && sendPasswordRateLimit && sendPasswordLimitIpKey) {
+    if (validation.reason === 'password_hash_b64_invalid' && sendPasswordRateLimit && sendPasswordLimitIpKey) {
       const failed = await sendPasswordRateLimit.recordFailedLogin(sendPasswordLimitIpKey);
       if (failed.locked) {
         return sendPasswordLockedErrorResponse(failed.retryAfterSeconds || 60);
@@ -322,11 +324,21 @@ export async function handleDownloadSendFile(
   });
 }
 
+export interface SendAccessCredentials {
+  passwordHashB64?: string | null;
+  password?: string | null;
+  email?: string | null;
+  otp?: string | null;
+}
+
+/**
+ * 签发 Send 访问令牌（identity 的 `grant_type=send_access` 与自家前端都走这里）。
+ * 认证方式看 `emails` / `passwordHash` 是否非 null（见 `resolveSendAuthMethod`）。
+ */
 export async function issueSendAccessToken(
   env: Env,
   sendIdOrAccessId: string,
-  passwordHashB64?: string | null,
-  password?: string | null,
+  credentials: SendAccessCredentials = {},
   rateLimit?: RateLimitService,
   clientIdentifier?: string
 ): Promise<{ token: string } | { error: Response }> {
@@ -337,46 +349,22 @@ export async function issueSendAccessToken(
 
   const storage = new StorageService(env.DB);
   const send = await resolveSendFromIdOrAccessId(storage, sendIdOrAccessId);
-
-  if (!send || !isSendAvailable(send)) {
-    return {
-      error: jsonResponse(
-        {
-          error: 'invalid_grant',
-          error_description: SEND_INACCESSIBLE_MSG,
-          send_access_error_type: 'send_not_available',
-          ErrorModel: {
-            Message: SEND_INACCESSIBLE_MSG,
-            Object: 'error',
-          },
-        },
-        400
-      ),
-    };
+  const method = send ? resolveSendAuthMethod(send) : 'inaccessible';
+  if (!send || method === 'inaccessible') {
+    return { error: sendAccessErrorResponse('send_id_invalid') };
   }
 
-  if (hasEmailAuth(send)) {
-    const message = 'Email verification for this Send is not supported by this server.';
-    return {
-      error: jsonResponse(
-        {
-          error: 'invalid_grant',
-          error_description: message,
-          send_access_error_type: 'email_verification_not_supported',
-          ErrorModel: {
-            Message: message,
-            Object: 'error',
-          },
-        },
-        501
-      ),
-    };
+  // 邮箱 OTP：发/验码与防枚举的细节全在 resolveSendEmailOtpAccess 里
+  if (method === 'email') {
+    const result = await resolveSendEmailOtpAccess(env, send, credentials.email, credentials.otp);
+    if (!result.ok) return { error: sendAccessErrorResponse(result.errorType) };
+    return { token: await createSendAccessToken(send.id, jwt.secret) };
   }
 
-  const sendPasswordLimitIpKey =
-    rateLimit && clientIdentifier ? sendPasswordLimitKey(clientIdentifier, send.id) : null;
+  if (method === 'password') {
+    const sendPasswordLimitIpKey =
+      rateLimit && clientIdentifier ? sendPasswordLimitKey(clientIdentifier, send.id) : null;
 
-  if (send.passwordHash) {
     if (rateLimit && sendPasswordLimitIpKey) {
       const sendPasswordCheck = await rateLimit.checkLoginAttempt(sendPasswordLimitIpKey);
       if (!sendPasswordCheck.allowed) {
@@ -386,12 +374,16 @@ export async function issueSendAccessToken(
       }
     }
 
-    let ok = false;
-    if (passwordHashB64) {
-      ok = verifySendPasswordHashB64(send, passwordHashB64);
-    } else if (password) {
-      ok = await verifySendPassword(send, password);
+    const passwordHashB64 = String(credentials.passwordHashB64 ?? '').trim();
+    const password = String(credentials.password ?? '').trim();
+    // 官方用 `password_hash_b64_required` 区分「没带凭据」与「密码错了」（客户端据此决定显示密码框还是报密码错）。
+    if (!passwordHashB64 && !password) {
+      return { error: sendAccessErrorResponse('password_hash_b64_required') };
     }
+
+    const ok = passwordHashB64
+      ? verifySendPasswordHashB64(send, passwordHashB64)
+      : await verifySendPassword(send, password);
 
     if (!ok) {
       if (rateLimit && sendPasswordLimitIpKey) {
@@ -402,20 +394,7 @@ export async function issueSendAccessToken(
           };
         }
       }
-      return {
-        error: jsonResponse(
-          {
-            error: 'invalid_grant',
-            error_description: 'Invalid password.',
-            send_access_error_type: 'invalid_password',
-            ErrorModel: {
-              Message: 'Invalid password.',
-              Object: 'error',
-            },
-          },
-          400
-        ),
-      };
+      return { error: sendAccessErrorResponse('password_hash_b64_invalid') };
     }
 
     if (rateLimit && sendPasswordLimitIpKey) {

@@ -27,6 +27,14 @@ const es: MailCopy = {
     expiresLabel: 'Este código caduca el',
     outro: 'Si no intentaste iniciar sesión, alguien más podría conocer tu contraseña maestra. Cámbiala y revisa tus sesiones activas.',
   },
+  sendOtp: {
+    subject: 'Tu código de verificación de NodeWarden Send',
+    heading: 'Código de verificación de Send',
+    intro: 'Esta dirección de correo está autorizada para abrir un Send de NodeWarden. Introduce este código para continuar.',
+    codeLabel: 'Código de verificación',
+    expiresLabel: 'El código caduca el',
+    outro: 'Si no esperabas este mensaje, ignóralo y no compartas el código con nadie.',
+  },
   passwordHint: {
     subject: 'Tu pista de contraseña maestra de NodeWarden',
     heading: 'Pista de contraseña maestra',

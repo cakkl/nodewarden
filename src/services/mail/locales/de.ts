@@ -27,6 +27,14 @@ const de: MailCopy = {
     expiresLabel: 'Dieser Code läuft ab am',
     outro: 'Wenn du dich nicht anmelden wolltest, kennt jemand anderes möglicherweise dein Master-Passwort. Ändere es und prüfe deine aktiven Sitzungen.',
   },
+  sendOtp: {
+    subject: 'Dein NodeWarden-Send-Bestätigungscode',
+    heading: 'Send-Bestätigungscode',
+    intro: 'Diese E-Mail-Adresse ist für diesen NodeWarden-Send freigegeben. Gib diesen Code ein, um fortzufahren.',
+    codeLabel: 'Bestätigungscode',
+    expiresLabel: 'Der Code läuft ab am',
+    outro: 'Wenn du das nicht erwartet hast, ignoriere diese E-Mail und gib den Code nicht weiter.',
+  },
   passwordHint: {
     subject: 'Dein NodeWarden-Master-Passwort-Hinweis',
     heading: 'Master-Passwort-Hinweis',

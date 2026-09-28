@@ -9,7 +9,7 @@ import { createRefreshToken } from '../utils/jwt';
 import { readAuthRequestDeviceInfo } from '../utils/device';
 import { createRecoveryCode, recoveryCodeEquals } from '../utils/recovery-code';
 import { generateUUID } from '../utils/uuid';
-import { issueSendAccessToken } from './sends';
+import { issueSendAccessToken, sendAccessErrorBody, sendAccessErrorStatus } from './sends';
 import { registerMobilePushDevice } from '../services/push-relay';
 import {
   buildAccountKeys,
@@ -928,18 +928,11 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     }
 
     const sendId = String(body.send_id || body.sendId || '').trim();
+    // 错误码对齐官方：缺字段与「无效 Send」是两个不同的码（客户端据此决定重试还是报错）
     if (!sendId) {
       return identityJsonResponse(
-        {
-          error: 'invalid_request',
-          error_description: 'send_id is required',
-          send_access_error_type: 'invalid_send_id',
-          ErrorModel: {
-            Message: 'send_id is required',
-            Object: 'error',
-          },
-        },
-        400
+        sendAccessErrorBody('send_id_required'),
+        sendAccessErrorStatus('send_id_required')
       );
     }
 
@@ -947,12 +940,13 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
       body.password_hash_b64 || body.passwordHashB64 || body.passwordHash || body.password_hash || ''
     ).trim() || null;
     const password = String(body.password || '').trim() || null;
+    const email = String(body.email || body.Email || '').trim() || null;
+    const otp = String(body.otp || body.Otp || '').trim() || null;
 
     const result = await issueSendAccessToken(
       env,
       sendId,
-      passwordHashB64,
-      password,
+      { passwordHashB64, password, email, otp },
       rateLimit,
       clientIdentifier || undefined
     );

@@ -27,6 +27,14 @@ const zhCN: MailCopy = {
     expiresLabel: '验证码有效期至',
     outro: '如果你没有尝试登录，说明他人可能已知道你的主密码。请立即修改主密码并检查已登录的设备。',
   },
+  sendOtp: {
+    subject: '你的 NodeWarden Send 验证码',
+    heading: 'Send 验证码',
+    intro: '该邮箱地址已获授权打开一份 NodeWarden Send。输入下面的验证码即可继续。',
+    codeLabel: '验证码',
+    expiresLabel: '验证码有效期至',
+    outro: '如果这不是你本人操作，请忽略本邮件，不要把验证码告诉任何人。',
+  },
   passwordHint: {
     subject: '你的 NodeWarden 主密码提示',
     heading: '主密码提示',

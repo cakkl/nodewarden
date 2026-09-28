@@ -62,6 +62,16 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     'expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, ' +
     'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)',
 
+  // Send 邮箱 OTP：打开「仅特定邮箱可用」的 Send 时的验证码。
+  // 主键是 (send_id, email) ⇒ 同一 Send 的同一邮箱同时只有一枚待用码；
+  // 收件人可能不是本站用户，所以**不能**按 user_id 存。
+  // ⚠️ 访问判据是 `sends.emails` 是否非 null（官方同款），不是 `auth_type`。
+  'CREATE TABLE IF NOT EXISTS send_email_otps (' +
+    'send_id TEXT NOT NULL, email TEXT NOT NULL, code_hash TEXT NOT NULL, ' +
+    'expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, ' +
+    'PRIMARY KEY (send_id, email), ' +
+    'FOREIGN KEY (send_id) REFERENCES sends(id) ON DELETE CASCADE)',
+
   'CREATE TABLE IF NOT EXISTS domain_settings (' +
   'user_id TEXT PRIMARY KEY, equivalent_domains TEXT NOT NULL DEFAULT \'[]\', custom_equivalent_domains TEXT NOT NULL DEFAULT \'[]\', excluded_global_equivalent_domains TEXT NOT NULL DEFAULT \'[]\', updated_at TEXT NOT NULL, ' +
   'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)',
