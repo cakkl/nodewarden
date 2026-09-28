@@ -28,6 +28,30 @@ export function normalizeOrigin(value: unknown): string | null {
   }
 }
 
+/**
+ * 写请求的同源判定（CSRF 防护）。
+ *
+ * `allowUnknownClient=true`（宽松）时**两个头都没带就放行** —— 那是原生客户端（不带
+ * `Origin`/`Referer`）。这不削弱防护：浏览器发**跨源** POST 必带 `Origin`，CSRF 仍被拦。
+ * 默认（严格）则拒绝，用于**有意只服务自家前端**的端点。
+ */
+export function isSameOriginWriteRequest(request: Request, allowUnknownClient = false): boolean {
+  const targetOrigin = new URL(request.url).origin;
+  const origin = request.headers.get('Origin');
+  if (origin) return origin === targetOrigin;
+
+  const referer = request.headers.get('Referer');
+  if (referer) {
+    try {
+      return new URL(referer).origin === targetOrigin;
+    } catch {
+      return false;
+    }
+  }
+
+  return allowUnknownClient;
+}
+
 export function isBrowserExtensionOrigin(origin: unknown): boolean {
   const normalized = normalizeOrigin(origin);
   return !!normalized && (

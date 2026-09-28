@@ -36,7 +36,7 @@ import { isSafeWebsiteIconContentType } from './utils/content-type';
 import { jsonResponse, unsupportedResponse } from './utils/response';
 import { StorageService } from './services/storage';
 import type { Env } from './types';
-import { getConfiguredWebAuthnAllowedOrigins } from './utils/origins';
+import { getConfiguredWebAuthnAllowedOrigins, isSameOriginWriteRequest } from './utils/origins';
 import { buildConfigResponse } from './config-response';
 
 type PublicRateLimiter = (category?: string, maxRequests?: number) => Promise<Response | null>;
@@ -53,25 +53,6 @@ export interface WebBootstrapResponse {
 
 function isWebsiteIconProxyEnabled(env: Env): boolean {
   return true;
-}
-
-function isSameOriginWriteRequest(request: Request): boolean {
-  const targetOrigin = new URL(request.url).origin;
-  const origin = request.headers.get('Origin');
-  if (origin) {
-    return origin === targetOrigin;
-  }
-
-  const referer = request.headers.get('Referer');
-  if (referer) {
-    try {
-      return new URL(referer).origin === targetOrigin;
-    } catch {
-      return false;
-    }
-  }
-
-  return false;
 }
 
 function getDefaultWebsiteIconSvg(): string {
@@ -474,7 +455,8 @@ export async function handlePublicRoute(
   if (path === '/api/accounts/password-hint' && method === 'POST') {
     const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
     if (blocked) return blocked;
-    if (!isSameOriginWriteRequest(request)) {
+    // 宽松模式：官方客户端不带 `Origin`/`Referer`，严格模式会把它们一律 403。
+    if (!isSameOriginWriteRequest(request, true)) {
       return new Response(JSON.stringify({ error: 'Forbidden origin' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' },
