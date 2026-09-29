@@ -8,14 +8,14 @@ import assert from 'node:assert/strict';
 import type { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { handleGetDeviceVerificationSettings, handleSetVerifyDevices } from '../src/handlers/accounts';
+import { handleSetVerifyDevices } from '../src/handlers/accounts';
 import { handleToken } from '../src/handlers/identity';
 import { handleResendNewDeviceOtp } from '../src/handlers/identity-new-device';
 import { handlePublicRoute } from '../src/router-public';
 import { AuthService } from '../src/services/auth';
 import { saveMailSettings } from '../src/services/mail-settings';
-import { setNewDeviceVerificationEnabled } from '../src/services/new-device-otp';
 import { StorageService } from '../src/services/storage';
+import { setConfigValue } from '../src/services/storage-config-repo';
 import { buildProfileResponse } from '../src/utils/profile-response';
 import type { Env } from '../src/types';
 import {
@@ -130,6 +130,21 @@ function readSchemaVersion(h: Harness): string | null {
     .prepare('SELECT value FROM config WHERE key = ?')
     .get(SCHEMA_VERSION_KEY) as { value: string } | undefined;
   return row?.value ?? null;
+}
+
+/**
+ * 切全局开关。**直接写库**（没有管理端入口）⇒ 这里断言的就是运维契约：
+ * `config` 里 `globalSettings__security__newDeviceVerification` 置 '0' 即回退，键不存在视为开。
+ */
+async function setGlobalSwitch(h: Harness, enabled: boolean): Promise<void> {
+  await setConfigValue(h.env.DB, 'globalSettings__security__newDeviceVerification', enabled ? '1' : '0');
+}
+
+/** 读 NDV 的**有效值**。官方客户端也这么读（profile 的 `VerifyDevices`）—— 没有 settings 读取端点。 */
+async function readEffectiveVerifyDevices(h: Harness): Promise<boolean> {
+  const user = await new StorageService(h.env.DB).getUserById(USER_ID);
+  assert.ok(user, '前置条件：用户应当存在');
+  return (await buildProfileResponse(user!, h.env)).verifyDevices === true;
 }
 
 /** 密码授权的登录请求；`payload` 用来带 `newDeviceOtp` 或换设备标识。 */
@@ -375,7 +390,7 @@ test('全局开关关闭：行为回退到旧路径（200，不发信）', async
   const h = await setup();
   setSmtpScript();
   try {
-    await setNewDeviceVerificationEnabled(h.env.DB, false);
+    await setGlobalSwitch(h, false);
     assert.equal((await login(h)).status, 200);
     assert.equal(getSmtpConnectCalls().length, 0);
   } finally {
@@ -512,34 +527,23 @@ test('路由级：同一桩列表里的其它路径仍必须 501（别顺手把�
 test('profile：verifyDevices 报「有效值」而不是库里的原始值', async () => {
   const h = await setup();
   try {
-    const storage = new StorageService(h.env.DB);
-    const user = await storage.getUserById(USER_ID);
-    assert.ok(user);
-    assert.equal((await buildProfileResponse(user!, h.env)).verifyDevices, true);
+    assert.equal(await readEffectiveVerifyDevices(h), true);
 
-    await setNewDeviceVerificationEnabled(h.env.DB, false);
-    assert.equal((await buildProfileResponse(user!, h.env)).verifyDevices, false, '全局开关关着 ⇒ 该项不生效');
+    await setGlobalSwitch(h, false);
+    assert.equal(await readEffectiveVerifyDevices(h), false, '全局开关关着 ⇒ 该项不生效');
 
-    await setNewDeviceVerificationEnabled(h.env.DB, true);
+    await setGlobalSwitch(h, true);
     h.handle.connection.prepare('UPDATE users SET email_verified = 0 WHERE id = ?').run(USER_ID);
-    const unverified = await storage.getUserById(USER_ID);
-    assert.equal((await buildProfileResponse(unverified!, h.env)).verifyDevices, false, '未验证邮箱 ⇒ 该项不生效');
+    assert.equal(await readEffectiveVerifyDevices(h), false, '未验证邮箱 ⇒ 该项不生效');
   } finally {
     h.handle.close();
   }
 });
 
-test('设置端点：读 → 关 → 读 的闭环，并留下审计', async () => {
+test('设置端点：写 → 落库 → profile 反映，并留下审计', async () => {
   const h = await setup();
   try {
-    const readSettings = async (): Promise<Record<string, unknown>> =>
-      (await (await handleGetDeviceVerificationSettings(
-        new Request('https://vault.example.test/accounts/verify-devices'),
-        h.env,
-        USER_ID
-      )).json()) as Record<string, unknown>;
-
-    assert.equal((await readSettings()).verifyDevices, true);
+    assert.equal(await readEffectiveVerifyDevices(h), true);
 
     const write = await handleSetVerifyDevices(
       new Request('https://vault.example.test/accounts/verify-devices', {
@@ -553,7 +557,7 @@ test('设置端点：读 → 关 → 读 的闭环，并留下审计', async () 
     assert.equal(write.status, 200);
     assert.equal(((await write.json()) as Record<string, unknown>).verifyDevices, false);
     assert.equal(readVerifyDevices(h), 0, '设置必须真的落库');
-    assert.equal((await readSettings()).verifyDevices, false);
+    assert.equal(await readEffectiveVerifyDevices(h), false, 'profile 必须跟着变');
 
     const audit = h.handle.connection
       .prepare("SELECT action, level FROM audit_logs WHERE action = 'account.verify_devices.update'")

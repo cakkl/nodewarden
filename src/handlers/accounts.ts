@@ -603,7 +603,7 @@ async function deviceVerificationSettingsResponse(env: Env, user: User): Promise
 }
 
 /**
- * 写入 NDV 开关（`PUT /accounts/verify-devices`；上游的 `two-factor/…` 旧路径也走这里）。
+ * 写入 NDV 开关（`PUT /accounts/verify-devices`）。
  *
  * - 必须带密钥 —— 安全设置，与 2FA 各开关同一要求；
  * - **开启**前要求「能给这个用户发信」：开了也收不到码 ⇒ 直接拒掉比让用户以为自己受保护更诚实；
@@ -1037,36 +1037,6 @@ export async function handleGetTwoFactorYubiKey(request: Request, env: Env, user
   if (!verified) return errorResponse('User verification failed.', 400);
 
   return jsonResponse(await yubiKeySettingsResponse(storage, env, user));
-}
-
-// POST /api/two-factor/get-device-verification-settings
-export async function handleGetDeviceVerificationSettings(request: Request, env: Env, userId: string): Promise<Response> {
-  void request;
-  const storage = new StorageService(env.DB);
-  const user = await storage.getUserById(userId);
-  if (!user) return errorResponse('User not found', 404);
-  return jsonResponse(await deviceVerificationSettingsResponse(env, user));
-}
-
-// PUT/POST /api/two-factor/device-verification-settings（与 /api/accounts/verify-devices 等价）
-export async function handlePutDeviceVerificationSettings(request: Request, env: Env, userId: string): Promise<Response> {
-  const storage = new StorageService(env.DB);
-  const user = await storage.getUserById(userId);
-  if (!user) return errorResponse('User not found', 404);
-
-  let body: Record<string, unknown>;
-  try {
-    body = await readRequestBody(request);
-  } catch {
-    return errorResponse('Invalid JSON', 400);
-  }
-
-  const rawEnabled = body.enabled ?? body.Enabled ?? body.verifyDevices ?? body.VerifyDevices;
-  if (typeof rawEnabled !== 'boolean') {
-    return errorResponse('enabled must be a boolean', 400);
-  }
-  const secret = readBodyString(body, ['masterPasswordHash', 'MasterPasswordHash', 'otp', 'OTP', 'secret', 'Secret']);
-  return applyVerifyDevicesSetting(request, env, storage, user, rawEnabled, secret);
 }
 
 // PUT/POST /api/two-factor/authenticator

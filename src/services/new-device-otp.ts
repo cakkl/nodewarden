@@ -205,13 +205,10 @@ export async function clearNewDeviceOtpsForUser(db: D1Database, userId: string):
 
 /**
  * 全局开关。**默认开启**（这就是本功能的目的）；配了 '0' 才关。
- * 留它的意义：登录主路径万一出问题，运维可以一键回到旧行为。
+ *
+ * ⚠️ 这是登录主路径的**保命开关**：出问题时把 `config` 表里这个键置 '0' 即可一键回到旧行为，不必等发版。
  */
 export async function isNewDeviceVerificationEnabled(db: D1Database): Promise<boolean> {
   const raw = await getConfigValue(db, NEW_DEVICE_VERIFICATION_SETTING_KEY);
   return raw === null ? true : raw === '1';
-}
-
-export async function setNewDeviceVerificationEnabled(db: D1Database, enabled: boolean): Promise<void> {
-  await setConfigValue(db, NEW_DEVICE_VERIFICATION_SETTING_KEY, enabled ? '1' : '0');
 }

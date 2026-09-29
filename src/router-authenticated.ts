@@ -19,8 +19,6 @@ import {
   handlePutTwoFactorYubiKey,
   handlePutTwoFactorYubiKeyConfig,
   handleBootstrapTwoFactorYubiKeyConfig,
-  handleGetDeviceVerificationSettings,
-  handlePutDeviceVerificationSettings,
   handleDisableTwoFactorProvider,
   handleGetTwoFactorEmail,
   handlePutTwoFactorEmail,
@@ -211,7 +209,7 @@ export async function handleAuthenticatedRoute(
     return handleDetectPreferences(request, env, currentUser);
   }
 
-  if ((path === '/api/accounts/password' || path === '/api/accounts/change-password') && (method === 'POST' || method === 'PUT')) {
+  if (path === '/api/accounts/password' && (method === 'POST' || method === 'PUT')) {
     return handleChangePassword(request, env, userId);
   }
 
@@ -240,17 +238,8 @@ export async function handleAuthenticatedRoute(
     return handleGetTwoFactorAuthenticator(request, env, userId);
   }
 
-  if ((path === '/api/two-factor/get-yubikey' || path === '/api/two-factor/get-yubi-key') && method === 'POST') {
+  if ((path === '/api/two-factor/get-yubikey') && method === 'POST') {
     return handleGetTwoFactorYubiKey(request, env, userId);
-  }
-
-  if (path === '/api/two-factor/get-device-verification-settings' && method === 'POST') {
-    return handleGetDeviceVerificationSettings(request, env, userId);
-  }
-
-  if (path === '/api/two-factor/device-verification-settings') {
-    if (method === 'PUT' || method === 'POST') return handlePutDeviceVerificationSettings(request, env, userId);
-    return errorResponse('Method not allowed', 405);
   }
 
   if (path === '/api/two-factor/get-webauthn' && method === 'POST') {
@@ -267,7 +256,7 @@ export async function handleAuthenticatedRoute(
     return errorResponse('Method not allowed', 405);
   }
 
-  if ((path === '/api/two-factor/yubikey' || path === '/api/two-factor/yubi-key')) {
+  if (path === '/api/two-factor/yubikey') {
     if (method === 'PUT' || method === 'POST') return handlePutTwoFactorYubiKey(request, env, userId);
     if (method === 'DELETE') return handleDisableTwoFactorProvider(request, env, userId);
     return errorResponse('Method not allowed', 405);
@@ -279,11 +268,11 @@ export async function handleAuthenticatedRoute(
     return errorResponse('Method not allowed', 405);
   }
 
-  if ((path === '/api/two-factor/yubikey/config' || path === '/api/two-factor/yubi-key/config') && (method === 'PUT' || method === 'POST')) {
+  if (path === '/api/two-factor/yubikey/config' && (method === 'PUT' || method === 'POST')) {
     return handlePutTwoFactorYubiKeyConfig(request, env, userId);
   }
 
-  if ((path === '/api/two-factor/yubikey/bootstrap' || path === '/api/two-factor/yubi-key/bootstrap') && method === 'POST') {
+  if (path === '/api/two-factor/yubikey/bootstrap' && method === 'POST') {
     return handleBootstrapTwoFactorYubiKeyConfig(request, env, userId);
   }
 
