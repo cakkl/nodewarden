@@ -862,10 +862,11 @@ export default function App() {
 
   /**
    * 登录弹窗里用一次性恢复码恢复（就地，不跳页；主密码材料取自 `pendingTotp`）。
+   * 服务端收到恢复码后会**停用全部两步登录**并轮换恢复码 ⇒ 成功提示要把新码带出来。
    */
-  /** 恢复码流程的收尾提示：恢复成功即停用全部两步登录并轮换恢复码，所以只报「已恢复」；新码去设置里取。 */
+  /** 恢复码流程的收尾提示：服务端会把恢复码换成新的一份，但不在这里显示（避免被人瞄屏），只提示去哪儿看。 */
   function pushTwoFactorRecoveredToast(): void {
-    pushToast('success', t('txt_text_2fa_recovered'));
+    pushToast('success', t('txt_text_2fa_recovered_check_recovery_code'));
   }
   async function handleSubmitTotpRecoveryCode(recoveryCode: string): Promise<void> {
     if (totpSubmitting || !pendingTotp) return;

@@ -26,6 +26,7 @@ import {
   reconcileDefaultTwoFactorProvider,
   resolveDefaultTwoFactorProvider,
 } from '../services/two-factor-default';
+import { resetTwoFactorByRecoveryCode } from '../services/two-factor-recovery';
 import {
   getYubicoCredentials,
   initializeYubicoCredentialsOnce,
@@ -1537,25 +1538,8 @@ export async function handleRecoverTwoFactor(request: Request, env: Env): Promis
     return errorResponse('Invalid credentials or recovery code', 400);
   }
 
-  user.totpSecret = null;
-  user.yubikeyKey1 = null;
-  user.yubikeyKey2 = null;
-  user.yubikeyKey3 = null;
-  user.yubikeyKey4 = null;
-  user.yubikeyKey5 = null;
-  user.yubikeyNfc = false;
-  const webAuthnCredentials = await storage.getAccountPasskeyCredentialsByUserId(user.id, 'twoFactor');
-  for (const credential of webAuthnCredentials) {
-    await storage.deleteAccountPasskeyCredential(user.id, credential.id, 'twoFactor');
-  }
-  user.totpRecoveryCode = createRecoveryCode();
-  user.securityStamp = generateUUID();
-  user.updatedAt = new Date().toISOString();
-  await storage.saveUser(user);
-  // 所有提供程序都被清空了 ⇒ 默认值也随之清空（否则库里留着一个永远不生效的偏好）
-  await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
-  await storage.deleteRefreshTokensByUserId(user.id);
-  AuthService.invalidateUserCache(user.id);
+  // 与登录请求里的提供程序 8 同一实现：停用全部提供程序（含邮件 2FA）+ 轮换恢复码 + 清会话。
+  const newRecoveryCode = await resetTwoFactorByRecoveryCode(env, storage, user);
   await rateLimit.clearLoginAttempts(recoverLimitKey);
   await auditAndNotify(env, {
     actorUserId: user.id,
@@ -1570,7 +1554,7 @@ export async function handleRecoverTwoFactor(request: Request, env: Env): Promis
   return jsonResponse({
     success: true,
     twoFactorEnabled: false,
-    newRecoveryCode: user.totpRecoveryCode,
+    newRecoveryCode,
     object: 'twoFactorRecovery',
   });
 }

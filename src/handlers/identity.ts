@@ -7,7 +7,7 @@ import { getRefreshTokenSlidingTtlMs, LIMITS } from '../config/limits';
 import { findMatchingTotpCounter, isTotpEnabled, isValidTotpSecret } from '../utils/totp';
 import { createRefreshToken } from '../utils/jwt';
 import { readAuthRequestDeviceInfo } from '../utils/device';
-import { createRecoveryCode, recoveryCodeEquals } from '../utils/recovery-code';
+import { recoveryCodeEquals } from '../utils/recovery-code';
 import { generateUUID } from '../utils/uuid';
 import { issueSendAccessToken, sendAccessErrorBody, sendAccessErrorStatus } from './sends';
 import { registerMobilePushDevice } from '../services/push-relay';
@@ -29,9 +29,9 @@ import { createPasskeyUserVerificationToken } from '../utils/user-verification-t
 import { constantTimeEquals, verifyApiKey } from '../utils/api-key';
 import { isYubiKeyEnabled, userYubiKeyPublicIds, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
 import { getYubicoCredentials, initializeYubicoCredentialsOnce } from '../services/yubico-config';
-import { verifyChallengeCode, clearChallengeCode } from '../services/email-2fa';
+import { verifyChallengeCode } from '../services/email-2fa';
 import { isMailDeliveryAvailableSoft } from '../services/mail-settings';
-import { saveUserPreferences } from '../services/storage-user-repo';
+import { resetTwoFactorByRecoveryCode } from '../services/two-factor-recovery';
 import { resolveNewDeviceVerification } from './identity-new-device';
 
 const TWO_FACTOR_REMEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -605,28 +605,18 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
         if (!recoveryCodeEquals(normalizedTwoFactorToken, user.totpRecoveryCode)) {
           return recordFailedTwoFactorAndBuildResponse(rateLimit, loginIdentifier);
         }
-        user.totpSecret = null;
-        user.yubikeyKey1 = null;
-        user.yubikeyKey2 = null;
-        user.yubikeyKey3 = null;
-        user.yubikeyKey4 = null;
-        user.yubikeyKey5 = null;
-        user.yubikeyNfc = false;
-        for (const credential of effectiveWebAuthnCredentials) {
-          await storage.deleteAccountPasskeyCredential(user.id, credential.id, 'twoFactor');
-        }
-        user.totpRecoveryCode = createRecoveryCode();
-        user.securityStamp = generateUUID();
-        user.updatedAt = new Date().toISOString();
-        await storage.saveUser(user);
-        // 邮件 2FA 也要一并停用：恢复码的语义是「无法访问两步登录提供程序时用它停用两步登录」，
-        // 而邮件恰恰是最容易「无法访问」的那个（收不到信 / SMTP 挂了）⇒ 漏掉它会让用户陷入
-        // 「收不到邮件 → 用恢复码 → 邮件 2FA 仍在 → 下次登录又要邮件码」的死循环。
-        // 开关走专用 UPDATE（不进 saveUser，与 mail_opt_in 一致）。
-        await saveUserPreferences(env.DB, user.id, { twoFactorEmailEnabled: false });
-        await clearChallengeCode(env.DB, user.id);
-        await storage.deleteRefreshTokensByUserId(user.id);
-        AuthService.invalidateUserCache(user.id);
+        // 与 `/identity/accounts/recover-2fa` 同一实现：停用全部提供程序（含邮件 2FA）+ 轮换恢复码。
+        await resetTwoFactorByRecoveryCode(env, storage, user);
+        // 2FA 被恢复码停用属于安全事件，必须留痕（否则审计里只剩一条普通登录成功）。
+        safeWriteAuditEvent(env, {
+          actorUserId: user.id,
+          action: 'account.totp.recover',
+          category: 'security',
+          level: 'security',
+          targetType: 'user',
+          targetId: user.id,
+          metadata: { grantType, ...auditRequestMetadata(request) },
+        });
         rememberRequested = false;
       } else {
         // Unsupported provider for this server profile behaves as an invalid 2FA attempt.

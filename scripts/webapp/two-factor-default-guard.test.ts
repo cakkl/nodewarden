@@ -109,6 +109,32 @@ test('邮件 2FA：默认方式不是邮件时，切到邮件要自动补发一�
   assert.match(source, /if \(pending\.providerType === TWO_FACTOR_PROVIDER_EMAIL\)/, '默认方式就是邮件时进入挑战要立刻发码');
 });
 
+test('恢复码警告文案：枚举顺序与提供程序规范顺序一致（邮件排第一）', () => {
+  // 顺序即设置页列表的顺序（`TWO_FACTOR_PROVIDER_PREFERENCE_ORDER`）：邮件是默认首选，文案不该另排一套。
+  const locales: Array<[string, string, string]> = [
+    ['zh-CN', '邮件', '验证器'],
+    ['zh-TW', '郵件', '驗證器'],
+    ['en', 'email', 'authenticator'],
+    ['de', 'E-Mail', 'Authenticator'],
+    ['es', 'correo', 'autenticación'],
+    ['fi', 'sähköposti', 'todennussovellus'],
+    ['fr', 'e-mail', 'authentification'],
+    ['it', 'e-mail', 'autenticazione'],
+    ['ru', 'почта', 'аутентификатор'],
+    ['sv', 'e-post', 'autentiseringsapp'],
+  ];
+  for (const [locale, emailWord, authenticatorWord] of locales) {
+    const source = readSource(`webapp/src/lib/i18n/locales/${locale}.ts`);
+    const match = source.match(/"txt_recovery_code_disables_all_two_step_warning":\s*"([^"]+)"/);
+    assert.ok(match, `${locale}: 找不到恢复码警告文案（键名改了请同步本护栏）`);
+    const text = match[1];
+    const emailIndex = text.indexOf(emailWord);
+    const authenticatorIndex = text.indexOf(authenticatorWord);
+    assert.ok(emailIndex >= 0 && authenticatorIndex >= 0, `${locale}: 文案应同时列出邮件与验证器`);
+    assert.ok(emailIndex < authenticatorIndex, `${locale}: 邮件必须排在验证器之前（顺序同设置页列表）`);
+  }
+});
+
 test('登录弹窗内的重发按钮：按倒计时禁用并显示剩余秒数', () => {
   const overlays = readSource('webapp/src/components/AppGlobalOverlays.tsx');
   const blocks = overlays
@@ -125,15 +151,34 @@ test('登录弹窗内的重发按钮：按倒计时禁用并显示剩余秒数',
 
 test('恢复码登录：走「恢复码 = 2FA 提供程序」的单请求，且必须接住可能的新设备验证', () => {
   const auth = readSource('webapp/src/lib/app-auth.ts');
-  // 服务端在同一个 password grant 里校验恢复码、停用全部 2FA 并签发 token。
+  // 服务端在同一个 password grant 里校验恢复码、停用全部 2FA、轮换恢复码并签发 token。
   // ⛔ 曾经的写法是「先 /recover-2fa 再补一次 password grant」：那次请求时账号已无 2FA，
   // 而后置的新设备验证只在账号没有 2FA 时生效 ⇒ 用户拿到「恢复成功但自动登录失败」。
   assert.match(auth, /twoFactorProvider: TWO_FACTOR_PROVIDER_RECOVERY_CODE/, '恢复码必须作为提供程序（8）随登录请求发出');
-  assert.doesNotMatch(auth, /recoverTwoFactor/, '客户端不能再「先调停用端点、再单独登录一次」');
+  assert.doesNotMatch(auth, /recoverTwoFactor/, '客户端不能再「先停用恢复码端点、再单独登录一次」');
   assert.doesNotMatch(readSource('webapp/src/lib/api/auth.ts'), /function recoverTwoFactor\b/, '旧包装函数不该复活');
   assert.match(auth, /kind: 'device-verification'/, '仍要处理新设备验证分支（服务端若改判定，界面不能只剩一句失败提示）');
 
   const app = readSource('webapp/src/App.tsx');
   assert.match(app, /recovered\.kind === 'device-verification'/, 'App 必须把该分支转交给新设备验证弹窗');
   assert.match(app, /setPendingDeviceVerification\(recovered\.pendingDeviceVerification\)/, '转交时要带上主密码材料，用户不必重新输入');
+});
+
+test('恢复码提示：只提示去设置里查看，不在 toast 里显示新恢复码', () => {
+  // 一次性凭据不进提示：toast 可能被旁座看到、也会一闪而过，用户需要它时应当主动去设置里取。
+  const app = readSource('webapp/src/App.tsx');
+  assert.match(app, /txt_text_2fa_recovered_check_recovery_code/, '恢复完成要提示到设置里查看新的恢复码');
+  assert.doesNotMatch(app, /newRecoveryCode/, '提示里不能再出现恢复码本身');
+  assert.doesNotMatch(
+    readSource('webapp/src/lib/app-auth.ts'),
+    /readRotatedRecoveryCode\(/,
+    '既然不显示，就不必再为它多取一次恢复码'
+  );
+
+  for (const locale of ['zh-CN', 'zh-TW', 'en']) {
+    const source = readSource(`webapp/src/lib/i18n/locales/${locale}.ts`);
+    const match = source.match(/"txt_text_2fa_recovered_check_recovery_code":\s*"([^"]+)"/);
+    assert.ok(match, `${locale}: 缺少恢复提示文案（键名改了请同步本护栏）`);
+    assert.doesNotMatch(match[1], /\{/, `${locale}: 提示文案里不能带占位符 —— 那会变回「直接显示恢复码」`);
+  }
 });

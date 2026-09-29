@@ -54,7 +54,7 @@
     "test:security-stamp-alias": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/security-stamp-alias.test.ts",
     "test:email-verified": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/email-verified.test.ts",
     "test:email-2fa": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/email-2fa.test.ts",
-    "test:recovery-2fa": "tsx --test scripts/recovery-code-disables-all-2fa.test.ts",
+    "test:recovery-2fa": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/recovery-code-disables-all-2fa.test.ts",
     "test:password-hint": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/password-hint.test.ts",
     "test:same-origin": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/same-origin-write.test.ts",
     "test:email-endpoint-paths": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/email-endpoint-paths.test.ts",
