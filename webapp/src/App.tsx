@@ -862,8 +862,11 @@ export default function App() {
 
   /**
    * 登录弹窗里用一次性恢复码恢复（就地，不跳页；主密码材料取自 `pendingTotp`）。
-   * 服务端收到恢复码后会**停用全部两步登录**并轮换恢复码 ⇒ 成功提示要把新码带出来。
    */
+  /** 恢复码流程的收尾提示：恢复成功即停用全部两步登录并轮换恢复码，所以只报「已恢复」；新码去设置里取。 */
+  function pushTwoFactorRecoveredToast(): void {
+    pushToast('success', t('txt_text_2fa_recovered'));
+  }
   async function handleSubmitTotpRecoveryCode(recoveryCode: string): Promise<void> {
     if (totpSubmitting || !pendingTotp) return;
     const code = recoveryCode.trim();
@@ -879,18 +882,25 @@ export default function App() {
         },
         code
       );
-      if (recovered.login) {
+      if (recovered.kind === 'success') {
         setPendingTotp(null);
         setPendingTotpMode(null);
         await finalizeLogin(recovered.login);
-        if (recovered.newRecoveryCode) {
-          pushToast('success', t('txt_text_2fa_recovered_new_recovery_code_code', { code: recovered.newRecoveryCode }));
-        } else {
-          pushToast('success', t('txt_text_2fa_recovered'));
-        }
+        pushTwoFactorRecoveredToast();
         return;
       }
-      pushToast('error', t('txt_recovered_but_auto_login_failed_please_sign_in'));
+      if (recovered.kind === 'device-verification') {
+        // 恢复码已经用掉（服务端也把它换成了新的一份）⇒ 先把「已恢复、去哪儿看新码」说清楚，
+        // 再转交新设备验证弹窗（那里还要一个邮箱验证码）。
+        pushTwoFactorRecoveredToast();
+        setPendingTotp(null);
+        setPendingTotpMode(null);
+        setPendingDeviceVerification(recovered.pendingDeviceVerification);
+        setDeviceOtpCode('');
+        startDeviceOtpCountdown(RESEND_COOLDOWN_SECONDS);
+        return;
+      }
+      pushToast('error', recovered.message);
     } catch (error) {
       pushToast('error', error instanceof Error ? error.message : t('txt_recover_2fa_failed'));
     } finally {

@@ -9,7 +9,6 @@ import {
   loginWithAccountPasskeyAssertion,
   loginWithPassword,
   refreshAccessToken,
-  recoverTwoFactor,
   registerAccount,
   unlockVaultKey,
 } from '@/lib/api/auth';
@@ -31,6 +30,7 @@ import { probeNodeWardenService } from '@/lib/network-status';
 import {
   TWO_FACTOR_PROVIDER_AUTHENTICATOR,
   TWO_FACTOR_PROVIDER_EMAIL,
+  TWO_FACTOR_PROVIDER_RECOVERY_CODE,
   TWO_FACTOR_PROVIDER_WEBAUTHN,
   TWO_FACTOR_PROVIDER_YUBIKEY,
 } from '@/lib/two-factor-providers';
@@ -206,10 +206,14 @@ export type PasskeyLoginResult =
   | { kind: 'password'; pendingPasskeyPassword: PendingPasskeyPassword }
   | { kind: 'error'; message: string };
 
-export interface RecoverTwoFactorResult {
-  login: CompletedLogin | null;
-  newRecoveryCode: string | null;
-}
+export type RecoverTwoFactorResult =
+  | { kind: 'success'; login: CompletedLogin }
+  /**
+   * 恢复成功但登录还没完成：恢复码会停用**全部** 2FA，而 NDV 的规则是「有 2FA 就不拦」
+   * ⇒ 紧接着这次 password grant 正好落进新设备验证（需要邮箱验证码）。
+   */
+  | { kind: 'device-verification'; pendingDeviceVerification: PendingDeviceVerification }
+  | { kind: 'error'; message: string };
 
 function decodeJwtExp(accessToken: string | undefined): number | null {
   try {
@@ -722,19 +726,38 @@ export async function performRecoverTwoFactorLogin(
   recoveryCode: string
 ): Promise<RecoverTwoFactorResult> {
   const normalizedEmail = email.trim().toLowerCase();
-  const recovered = await recoverTwoFactor(normalizedEmail, keyMaterial.passwordHash, recoveryCode.trim());
-  const token = await loginWithPassword(normalizedEmail, keyMaterial.passwordHash, { useRememberToken: false });
+  // 恢复码本身就是 2FA 提供程序（8）：服务端在同一请求里校验它、停用全部 2FA 并签发 token。
+  // ⛔ 不要改成「先 POST /recover-2fa，再补一次 password grant」：那次请求时账号已无 2FA，
+  // 而后置的新设备验证（NDV）**只在账号没有 2FA 时生效** ⇒ 拿不到 token，用户只看到「自动登录失败」。
+  const token = await loginWithPassword(normalizedEmail, keyMaterial.passwordHash, {
+    totpCode: recoveryCode.trim(),
+    twoFactorProvider: TWO_FACTOR_PROVIDER_RECOVERY_CODE,
+    useRememberToken: false,
+  });
 
   if ('access_token' in token && token.access_token) {
     return {
+      kind: 'success',
       login: await completeLogin(token, normalizedEmail, keyMaterial.masterKey, keyMaterial.kdfIterations, keyMaterial.passwordHash),
-      newRecoveryCode: recovered.newRecoveryCode || null,
+    };
+  }
+
+  const tokenError = token as TwoFactorTokenError;
+  if (isNewDeviceVerificationRequired(tokenError)) {
+    return {
+      kind: 'device-verification',
+      pendingDeviceVerification: {
+        email: normalizedEmail,
+        passwordHash: keyMaterial.passwordHash,
+        masterKey: keyMaterial.masterKey,
+        kdfIterations: keyMaterial.kdfIterations,
+      },
     };
   }
 
   return {
-    login: null,
-    newRecoveryCode: recovered.newRecoveryCode || null,
+    kind: 'error',
+    message: translateServerError(tokenError.error_description || tokenError.error, t('txt_recover_2fa_failed')),
   };
 }
 

@@ -370,6 +370,27 @@ test('已开 2FA 的用户：走 2FA 挑战，不叠加新设备验证', async (
   }
 });
 
+test('用恢复码登录：同一请求内停用 2FA 并签发 token，不会被新设备验证二次拦截', async () => {
+  const h = await setup({ yubikeyKey1: 'yubikey-public-id' });
+  setSmtpScript();
+  try {
+    const recoveryCode = 'RECOVERY-CODE-ABCDEFGH';
+    h.handle.connection
+      .prepare('UPDATE users SET totp_recovery_code = ? WHERE id = ?')
+      .run(recoveryCode, USER_ID);
+
+    // 恢复码本身就是 2FA 提供程序（8）。官方客户端就是这么登的 ⇒ 这条行为属于兼容契约：
+    // 客户端正是靠它避开「停用 2FA 之后再登录一次就落进 NDV」的坑。
+    const { status, body } = await login(h, { twoFactorProvider: '8', twoFactorToken: recoveryCode });
+    assert.equal(status, 200, '恢复码登录必须直接签发 token');
+    assert.ok(body.access_token, '响应里应当带着 access_token');
+    assert.equal(getSmtpConnectCalls().length, 0, '本次请求已通过第二因素，不该再要一封新设备验证码');
+  } finally {
+    resetSmtpScript();
+    h.handle.close();
+  }
+});
+
 test('60 秒内重复触发：响应不变，且不发第二封', async () => {
   const h = await setup();
   setSmtpScript();

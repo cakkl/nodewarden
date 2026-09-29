@@ -1026,7 +1026,6 @@ const ru: Record<string, string> = {
   "txt_public_key": "Открытый ключ",
   "txt_recover_2fa_failed": "Восстановить 2FA не удалось",
   "txt_recover_two_step_login": "Восстановить двухэтапный вход",
-  "txt_recovered_but_auto_login_failed_please_sign_in": "Восстановлено, но не удалось выполнить автоматический вход. Войдите в систему.",
   "txt_recovery_code": "Код восстановления",
   "txt_recovery_code_and_api_key": "Код восстановления и ключ API",
   "txt_recovery_code_copied": "Код восстановления скопирован.",

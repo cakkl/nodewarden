@@ -1026,7 +1026,6 @@ const en: Record<string, string> = {
   "txt_public_key": "Public Key",
   "txt_recover_2fa_failed": "Recover 2FA failed",
   "txt_recover_two_step_login": "Recover Two-step Login",
-  "txt_recovered_but_auto_login_failed_please_sign_in": "Recovered but auto-login failed, please sign in.",
   "txt_recovery_code": "Recovery Code",
   "txt_recovery_code_and_api_key": "Recovery Code and API Key",
   "txt_recovery_code_copied": "Recovery code copied",

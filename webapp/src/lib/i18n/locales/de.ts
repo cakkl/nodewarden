@@ -1026,7 +1026,6 @@ const de: Record<string, string> = {
   "txt_public_key": "Öffentlicher Schlüssel",
   "txt_recover_2fa_failed": "2FA-Wiederherstellung fehlgeschlagen",
   "txt_recover_two_step_login": "Zweistufige Anmeldung wiederherstellen",
-  "txt_recovered_but_auto_login_failed_please_sign_in": "Wiederhergestellt, aber die automatische Anmeldung ist fehlgeschlagen. Bitte melden Sie sich an.",
   "txt_recovery_code": "Wiederherstellungscode",
   "txt_recovery_code_and_api_key": "Wiederherstellungscode und API-Schlüssel",
   "txt_recovery_code_copied": "Wiederherstellungscode kopiert",

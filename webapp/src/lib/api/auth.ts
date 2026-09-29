@@ -1292,27 +1292,6 @@ export async function getTotpRecoveryCode(
   return String(body.code || '');
 }
 
-export async function recoverTwoFactor(
-  email: string,
-  masterPasswordHash: string,
-  recoveryCode: string
-): Promise<{ newRecoveryCode?: string }> {
-  const resp = await fetch('/identity/accounts/recover-2fa', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: email.toLowerCase().trim(),
-      masterPasswordHash,
-      recoveryCode,
-    }),
-  });
-  if (!resp.ok) {
-    const body = await parseJson<TokenError>(resp);
-    throw new Error(translateServerError(body?.error_description || body?.error, t('txt_recover_2fa_failed')));
-  }
-  return (await parseJson<{ newRecoveryCode?: string }>(resp)) || {};
-}
-
 export async function getAuthorizedDevices(authedFetch: AuthedFetch): Promise<AuthorizedDevice[]> {
   const resp = await authedFetch('/api/devices/authorized');
   if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_devices_failed')));

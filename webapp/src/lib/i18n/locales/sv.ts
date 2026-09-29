@@ -1026,7 +1026,6 @@ const sv: Record<string, string> = {
   "txt_public_key": "Publik nyckel",
   "txt_recover_2fa_failed": "Återställning av 2FA misslyckades",
   "txt_recover_two_step_login": "Återställ Tvåstegsinloggning",
-  "txt_recovered_but_auto_login_failed_please_sign_in": "Återställd men automatisk inloggning misslyckades, vänligen logga in.",
   "txt_recovery_code": "Återställningskod",
   "txt_recovery_code_and_api_key": "Återställningskod och API-nyckel",
   "txt_recovery_code_copied": "Återställningskod kopierad",

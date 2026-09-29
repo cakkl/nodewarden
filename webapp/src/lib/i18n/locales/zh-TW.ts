@@ -1026,7 +1026,6 @@ const zhTW: Record<string, string> = {
   "txt_public_key": "公鑰",
   "txt_recover_2fa_failed": "恢復 2FA 失敗",
   "txt_recover_two_step_login": "恢復兩步登錄",
-  "txt_recovered_but_auto_login_failed_please_sign_in": "已恢復，但自動登錄失敗，請手動登錄",
   "txt_recovery_code": "恢復代碼",
   "txt_recovery_code_and_api_key": "恢復代碼和 API 密鑰",
   "txt_recovery_code_copied": "恢復代碼已複製",

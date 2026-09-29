@@ -1026,7 +1026,6 @@ const es: Record<string, string> = {
   "txt_public_key": "Clave pública",
   "txt_recover_2fa_failed": "Error al recuperar 2FA",
   "txt_recover_two_step_login": "Recuperar inicio de sesión en dos pasos",
-  "txt_recovered_but_auto_login_failed_please_sign_in": "Recuperado pero error al iniciar sesión automáticamente, por favor inicie sesión.",
   "txt_recovery_code": "Código de recuperación",
   "txt_recovery_code_and_api_key": "Código de recuperación y clave API",
   "txt_recovery_code_copied": "Código de recuperación copiado",

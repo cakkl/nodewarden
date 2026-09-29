@@ -1026,7 +1026,6 @@ const zhCN: Record<string, string> = {
   "txt_public_key": "公钥",
   "txt_recover_2fa_failed": "恢复 2FA 失败",
   "txt_recover_two_step_login": "恢复两步登录",
-  "txt_recovered_but_auto_login_failed_please_sign_in": "已恢复，但自动登录失败，请手动登录",
   "txt_recovery_code": "恢复代码",
   "txt_recovery_code_and_api_key": "恢复代码和 API 密钥",
   "txt_recovery_code_copied": "恢复代码已复制",

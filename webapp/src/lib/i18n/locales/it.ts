@@ -1026,7 +1026,6 @@ const it: Record<string, string> = {
   "txt_public_key": "Chiave pubblica",
   "txt_recover_2fa_failed": "Recupero 2FA fallito",
   "txt_recover_two_step_login": "Recupero Accesso in due passaggi",
-  "txt_recovered_but_auto_login_failed_please_sign_in": "Recuperato, ma l'accesso automatico è fallito, per favore accedi di nuovo.",
   "txt_recovery_code": "Codice di recupero",
   "txt_recovery_code_and_api_key": "Codice di recupero e Chiave API",
   "txt_recovery_code_copied": "Codice di recupero copiato",

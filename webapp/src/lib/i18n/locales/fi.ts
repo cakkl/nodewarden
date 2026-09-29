@@ -1026,7 +1026,6 @@ const fi: Record<string, string> = {
   "txt_public_key": "Julkinen avain",
   "txt_recover_2fa_failed": "2FA:n palautus epäonnistui",
   "txt_recover_two_step_login": "Palauta kaksivaiheinen kirjautuminen",
-  "txt_recovered_but_auto_login_failed_please_sign_in": "Palautettu, mutta automaattinen kirjautuminen epäonnistui, kirjaudu sisään.",
   "txt_recovery_code": "Palautuskoodi",
   "txt_recovery_code_and_api_key": "Palautuskoodi ja API-avain",
   "txt_recovery_code_copied": "Palautuskoodi kopioitu",

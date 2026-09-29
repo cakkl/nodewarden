@@ -122,3 +122,18 @@ test('登录弹窗内的重发按钮：按倒计时禁用并显示剩余秒数',
     assert.match(block, /resendLabel\(/, '重发按钮文案必须用 resendLabel 拼出剩余秒数');
   }
 });
+
+test('恢复码登录：走「恢复码 = 2FA 提供程序」的单请求，且必须接住可能的新设备验证', () => {
+  const auth = readSource('webapp/src/lib/app-auth.ts');
+  // 服务端在同一个 password grant 里校验恢复码、停用全部 2FA 并签发 token。
+  // ⛔ 曾经的写法是「先 /recover-2fa 再补一次 password grant」：那次请求时账号已无 2FA，
+  // 而后置的新设备验证只在账号没有 2FA 时生效 ⇒ 用户拿到「恢复成功但自动登录失败」。
+  assert.match(auth, /twoFactorProvider: TWO_FACTOR_PROVIDER_RECOVERY_CODE/, '恢复码必须作为提供程序（8）随登录请求发出');
+  assert.doesNotMatch(auth, /recoverTwoFactor/, '客户端不能再「先调停用端点、再单独登录一次」');
+  assert.doesNotMatch(readSource('webapp/src/lib/api/auth.ts'), /function recoverTwoFactor\b/, '旧包装函数不该复活');
+  assert.match(auth, /kind: 'device-verification'/, '仍要处理新设备验证分支（服务端若改判定，界面不能只剩一句失败提示）');
+
+  const app = readSource('webapp/src/App.tsx');
+  assert.match(app, /recovered\.kind === 'device-verification'/, 'App 必须把该分支转交给新设备验证弹窗');
+  assert.match(app, /setPendingDeviceVerification\(recovered\.pendingDeviceVerification\)/, '转交时要带上主密码材料，用户不必重新输入');
+});
