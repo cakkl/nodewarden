@@ -147,6 +147,8 @@ export interface AppMainRoutesProps {
   onBootstrapYubiKeyApiCredentials: (otp: string, masterPassword: string) => Promise<YubiKeyOtpSettings>;
   onDisableYubiKey: (masterPassword: string) => Promise<void>;
   onGetTwoFactorPasskeySettings: (masterPassword: string) => Promise<TwoFactorPasskeySettings>;
+  onGetEmailTwoFactor: () => Promise<{ enabled: boolean; available: boolean; email: string }>;
+  onSetEmailTwoFactor: (enabled: boolean, masterPassword: string) => Promise<void>;
   onCreateTwoFactorPasskey: (name: string, masterPassword: string) => Promise<TwoFactorPasskeySettings>;
   onDeleteTwoFactorPasskey: (id: number, masterPassword: string) => Promise<TwoFactorPasskeySettings>;
   onDisableTwoFactorPasskeys: (masterPassword: string) => Promise<void>;
@@ -157,6 +159,8 @@ export interface AppMainRoutesProps {
   onSendEmailVerificationCode: () => Promise<unknown>;
   onSubmitEmailVerificationCode: (code: string) => Promise<void>;
   onLoadMailSettings: () => Promise<MailSettings>;
+  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到你的邮箱」。 */
+  mailDeliveryAvailable?: boolean;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
   /** 用户级「语言 / 时区」偏好 */
@@ -356,6 +360,8 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onBootstrapYubiKeyApiCredentials={props.onBootstrapYubiKeyApiCredentials}
                 onDisableYubiKey={props.onDisableYubiKey}
                 onGetTwoFactorPasskeySettings={props.onGetTwoFactorPasskeySettings}
+                onGetEmailTwoFactor={props.onGetEmailTwoFactor}
+                onSetEmailTwoFactor={props.onSetEmailTwoFactor}
                 onCreateTwoFactorPasskey={props.onCreateTwoFactorPasskey}
                 onDeleteTwoFactorPasskey={props.onDeleteTwoFactorPasskey}
                 onDisableTwoFactorPasskeys={props.onDisableTwoFactorPasskeys}
@@ -366,6 +372,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onSendEmailVerificationCode={props.onSendEmailVerificationCode}
                 onSubmitEmailVerificationCode={props.onSubmitEmailVerificationCode}
                 onLoadMailSettings={props.onLoadMailSettings}
+                mailDeliveryAvailable={props.mailDeliveryAvailable}
                 onSaveMailSettings={props.onSaveMailSettings}
                 onSendTestMail={props.onSendTestMail}
                 mailPreferences={props.mailPreferences}

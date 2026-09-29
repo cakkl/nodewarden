@@ -20,11 +20,15 @@ import {
   clearProfileSnapshot,
   getCurrentDeviceIdentifier,
   getPasswordHint,
+  getServerConfig,
   getProfile,
   loadProfileSnapshot,
+  resendNewDeviceOtp,
   saveProfileSnapshot,
   revokeCurrentSession,
   getTwoFactorProviderStatus,
+  getEmailTwoFactorStatus,
+  sendEmailTwoFactorLoginCode,
   getVaultRevisionDate,
   saveSession,
   stripProfileSecrets,
@@ -54,11 +58,13 @@ import {
   performPasswordLogin,
   performPasskeyLogin,
   performRecoverTwoFactorLogin,
+  performNewDeviceOtpLogin,
   performRegistration,
   performTotpLogin,
   hydrateLockedSession,
   performUnlock,
   type JwtUnsafeReason,
+  type PendingDeviceVerification,
   type PendingPasskeyPassword,
   type PendingTotp,
 } from '@/lib/app-auth';
@@ -70,6 +76,7 @@ import useBackupActions from '@/hooks/useBackupActions';
 import useVaultSendActions from '@/hooks/useVaultSendActions';
 import { useToastManager } from '@/hooks/useToastManager';
 import { detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import { shouldWarnUnverifiedEmail } from '@/lib/email-verification-warning';
 import { detectPreferences, savePreferences } from '@/lib/api/preferences';
 import { detectBrowserTimeZone } from '@/lib/datetime';
 import { APP_NOTIFY_EVENT, type AppNotifyDetail } from '@/lib/app-notify';
@@ -136,6 +143,7 @@ const SIGNALR_UPDATE_TYPE_AUTH_REQUEST = 15;
 const SIGNALR_UPDATE_TYPE_AUTH_REQUEST_RESPONSE = 16;
 const SIGNALR_UPDATE_TYPE_DEVICE_STATUS = 101;
 const SIGNALR_UPDATE_TYPE_BACKUP_RESTORE_PROGRESS = 102;
+const TWO_FACTOR_PROVIDER_EMAIL = 1;
 const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
 const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
 /**
@@ -218,6 +226,10 @@ export default function App() {
   const [inviteCodeFromUrl, setInviteCodeFromUrl] = useState(initialInviteCode);
   const [unlockPassword, setUnlockPassword] = useState('');
   const [pendingTotp, setPendingTotp] = useState<PendingTotp | null>(null);
+  const [emailCodeResending, setEmailCodeResending] = useState(false);
+  // 防重入必须用 ref：`setEmailCodeResending(true)` 是异步的，同一 tick 内连续调用两次时
+  // 第二次读到的仍是旧值 ⇒ 会真的发出两封信（进入挑战与切换 provider 可能同时触发）。
+  const emailCodeSendingRef = useRef(false);
   // 只保留 setter：这里写入的值当前没有任何读取点（CodeQL js/unused-local-variable）。
   // 7 处 setPendingTotpMode 调用保持原样、行为不变；将来真要用这个状态时把首项命名回来即可。
   const [, setPendingTotpMode] = useState<'login' | 'unlock' | null>(null);
@@ -226,6 +238,13 @@ export default function App() {
   const [totpCode, setTotpCode] = useState('');
   const [rememberDevice, setRememberDevice] = useState(true);
   const [totpSubmitting, setTotpSubmitting] = useState(false);
+  // 新设备验证（NDV）输码：状态照 `pendingTotp`，区别是验证码由服务端**在挑战响应里**就已发出。
+  const [pendingDeviceVerification, setPendingDeviceVerification] = useState<PendingDeviceVerification | null>(null);
+  const [deviceOtpCode, setDeviceOtpCode] = useState('');
+  const [deviceOtpSubmitting, setDeviceOtpSubmitting] = useState(false);
+  const [deviceOtpResending, setDeviceOtpResending] = useState(false);
+  // 同 `emailCodeSendingRef`：state 写入是异步的，防重入只能用 ref。
+  const deviceOtpSendingRef = useRef(false);
 
   const [disableTotpOpen, setDisableTotpOpen] = useState(false);
   const [disableTotpPassword, setDisableTotpPassword] = useState('');
@@ -274,7 +293,7 @@ export default function App() {
   const domainRulesSaveSeqRef = useRef(0);
   const loginEmailRef = useRef(loginValues.email);
   const loginHintRequestSeqRef = useRef(0);
-  const { toasts, pushToast, removeToast } = useToastManager();
+  const { toasts, pushToast, removeToast, pauseToasts, resumeToasts } = useToastManager();
 
   useEffect(() => {
     const handleAppNotify = (event: Event) => {
@@ -286,6 +305,19 @@ export default function App() {
     window.addEventListener(APP_NOTIFY_EVENT, handleAppNotify as EventListener);
     return () => window.removeEventListener(APP_NOTIFY_EVENT, handleAppNotify as EventListener);
   }, [pushToast]);
+
+  // 已提醒过「邮箱未验证」的用户 id：profile 会反复刷新，同一次登录只提醒一次。
+  const warnedUnverifiedEmailRef = useRef<string | null>(null);
+
+  // 提醒「邮箱未验证」：服务端只对已验证邮箱发信 ⇒ 忘记主密码时收不到提示邮件。
+  useEffect(() => {
+    if (!shouldWarnUnverifiedEmail(profile, warnedUnverifiedEmailRef.current)) return;
+    warnedUnverifiedEmailRef.current = String(profile?.id || '');
+    pushToast(
+      'warning',
+      t('txt_email_verification_unverified_warning', { where: t('nav_account_settings') })
+    );
+  }, [profile, pushToast]);
 
   useEffect(() => {
     const syncUrlState = () => {
@@ -456,7 +488,11 @@ export default function App() {
         ? (window.location.hash || '').replace(/^#/, '').split('?')[0].split('#')[0]
         : '';
       const normalizedCurrentHashPath = currentHashPath.replace(/^\/+/, '').replace(/\/+$/, '');
-      const isDemoPublicSendRoute = /^send\/[^/]+(?:\/[^/]+)?$/i.test(normalizedCurrentHashPath);
+      // demo 站点也要能直接打开公开链接：既认路径形态，也认已发出去的旧 hash 形态
+      const isDemoPublicSendRoute = typeof window !== 'undefined' && (
+        PUBLIC_SEND_PATH_PATTERN.test(normalizeRoutePath(window.location.pathname)) ||
+        /^send\/[^/]+(?:\/[^/]+)?$/i.test(normalizedCurrentHashPath)
+      );
       setDefaultKdfIterations(initialBootstrap.defaultKdfIterations);
       setRegistrationInviteRequired(initialBootstrap.registrationInviteRequired);
       setJwtWarning(null);
@@ -562,6 +598,8 @@ export default function App() {
     setPendingTotp(null);
     setPendingTotpMode(null);
     setPendingPasskeyPassword(null);
+    setPendingDeviceVerification(null);
+    setDeviceOtpCode('');
     setTotpCode('');
     setPasskeyPassword('');
     setUnlockPassword('');
@@ -607,6 +645,16 @@ export default function App() {
         setPendingTotpMode('login');
         setTotpCode('');
         setRememberDevice(true);
+        // 邮件 2FA：进入挑战时自动发一次码（否则用户面对一个空输入框、不知道要去哪拿码）。
+        if (result.pendingTotp.providerType === TWO_FACTOR_PROVIDER_EMAIL) {
+          void sendEmailTwoFactorCode(result.pendingTotp.email);
+        }
+        return;
+      }
+      // 新设备验证：码已由服务端发出（与挑战同一个响应），这里只需切到输码界面。
+      if (result.kind === 'device-verification') {
+        setPendingDeviceVerification(result.pendingDeviceVerification);
+        setDeviceOtpCode('');
         return;
       }
       pushToast('error', result.message || t('txt_login_failed'));
@@ -702,6 +750,31 @@ export default function App() {
       };
     });
     setTotpCode('');
+    // 切到邮件方式时同样要发码（用户主动选了它，不能让他等一个不会来的码）。
+    if (providerType === TWO_FACTOR_PROVIDER_EMAIL && pendingTotp) {
+      void sendEmailTwoFactorCode(pendingTotp.email);
+    }
+  }
+
+  /**
+   * 发送邮件 2FA 的登录验证码。
+   *
+   * 失败时**只提示、不中断登录流程** —— 邮件服务的问题不该表现为「登录失败」，
+   * 用户看到「验证码发送失败」才知道该重试，而不是以为密码错了。
+   */
+  async function sendEmailTwoFactorCode(email: string): Promise<void> {
+    if (emailCodeSendingRef.current) return;
+    emailCodeSendingRef.current = true;
+    setEmailCodeResending(true);
+    try {
+      await sendEmailTwoFactorLoginCode(email);
+      pushToast('success', t('txt_email_code_sent_to_your_address'));
+    } catch (error) {
+      pushToast('error', error instanceof Error ? error.message : t('txt_email_code_send_failed'));
+    } finally {
+      emailCodeSendingRef.current = false;
+      setEmailCodeResending(false);
+    }
   }
 
   async function handleTotpVerify() {
@@ -723,6 +796,45 @@ export default function App() {
       pushToast('error', error instanceof Error ? error.message : pendingTotp.providerType === 3 ? t('txt_yubikey_verify_failed') : isPasskeyTwoFactor ? t('txt_passkey_verification_failed') : t('txt_totp_verify_failed'));
     } finally {
       setTotpSubmitting(false);
+    }
+  }
+
+  /**
+   * 新设备验证（NDV）：提交邮件验证码。
+   *
+   * 码与设备标识绑定，`performNewDeviceOtpLogin` 会带上本机标识重发**同一个** password grant。
+   */
+  async function handleDeviceVerificationSubmit() {
+    if (deviceOtpSubmitting || !pendingDeviceVerification) return;
+    const code = deviceOtpCode.trim();
+    if (!code) return;
+    setDeviceOtpSubmitting(true);
+    try {
+      const login = await performNewDeviceOtpLogin(pendingDeviceVerification, code);
+      await finalizeLogin(login);
+    } catch (error) {
+      pushToast('error', error instanceof Error ? error.message : t('txt_new_device_verification_invalid_code'));
+    } finally {
+      setDeviceOtpSubmitting(false);
+    }
+  }
+
+  /**
+   * 新设备验证（NDV）：重新发送验证码（失败只提示、不中断 —— 发信问题不该表现为「验证失败」）。
+   * 服务端对「发了」与「未发」返回同一响应 ⇒ 提示成功不代表一定有新邮件。
+   */
+  async function handleResendDeviceOtpCode() {
+    if (!pendingDeviceVerification || deviceOtpSendingRef.current) return;
+    deviceOtpSendingRef.current = true;
+    setDeviceOtpResending(true);
+    try {
+      await resendNewDeviceOtp(pendingDeviceVerification.email, pendingDeviceVerification.passwordHash);
+      pushToast('success', t('txt_email_code_sent_to_your_address'));
+    } catch (error) {
+      pushToast('error', error instanceof Error ? error.message : t('txt_email_code_send_failed'));
+    } finally {
+      deviceOtpSendingRef.current = false;
+      setDeviceOtpResending(false);
     }
   }
 
@@ -830,6 +942,12 @@ export default function App() {
     try {
       const result = await getPasswordHint(email);
       if (loginHintRequestSeqRef.current !== requestSeq || loginEmailRef.current.trim().toLowerCase() !== email) return;
+      // 配了 SMTP：提示走邮箱，页面上只告知「已发送」（不显示内容）。
+      if (result.sent) {
+        pushToast('success', t('txt_password_hint_sent_to_email'));
+        setLoginHintState({ email: '', loading: false, hint: null });
+        return;
+      }
       openPasswordHintDialog(result.masterPasswordHint);
       setLoginHintState({
         email,
@@ -882,6 +1000,12 @@ export default function App() {
         setRememberDevice(true);
         return;
       }
+      // 解锁也走 password grant（设备行被清掉时会碰到），因此与登录分支同样处理。
+      if (result.kind === 'device-verification') {
+        setPendingDeviceVerification(result.pendingDeviceVerification);
+        setDeviceOtpCode('');
+        return;
+      }
       pushToast('error', result.message || t('txt_unlock_failed_master_password_is_incorrect'));
     } catch {
       pushToast('error', t('txt_unlock_failed_master_password_is_incorrect'));
@@ -905,6 +1029,8 @@ export default function App() {
     setUnlockPassword('');
     setPendingTotp(null);
     setPendingTotpMode(null);
+    setPendingDeviceVerification(null);
+    setDeviceOtpCode('');
     setTotpCode('');
     setUnlockPreparing(false);
     setLockedSessionRefreshError('');
@@ -926,9 +1052,13 @@ export default function App() {
     clearOfflineUnlockRecord();
     clearPasswordSecurityCache();
     setProfile(null);
+    // 清空「已提醒」标记 ⇒ 下次登录重新提醒一次。
+    warnedUnverifiedEmailRef.current = null;
     setUnlockPreparing(false);
     setPendingTotp(null);
     setPendingTotpMode(null);
+    setPendingDeviceVerification(null);
+    setDeviceOtpCode('');
     setPhase('login');
     navigate(ROUTES.login);
   }
@@ -1005,6 +1135,8 @@ export default function App() {
       <AppGlobalOverlays
         toasts={toasts}
         onCloseToast={removeToast}
+        onPauseToasts={pauseToasts}
+        onResumeToasts={resumeToasts}
         confirm={null}
         onCancelConfirm={() => {}}
         pendingTotpOpen={false}
@@ -1123,6 +1255,16 @@ export default function App() {
     enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken,
     staleTime: 30_000,
   });
+
+  // 服务端配置：目前只用于「主密码提示」的说明文案（能发信 ⇒ 说会发到邮箱）。
+  // 登录前就要用（注册页），所以不依赖会话。
+  const serverConfigQuery = useQuery({
+    queryKey: ['server-config'],
+    queryFn: getServerConfig,
+    enabled: !IS_DEMO_MODE,
+    staleTime: 5 * 60_000,
+  });
+  const mailDeliveryAvailable = serverConfigQuery.data?.mailDeliveryAvailable === true;
   useEffect(() => {
     if (!profileQuery.data) return;
     setProfile(profileQuery.data);
@@ -1951,6 +2093,7 @@ export default function App() {
     profile,
     defaultKdfIterations,
     onNotify: pushToast,
+    queryClient,
   });
 
   refreshAuthorizedDevicesRef.current = async () => {
@@ -2118,6 +2261,8 @@ export default function App() {
     onBootstrapYubiKeyApiCredentials: accountSecurityActions.bootstrapYubiKeyApiCredentials,
     onDisableYubiKey: accountSecurityActions.disableYubiKey,
     onGetTwoFactorPasskeySettings: accountSecurityActions.getTwoFactorPasskeySettings,
+    onGetEmailTwoFactor: () => getEmailTwoFactorStatus(authedFetch),
+    onSetEmailTwoFactor: accountSecurityActions.setEmailTwoFactor,
     onCreateTwoFactorPasskey: accountSecurityActions.createTwoFactorPasskey,
     onDeleteTwoFactorPasskey: accountSecurityActions.deleteTwoFactorPasskey,
     onDisableTwoFactorPasskeys: accountSecurityActions.disableTwoFactorPasskeys,
@@ -2127,6 +2272,7 @@ export default function App() {
     onLoadMailSettings: adminMailActions.loadMailSettings,
     onSaveMailSettings: adminMailActions.saveMailSettings,
     onSendTestMail: adminMailActions.sendTestMail,
+    mailDeliveryAvailable,
     mailPreferences,
     onSaveMailPreferences: async (update: MailPreferencesUpdate) => {
       const next = await savePreferences(authedFetch, update);
@@ -2253,7 +2399,11 @@ export default function App() {
   if (publicSendMatch) {
     return (
       <>
-        <PublicSendPage accessId={decodeURIComponent(publicSendMatch[1])} keyPart={publicSendMatch[2] ? decodeURIComponent(publicSendMatch[2]) : null} />
+        <PublicSendPage
+          accessId={decodeURIComponent(publicSendMatch[1])}
+          keyPart={publicSendMatch[2] ? decodeURIComponent(publicSendMatch[2]) : null}
+          onNotify={pushToast}
+        />
         {renderPassiveOverlays()}
       </>
     );
@@ -2303,6 +2453,7 @@ export default function App() {
           passkeyPassword={passkeyPassword}
           registerValues={registerValues}
           registrationInviteRequired={registrationInviteRequired}
+          mailDeliveryAvailable={mailDeliveryAvailable}
           unlockPassword={unlockPassword}
           emailForLock={profile?.email || session?.email || ''}
           loginHintLoading={loginHintState.loading}
@@ -2347,6 +2498,8 @@ export default function App() {
         <AppGlobalOverlays
           toasts={toasts}
           onCloseToast={removeToast}
+          onPauseToasts={pauseToasts}
+          onResumeToasts={resumeToasts}
           confirm={confirm}
           onCancelConfirm={() => setConfirm(null)}
           pendingTotpOpen={!!pendingTotp}
@@ -2374,6 +2527,24 @@ export default function App() {
             navigate(ROUTES.recoverTwoFactor);
           }}
           totpSubmitting={totpSubmitting}
+          onResendEmailCode={() => {
+            if (pendingTotp) void sendEmailTwoFactorCode(pendingTotp.email);
+          }}
+          emailCodeResending={emailCodeResending}
+          deviceVerification={pendingDeviceVerification ? {
+            email: pendingDeviceVerification.email,
+            code: deviceOtpCode,
+            submitting: deviceOtpSubmitting,
+            resending: deviceOtpResending,
+            onCodeChange: setDeviceOtpCode,
+            onConfirm: () => void handleDeviceVerificationSubmit(),
+            onResend: () => void handleResendDeviceOtpCode(),
+            onCancel: () => {
+              if (deviceOtpSubmitting) return;
+              setPendingDeviceVerification(null);
+              setDeviceOtpCode('');
+            },
+          } : null}
           disableTotpOpen={false}
           disableTotpPassword=""
           onDisableTotpPasswordChange={() => {}}
@@ -2407,6 +2578,8 @@ export default function App() {
       <AppGlobalOverlays
         toasts={toasts}
         onCloseToast={removeToast}
+        onPauseToasts={pauseToasts}
+        onResumeToasts={resumeToasts}
         confirm={confirm}
         onCancelConfirm={() => setConfirm(null)}
         pendingTotpOpen={false}

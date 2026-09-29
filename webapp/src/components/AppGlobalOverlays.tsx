@@ -18,9 +18,28 @@ export interface AppConfirmState {
   onCancel?: () => void;
 }
 
+/**
+ * 新设备验证（NDV）输码界面的外部状态。
+ *
+ * 聚成一个可选对象：本组件在两个分支里各渲染一次，拆成多个 prop 要在两处各补一遍。
+ */
+interface DeviceVerificationDialogState {
+  email: string;
+  code: string;
+  submitting: boolean;
+  resending: boolean;
+  onCodeChange: (value: string) => void;
+  onConfirm: () => void;
+  onResend: () => void;
+  onCancel: () => void;
+}
+
 interface AppGlobalOverlaysProps {
   toasts: ToastMessage[];
   onCloseToast: (id: string) => void;
+  /** 鼠标悬停在通知区时暂停全部 toast 计时；移开继续。 */
+  onPauseToasts?: () => void;
+  onResumeToasts?: () => void;
   confirm: AppConfirmState | null;
   onCancelConfirm: () => void;
   pendingTotpOpen: boolean;
@@ -35,6 +54,11 @@ interface AppGlobalOverlaysProps {
   onCancelTotp: () => void;
   onUseRecoveryCode: () => void;
   totpSubmitting: boolean;
+  /** 邮件 2FA：重新发送验证码。未提供时（或非邮件 provider）不显示该按钮。 */
+  onResendEmailCode?: () => void;
+  emailCodeResending?: boolean;
+  /** 非空时弹出新设备验证的输码对话框；未提供则不渲染。 */
+  deviceVerification?: DeviceVerificationDialogState | null;
   disableTotpOpen: boolean;
   disableTotpPassword: string;
   onDisableTotpPasswordChange: (value: string) => void;
@@ -44,11 +68,13 @@ interface AppGlobalOverlaysProps {
 }
 
 const TWO_FACTOR_PROVIDER_AUTHENTICATOR = 0;
+const TWO_FACTOR_PROVIDER_EMAIL = 1;
 const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
 const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
 const TWO_FACTOR_PROVIDER_ORDER = [
   TWO_FACTOR_PROVIDER_WEBAUTHN,
   TWO_FACTOR_PROVIDER_YUBIKEY,
+  TWO_FACTOR_PROVIDER_EMAIL,
   TWO_FACTOR_PROVIDER_AUTHENTICATOR,
 ] as const;
 
@@ -60,6 +86,7 @@ function uniqueSupportedProviders(providerTypes: number[] | undefined): number[]
 function twoFactorProviderLabel(providerType: number): string {
   if (providerType === TWO_FACTOR_PROVIDER_WEBAUTHN) return t('txt_passkey');
   if (providerType === TWO_FACTOR_PROVIDER_YUBIKEY) return t('txt_otp_from_yubikey');
+  if (providerType === TWO_FACTOR_PROVIDER_EMAIL) return t('txt_email_verification_code');
   return t('txt_authenticator_app');
 }
 
@@ -73,6 +100,7 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
   const alternateProviders = availableProviders.filter((provider) => provider !== props.pendingTotpProviderType);
   const isYubiKeyOtp = props.pendingTotpProviderType === TWO_FACTOR_PROVIDER_YUBIKEY;
   const isWebAuthn = props.pendingTotpProviderType === TWO_FACTOR_PROVIDER_WEBAUTHN;
+  const isEmailOtp = props.pendingTotpProviderType === TWO_FACTOR_PROVIDER_EMAIL;
   const requireMasterPassword = !!props.confirm?.requireMasterPassword;
 
   useEffect(() => {
@@ -127,7 +155,7 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
             <span>{t('txt_passkey')}</span>
           </span>
         ) : t('txt_two_step_verification')}
-        message={isYubiKeyOtp ? t('txt_press_yubikey_to_authenticate') : isWebAuthn ? t('txt_use_passkey_to_complete_two_step_verification') : t('txt_password_is_already_verified')}
+        message={isYubiKeyOtp ? t('txt_press_yubikey_to_authenticate') : isWebAuthn ? t('txt_use_passkey_to_complete_two_step_verification') : isEmailOtp ? t('txt_email_code_sent_to_your_address') : t('txt_password_is_already_verified')}
         confirmText={t('txt_verify')}
         hideCancel
         closeButton
@@ -181,15 +209,62 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
           <p className="muted-inline settings-field-note">{t('txt_touch_your_passkey_when_prompted')}</p>
         ) : (
           <label className="field">
-            <span>{isYubiKeyOtp ? t('txt_otp_from_yubikey') : t('txt_totp_code')}</span>
+            <span>{isYubiKeyOtp ? t('txt_otp_from_yubikey') : isEmailOtp ? t('txt_email_verification_code') : t('txt_totp_code')}</span>
             <input className="input" type={isYubiKeyOtp ? 'password' : 'text'} value={props.totpCode} autoComplete="one-time-code" onInput={(e) => props.onTotpCodeChange((e.currentTarget as HTMLInputElement).value)} />
           </label>
+        )}
+        {isEmailOtp && props.onResendEmailCode && (
+          <button
+            type="button"
+            className="btn btn-secondary dialog-btn"
+            disabled={props.totpSubmitting || props.emailCodeResending}
+            onClick={props.onResendEmailCode}
+          >
+            {t('txt_resend_code')}
+          </button>
         )}
         <label className="check-line check-line-compact">
           <input type="checkbox" checked={props.rememberDevice} onChange={(e) => props.onRememberDeviceChange((e.currentTarget as HTMLInputElement).checked)} />
           <span>{t('txt_trust_this_device_for_30_days')}</span>
         </label>
       </ConfirmDialog>
+
+      {props.deviceVerification && (
+        <ConfirmDialog
+          open
+          title={t('txt_new_device_verification')}
+          message={t('txt_new_device_verification_email_sent', { email: props.deviceVerification.email })}
+          confirmText={t('txt_verify')}
+          hideCancel
+          closeButton
+          showIcon={false}
+          confirmDisabled={props.deviceVerification.submitting || !props.deviceVerification.code.trim()}
+          cancelDisabled={props.deviceVerification.submitting}
+          onConfirm={props.deviceVerification.onConfirm}
+          onCancel={props.deviceVerification.onCancel}
+        >
+          <label className="field">
+            <span>{t('txt_email_verification_code')}</span>
+            <input
+              className="input"
+              type="text"
+              autoComplete="one-time-code"
+              value={props.deviceVerification.code}
+              onInput={(e) => props.deviceVerification?.onCodeChange((e.currentTarget as HTMLInputElement).value)}
+            />
+          </label>
+          {/* 说明为何被拦：用户第一次在这个浏览器登录，看到「新设备验证」不会一头雾水。 */}
+          <p className="muted-inline settings-field-note">{t('txt_new_device_verification_help')}</p>
+          <button
+            type="button"
+            className="btn btn-secondary dialog-btn"
+            disabled={props.deviceVerification.submitting || props.deviceVerification.resending}
+            onClick={props.deviceVerification.onResend}
+          >
+            {t('txt_resend_code')}
+          </button>
+        </ConfirmDialog>
+      )}
 
       <ConfirmDialog
         open={props.disableTotpOpen}
@@ -211,7 +286,12 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
         </label>
       </ConfirmDialog>
 
-      <ToastHost toasts={props.toasts} onClose={props.onCloseToast} />
+      <ToastHost
+        toasts={props.toasts}
+        onClose={props.onCloseToast}
+        onPause={props.onPauseToasts}
+        onResume={props.onResumeToasts}
+      />
     </>
   );
 }

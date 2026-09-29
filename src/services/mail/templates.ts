@@ -203,12 +203,213 @@ export function renderVerificationMail(
   };
 }
 
+/** 邮件两步登录的登录挑战码。与验证码邮件同构，但文案与语义不同（登录 vs 验证邮箱归属）。 */
+export function renderTwoFactorMail(
+  copy: MailCopy,
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  const expiresAt = formatMailTime(input.expiresAt, context.timezone);
+  const expiryLine = `${copy.twoFactor.expiresLabel} ${expiresAt}`;
+  const preferencesNote = preferencesNoteFor(copy, context.preferencesUnset);
+
+  return {
+    subject: copy.twoFactor.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.twoFactor.heading,
+      bodyHtml:
+        mailParagraph(copy.twoFactor.intro) +
+        mailCodeBlock(copy.twoFactor.codeLabel, input.code) +
+        mailParagraph(expiryLine, { muted: true }) +
+        mailParagraph(copy.twoFactor.outro, { muted: true }) +
+        (preferencesNote ? mailParagraph(preferencesNote, { muted: true }) : ''),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.twoFactor.heading,
+      '',
+      copy.twoFactor.intro,
+      '',
+      `${copy.twoFactor.codeLabel}: ${input.code}`,
+      expiryLine,
+      '',
+      copy.twoFactor.outro,
+      ...(preferencesNote ? ['', preferencesNote] : []),
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
+/**
+ * Send 邮箱 OTP 邮件。
+ *
+ * 与其他验证码邮件同构，但**不应当在正文里拉「偏好未设定」提示句** ——
+ * 收件人往往是**外部邮箱**（不是本服务用户），提示他「未设定时区」很莫名其妙。
+ * 调用方不传 `preferencesUnset` 即可（详见 `sends-public.ts` 的调用处）。
+ */
+export function renderSendOtpMail(
+  copy: MailCopy,
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  const expiresAt = formatMailTime(input.expiresAt, context.timezone);
+  const expiryLine = `${copy.sendOtp.expiresLabel} ${expiresAt}`;
+  const preferencesNote = preferencesNoteFor(copy, context.preferencesUnset);
+
+  return {
+    subject: copy.sendOtp.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.sendOtp.heading,
+      bodyHtml:
+        mailParagraph(copy.sendOtp.intro) +
+        mailCodeBlock(copy.sendOtp.codeLabel, input.code) +
+        mailParagraph(expiryLine, { muted: true }) +
+        mailParagraph(copy.sendOtp.outro, { muted: true }) +
+        (preferencesNote ? mailParagraph(preferencesNote, { muted: true }) : ''),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.sendOtp.heading,
+      '',
+      copy.sendOtp.intro,
+      '',
+      `${copy.sendOtp.codeLabel}: ${input.code}`,
+      expiryLine,
+      '',
+      copy.sendOtp.outro,
+      ...(preferencesNote ? ['', preferencesNote] : []),
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
+/**
+ * 新设备验证（NDV）邮件：陌生设备登录的拦截码。
+ *
+ * 收件人必然已验证邮箱（调用方已过发信门禁）⇒ 正文**不拉**「偏好未设定」提示句。
+ */
+export function renderNewDeviceVerificationMail(
+  copy: MailCopy,
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  const expiresAt = formatMailTime(input.expiresAt, context.timezone);
+  const expiryLine = `${copy.newDeviceVerification.expiresLabel} ${expiresAt}`;
+
+  return {
+    subject: copy.newDeviceVerification.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.newDeviceVerification.heading,
+      bodyHtml:
+        mailParagraph(copy.newDeviceVerification.intro) +
+        mailCodeBlock(copy.newDeviceVerification.codeLabel, input.code) +
+        mailParagraph(expiryLine, { muted: true }) +
+        mailParagraph(copy.newDeviceVerification.outro, { muted: true }),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.newDeviceVerification.heading,
+      '',
+      copy.newDeviceVerification.intro,
+      '',
+      `${copy.newDeviceVerification.codeLabel}: ${input.code}`,
+      expiryLine,
+      '',
+      copy.newDeviceVerification.outro,
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
+/** User Verification 的邮箱码（`request-otp` / `verify-otp`）：敏感操作的二次确认，不是登录。 */
+export function renderUserVerificationMail(
+  copy: MailCopy,
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  const expiresAt = formatMailTime(input.expiresAt, context.timezone);
+  const expiryLine = `${copy.userVerification.expiresLabel} ${expiresAt}`;
+
+  return {
+    subject: copy.userVerification.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.userVerification.heading,
+      bodyHtml:
+        mailParagraph(copy.userVerification.intro) +
+        mailCodeBlock(copy.userVerification.codeLabel, input.code) +
+        mailParagraph(expiryLine, { muted: true }) +
+        mailParagraph(copy.userVerification.outro, { muted: true }),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.userVerification.heading,
+      '',
+      copy.userVerification.intro,
+      '',
+      `${copy.userVerification.codeLabel}: ${input.code}`,
+      expiryLine,
+      '',
+      copy.userVerification.outro,
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
+/** 主密码提示邮件。**无提示时也发信**（防枚举，见 `MailCopy.passwordHint`）。 */export function renderPasswordHintMail(
+  copy: MailCopy,
+  input: { hint: string | null },
+  context: MailRenderContext = {}
+): RenderedMail {
+  const preferencesNote = preferencesNoteFor(copy, context.preferencesUnset);
+  const hasHint = !!input.hint;
+
+  return {
+    subject: copy.passwordHint.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.passwordHint.heading,
+      bodyHtml:
+        mailParagraph(copy.passwordHint.intro) +
+        (hasHint
+          ? mailCodeBlock(copy.passwordHint.hintLabel, input.hint as string)
+          : mailParagraph(copy.passwordHint.noHint, { muted: true })) +
+        mailParagraph(copy.passwordHint.outro, { muted: true }) +
+        (preferencesNote ? mailParagraph(preferencesNote, { muted: true }) : ''),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.passwordHint.heading,
+      '',
+      copy.passwordHint.intro,
+      '',
+      hasHint ? `${copy.passwordHint.hintLabel}: ${input.hint}` : copy.passwordHint.noHint,
+      '',
+      copy.passwordHint.outro,
+      ...(preferencesNote ? ['', preferencesNote] : []),
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
 /**
  * 由管理员发起的事件：此时用户可能已经登不进去了，
  * 「改主密码、检查已授权设备」是做不到的建议。
  */
-const ADMIN_INITIATED_EVENTS: ReadonlySet<NotificationEventKey> = new Set([
-  'account_disabled',
+const ADMIN_INITIATED_EVENTS: ReadonlySet<NotificationEventKey> = new Set([  'account_disabled',
   'account_deleted',
 ]);
 

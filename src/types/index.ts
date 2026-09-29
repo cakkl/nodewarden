@@ -85,6 +85,11 @@ export interface User {
    * 只约束服务端主动发送的通知；用户主动请求的验证码邮件不受它影响。
    */
   mailOptIn?: boolean;
+  /**
+   * 邮件两步登录（2FA provider 1）是否启用。默认 false = 关闭。
+   * 启用前置：邮箱已验证 **且** 服务端能发信 —— 否则等于把登录码发给不属于用户的邮箱。
+   */
+  twoFactorEmailEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }

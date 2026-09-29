@@ -9,7 +9,7 @@ import { createRefreshToken } from '../utils/jwt';
 import { readAuthRequestDeviceInfo } from '../utils/device';
 import { createRecoveryCode, recoveryCodeEquals } from '../utils/recovery-code';
 import { generateUUID } from '../utils/uuid';
-import { issueSendAccessToken } from './sends';
+import { issueSendAccessToken, sendAccessErrorBody, sendAccessErrorStatus } from './sends';
 import { registerMobilePushDevice } from '../services/push-relay';
 import {
   buildAccountKeys,
@@ -28,9 +28,14 @@ import { createPasskeyUserVerificationToken } from '../utils/user-verification-t
 import { constantTimeEquals, verifyApiKey } from '../utils/api-key';
 import { isYubiKeyEnabled, userYubiKeyPublicIds, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
 import { getYubicoCredentials, initializeYubicoCredentialsOnce } from '../services/yubico-config';
+import { verifyChallengeCode, clearChallengeCode } from '../services/email-2fa';
+import { isMailDeliveryAvailableSoft } from '../services/mail-settings';
+import { saveUserPreferences } from '../services/storage-user-repo';
+import { resolveNewDeviceVerification } from './identity-new-device';
 
 const TWO_FACTOR_REMEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const TWO_FACTOR_PROVIDER_AUTHENTICATOR = 0;
+const TWO_FACTOR_PROVIDER_EMAIL = 1;
 const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
 const TWO_FACTOR_PROVIDER_REMEMBER = 5;
 const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
@@ -285,6 +290,11 @@ async function twoFactorRequiredResponse(
   let webAuthnOptions: Record<string, unknown> | null = null;
   if (!user || resolveTotpSecret(user.totpSecret)) providers.push(String(TWO_FACTOR_PROVIDER_AUTHENTICATOR));
   if (user && isYubiKeyEnabled(user)) providers.push(String(TWO_FACTOR_PROVIDER_YUBIKEY));
+  // 邮件 2FA：只有「用户已启用 + 邮箱已验证 + 服务端能发信」三者齐备才列出。
+  // 少了任何一条，客户端会展示一个必然失败的选项（发不出码 / 码发到不属于用户的邮箱）。
+  if (user && user.twoFactorEmailEnabled === true && user.emailVerified === true && await isMailDeliveryAvailableSoft(env)) {
+    providers.push(String(TWO_FACTOR_PROVIDER_EMAIL));
+  }
   if (user) {
     webAuthnOptions = await buildTwoFactorPasskeyAssertionOptions(request, env, storage, user) as Record<string, unknown> | null;
     if (webAuthnOptions) providers.push(String(TWO_FACTOR_PROVIDER_WEBAUTHN));
@@ -295,7 +305,11 @@ async function twoFactorRequiredResponse(
       ? { Nfc: user?.yubikeyNfc ?? false }
       : provider === String(TWO_FACTOR_PROVIDER_WEBAUTHN) && webAuthnOptions
         ? webAuthnOptions
-        : null;
+        : provider === String(TWO_FACTOR_PROVIDER_EMAIL)
+          // 客户端从**这里**读邮箱地址（`providers.get(Email).Email`）来渲染
+          // 「邮件将发送至 <地址>」；给 null 会让占位符原样显示成 `__$1__`。
+          ? { Email: user?.email ?? '' }
+          : null;
   }
   const customResponse = {
     TwoFactorProviders: providers,
@@ -494,7 +508,8 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     const effectiveTotpSecret = resolveTotpSecret(user.totpSecret);
     const effectiveYubiKeyPublicIds = userYubiKeyPublicIds(user);
     const effectiveWebAuthnCredentials = await storage.getAccountPasskeyCredentialsByUserId(user.id, 'twoFactor');
-    if (effectiveTotpSecret || effectiveYubiKeyPublicIds.length > 0 || effectiveWebAuthnCredentials.length > 0) {
+    const emailTwoFactorEnabled = user.twoFactorEmailEnabled === true && user.emailVerified === true;
+    if (effectiveTotpSecret || effectiveYubiKeyPublicIds.length > 0 || effectiveWebAuthnCredentials.length > 0 || emailTwoFactorEnabled) {
       const normalizedTwoFactorProvider = String(twoFactorProvider ?? '').trim();
       const normalizedTwoFactorToken = String(twoFactorToken ?? '').trim();
       let rememberRequested = ['1', 'true', 'True', 'TRUE', 'on', 'yes', 'Yes', 'YES'].includes(String(twoFactorRemember || '').trim());
@@ -531,6 +546,15 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
         }
         const consumed = await storage.consumeTotpLoginCounter(user.id, matchedCounter);
         if (!consumed) {
+          return recordFailedTwoFactorAndBuildResponse(rateLimit, loginIdentifier);
+        }
+      } else if (normalizedTwoFactorProvider === String(TWO_FACTOR_PROVIDER_EMAIL)) {
+        // 邮件 2FA：校验挑战码。与 TOTP 同构 —— 失败计入登录失败次数，成功即消费。
+        if (!emailTwoFactorEnabled) {
+          return recordFailedTwoFactorAndBuildResponse(rateLimit, loginIdentifier);
+        }
+        const outcome = await verifyChallengeCode(env.DB, user.id, normalizedTwoFactorToken, env.JWT_SECRET);
+        if (outcome !== 'ok') {
           return recordFailedTwoFactorAndBuildResponse(rateLimit, loginIdentifier);
         }
       } else if (normalizedTwoFactorProvider === String(TWO_FACTOR_PROVIDER_YUBIKEY)) {
@@ -588,6 +612,12 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
         user.securityStamp = generateUUID();
         user.updatedAt = new Date().toISOString();
         await storage.saveUser(user);
+        // 邮件 2FA 也要一并停用：恢复码的语义是「无法访问两步登录提供程序时用它停用两步登录」，
+        // 而邮件恰恰是最容易「无法访问」的那个（收不到信 / SMTP 挂了）⇒ 漏掉它会让用户陷入
+        // 「收不到邮件 → 用恢复码 → 邮件 2FA 仍在 → 下次登录又要邮件码」的死循环。
+        // 开关走专用 UPDATE（不进 saveUser，与 mail_opt_in 一致）。
+        await saveUserPreferences(env.DB, user.id, { twoFactorEmailEnabled: false });
+        await clearChallengeCode(env.DB, user.id);
         await storage.deleteRefreshTokensByUserId(user.id);
         AuthService.invalidateUserCache(user.id);
         rememberRequested = false;
@@ -607,6 +637,18 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
         );
       }
     }
+
+    // 新设备验证（NDV）：陌生设备登录要求邮件验证码。判定链见 identity-new-device.ts。
+    // 位置固定在「密码校验 + 2FA 通过」之后、「写设备行 / 签发 token」之前。
+    const newDeviceCheck = await resolveNewDeviceVerification(env, storage, {
+      user,
+      deviceIdentifier: deviceInfo.deviceIdentifier ?? '',
+      twoFactorEnabled: !!(effectiveTotpSecret || effectiveYubiKeyPublicIds.length > 0 || effectiveWebAuthnCredentials.length > 0 || emailTwoFactorEnabled),
+      newDeviceOtp: String(readBodyValue(body, ['newDeviceOtp', 'NewDeviceOtp']) ?? '').trim() || null,
+      // 使用设备登录（auth request）由已有设备确认，本身就是第二因素 ⇒ 不叠加邮件码
+      skipForAuthRequest: !!authRequestId,
+    });
+    if (!newDeviceCheck.allow) return newDeviceCheck.response;
 
     // Persist device only after successful password + (optional) 2FA verification.
     const deviceSession = await persistAndResolveDeviceSession(storage, user.id, deviceInfo);
@@ -899,18 +941,11 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     }
 
     const sendId = String(body.send_id || body.sendId || '').trim();
+    // 错误码对齐官方：缺字段与「无效 Send」是两个不同的码（客户端据此决定重试还是报错）
     if (!sendId) {
       return identityJsonResponse(
-        {
-          error: 'invalid_request',
-          error_description: 'send_id is required',
-          send_access_error_type: 'invalid_send_id',
-          ErrorModel: {
-            Message: 'send_id is required',
-            Object: 'error',
-          },
-        },
-        400
+        sendAccessErrorBody('send_id_required'),
+        sendAccessErrorStatus('send_id_required')
       );
     }
 
@@ -918,12 +953,13 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
       body.password_hash_b64 || body.passwordHashB64 || body.passwordHash || body.password_hash || ''
     ).trim() || null;
     const password = String(body.password || '').trim() || null;
+    const email = String(body.email || body.Email || '').trim() || null;
+    const otp = String(body.otp || body.Otp || '').trim() || null;
 
     const result = await issueSendAccessToken(
       env,
       sendId,
-      passwordHashB64,
-      password,
+      { passwordHashB64, password, email, otp },
       rateLimit,
       clientIdentifier || undefined
     );

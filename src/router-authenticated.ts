@@ -19,12 +19,14 @@ import {
   handlePutTwoFactorYubiKey,
   handlePutTwoFactorYubiKeyConfig,
   handleBootstrapTwoFactorYubiKeyConfig,
-  handleGetDeviceVerificationSettings,
-  handlePutDeviceVerificationSettings,
   handleDisableTwoFactorProvider,
+  handleGetTwoFactorEmail,
+  handlePutTwoFactorEmail,
+  handleDeleteTwoFactorEmail,
   handleGetApiKey,
   handleRotateApiKey,
 } from './handlers/accounts';
+import { handleRequestAccountOtp, handleVerifyAccountOtp } from './handlers/accounts-user-verification';
 import {
   handleGetEmailVerificationStatus,
   handleSendEmailVerificationCode,
@@ -131,31 +133,51 @@ export async function handleAuthenticatedRoute(
     return unsupportedResponse('KDF changes are not supported by this server.');
   }
 
+  // ⚠️ 官方「改邮箱」流程的两个端点。本站**不支持改邮箱**（`users.email` 只在注册时写入），
+  // 必须**明确拒绝**：官方 `/accounts/email-token` 传的是 `newEmail`，若落到我们
+  // 「给当前邮箱发验证码」的实现上，会**静默给旧地址发一枚码**（无报错、行为错位）。
+  const changeEmailPaths = new Set([
+    '/api/accounts/email-token',
+    '/accounts/email-token',
+    '/api/accounts/email',
+    '/accounts/email',
+  ]);
+  if (changeEmailPaths.has(path) && (method === 'POST' || method === 'PUT')) {
+    return unsupportedResponse('Changing the email address is not supported by this server.');
+  }
+
   const mailBackedAccountPaths = new Set([
-    // 邮箱验证走真实实现（见下方分发）；这里只剩尚未接入的邮件能力。
+    // 本站的邮箱验证是**自有流程**（6 位数字码），端点见下方分发；
+    // 这里只剩官方那套**邮件链接**能力（仅邀请注册 ⇒ 有意不做）。
+    '/api/accounts/verify-email',
+    '/accounts/verify-email',
     '/api/accounts/verify-email-token',
     '/accounts/verify-email-token',
-    '/api/accounts/request-otp',
-    '/accounts/request-otp',
-    '/api/accounts/verify-otp',
-    '/accounts/verify-otp',
   ]);
   if (mailBackedAccountPaths.has(path) && (method === 'POST' || method === 'PUT')) {
     return unsupportedResponse('Email link and email OTP flows are not implemented by this server.');
   }
 
-  const emailTwoFactorPaths = new Set([
-    '/api/two-factor/get-email',
-    '/two-factor/get-email',
-    '/api/two-factor/send-email',
-    '/two-factor/send-email',
-    '/api/two-factor/send-email-login',
-    '/two-factor/send-email-login',
-    '/api/two-factor/email',
-    '/two-factor/email',
-  ]);
-  if (emailTwoFactorPaths.has(path) && (method === 'POST' || method === 'PUT' || method === 'DELETE')) {
-    return unsupportedResponse('Email two-step login is not supported by this server.');
+  // User Verification（敏感操作的二次确认）：`request-otp` 的官方请求体是空的，`verify-otp` 的是 `{ OTP }`。
+  if ((path === '/api/accounts/request-otp' || path === '/accounts/request-otp') && method === 'POST') {
+    return handleRequestAccountOtp(request, env, userId);
+  }
+
+  if ((path === '/api/accounts/verify-otp' || path === '/accounts/verify-otp') && method === 'POST') {
+    return handleVerifyAccountOtp(request, env, userId);
+  }
+
+  // 邮件两步登录（2FA provider 1）的开关端点。发码端点 `/api/two-factor/send-email-login`
+  // 是**公开**的（登录前调用、无会话）⇒ 在 router-public 里处理，不在这里。
+  if (path === '/api/two-factor/get-email' || path === '/two-factor/get-email') {
+    if (method === 'POST') return handleGetTwoFactorEmail(request, env, userId);
+    return errorResponse('Method not allowed', 405);
+  }
+
+  if (path === '/api/two-factor/email' || path === '/two-factor/email') {
+    if (method === 'PUT' || method === 'POST') return handlePutTwoFactorEmail(request, env, userId);
+    if (method === 'DELETE') return handleDeleteTwoFactorEmail(request, env, userId);
+    return errorResponse('Method not allowed', 405);
   }
 
   if (path === '/api/accounts/profile') {
@@ -164,9 +186,22 @@ export async function handleAuthenticatedRoute(
     return errorResponse('Method not allowed', 405);
   }
 
-  // 邮箱验证：状态查询、发送验证码、提交验证码
-  if (path === '/api/accounts/email-verification' && method === 'GET') {
-    return handleGetEmailVerificationStatus(request, env, currentUser);
+  // 邮箱验证（**本站自有流程**）：状态查询、发码、确认码。
+  // ⚠️ 路径必须与官方**分开命名** —— 官方同名路径语义相反（改邮箱 / 发链接邮件），
+  // 已在上面显式拒绝。
+  if (path === '/api/accounts/email-verification') {
+    if (method === 'GET') return handleGetEmailVerificationStatus(request, env, currentUser);
+    return errorResponse('Method not allowed', 405);
+  }
+
+  if (path === '/api/accounts/email-verification/send') {
+    if (method === 'POST') return handleSendEmailVerificationCode(request, env, currentUser);
+    return errorResponse('Method not allowed', 405);
+  }
+
+  if (path === '/api/accounts/email-verification/confirm') {
+    if (method === 'POST') return handleVerifyEmailCode(request, env, currentUser);
+    return errorResponse('Method not allowed', 405);
   }
 
   // 用户级「语言 / 时区」偏好（普通用户也必须能设，故**不做**管理员检查）
@@ -180,15 +215,7 @@ export async function handleAuthenticatedRoute(
     return handleDetectPreferences(request, env, currentUser);
   }
 
-  if ((path === '/api/accounts/email-token' || path === '/accounts/email-token') && method === 'POST') {
-    return handleSendEmailVerificationCode(request, env, currentUser);
-  }
-
-  if ((path === '/api/accounts/verify-email' || path === '/accounts/verify-email') && method === 'POST') {
-    return handleVerifyEmailCode(request, env, currentUser);
-  }
-
-  if ((path === '/api/accounts/password' || path === '/api/accounts/change-password') && (method === 'POST' || method === 'PUT')) {
+  if (path === '/api/accounts/password' && (method === 'POST' || method === 'PUT')) {
     return handleChangePassword(request, env, userId);
   }
 
@@ -217,17 +244,8 @@ export async function handleAuthenticatedRoute(
     return handleGetTwoFactorAuthenticator(request, env, userId);
   }
 
-  if ((path === '/api/two-factor/get-yubikey' || path === '/api/two-factor/get-yubi-key') && method === 'POST') {
+  if ((path === '/api/two-factor/get-yubikey') && method === 'POST') {
     return handleGetTwoFactorYubiKey(request, env, userId);
-  }
-
-  if (path === '/api/two-factor/get-device-verification-settings' && method === 'POST') {
-    return handleGetDeviceVerificationSettings(request, env, userId);
-  }
-
-  if (path === '/api/two-factor/device-verification-settings') {
-    if (method === 'PUT' || method === 'POST') return handlePutDeviceVerificationSettings(request, env, userId);
-    return errorResponse('Method not allowed', 405);
   }
 
   if (path === '/api/two-factor/get-webauthn' && method === 'POST') {
@@ -244,7 +262,7 @@ export async function handleAuthenticatedRoute(
     return errorResponse('Method not allowed', 405);
   }
 
-  if ((path === '/api/two-factor/yubikey' || path === '/api/two-factor/yubi-key')) {
+  if (path === '/api/two-factor/yubikey') {
     if (method === 'PUT' || method === 'POST') return handlePutTwoFactorYubiKey(request, env, userId);
     if (method === 'DELETE') return handleDisableTwoFactorProvider(request, env, userId);
     return errorResponse('Method not allowed', 405);
@@ -256,11 +274,11 @@ export async function handleAuthenticatedRoute(
     return errorResponse('Method not allowed', 405);
   }
 
-  if ((path === '/api/two-factor/yubikey/config' || path === '/api/two-factor/yubi-key/config') && (method === 'PUT' || method === 'POST')) {
+  if (path === '/api/two-factor/yubikey/config' && (method === 'PUT' || method === 'POST')) {
     return handlePutTwoFactorYubiKeyConfig(request, env, userId);
   }
 
-  if ((path === '/api/two-factor/yubikey/bootstrap' || path === '/api/two-factor/yubi-key/bootstrap') && method === 'POST') {
+  if (path === '/api/two-factor/yubikey/bootstrap' && method === 'POST') {
     return handleBootstrapTwoFactorYubiKeyConfig(request, env, userId);
   }
 

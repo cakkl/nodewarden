@@ -19,6 +19,8 @@ export interface Profile {
   privateKey?: string | null;
   publicKey?: string | null;
   role: 'admin' | 'user';
+  /** 邮箱是否已验证。服务端保证「不能发信时恒报 true」⇒ 只能用它判断是否需要提醒验证。 */
+  emailVerified?: boolean;
   [k: string]: unknown;
 }
 
@@ -281,6 +283,8 @@ export interface Send {
   maxAccessCount?: number | null;
   accessCount?: number;
   password?: string | null;
+  /** 「限特定邮箱」的名单（小写逗号串）；非空即表示该 Send 需要邮箱验证码 */
+  emails?: string | null;
   authType?: number | null;
   disabled?: boolean;
   revisionDate?: string;
@@ -290,6 +294,7 @@ export interface Send {
   decNotes?: string;
   decText?: string;
   decShareKey?: string;
+  /** 分享链接（解密后生成，形态固定为 `<origin>/send/<accessId>/<key>`；hash 写法已废弃） */
   shareUrl?: string;
   file?: {
     id?: string;
@@ -309,6 +314,10 @@ export interface SendDraft {
   deletionDays: string;
   expirationDays: string;
   maxAccessCount: string;
+  /** 谁可以访问：任何人 / 密码 / 特定邮箱（对应服务端的 `authType`） */
+  accessMode: 'anyone' | 'password' | 'emails';
+  /** 特定邮箱名单（逗号分隔的原始输入，服务端会规范化） */
+  emails: string;
   password: string;
   hasPassword?: boolean;
   disabled: boolean;
@@ -529,6 +538,11 @@ export interface TokenSuccess {
 export interface TokenError {
   error?: string;
   error_description?: string;
+  /** 官方错误模型。新设备验证（NDV）挑战**逐字**依赖 `ErrorModel.Message`。 */
+  ErrorModel?: {
+    Message?: string;
+    Object?: string;
+  };
   TwoFactorProviders?: unknown;
   TwoFactorProviders2?: unknown;
   CustomResponse?: {
@@ -600,6 +614,8 @@ export interface ToastMessage {
   id: string;
   type: 'success' | 'error' | 'warning';
   text: string;
+  /** 正在播放退场动画；动画放完才从列表里移除。 */
+  closing?: boolean;
 }
 
 export interface AdminUser {

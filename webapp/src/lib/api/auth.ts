@@ -108,6 +108,19 @@ function hasTwoFactorChallenge(error: TokenError): boolean {
   return providers != null || providers2 != null;
 }
 
+/**
+ * 新设备验证（NDV）挑战。
+ *
+ * ⚠️ 官方**逐字**依赖全小写的 `ErrorModel.Message`；服务端侧同源定义见
+ * `src/handlers/identity-new-device.ts`。
+ */
+export function isNewDeviceVerificationRequired(error: TokenError): boolean {
+  const expected = 'new device verification required';
+  if (String(error.ErrorModel?.Message ?? '').trim().toLowerCase() === expected) return true;
+  return String(error.error ?? '').trim().toLowerCase() === 'device_error'
+    && String(error.error_description ?? '').trim().toLowerCase() === expected;
+}
+
 export function loadSession(): SessionState | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -266,6 +279,8 @@ export async function loginWithPassword(
     twoFactorProvider?: number;
     rememberDevice?: boolean;
     useRememberToken?: boolean;
+    /** 新设备验证码：带它重登同一个 password grant（官方同构） */
+    newDeviceOtp?: string;
     signal?: AbortSignal;
   }
 ): Promise<TokenSuccess | TokenError> {
@@ -288,6 +303,10 @@ export async function loginWithPassword(
     if (options.rememberDevice) {
       body.set('twoFactorRemember', '1');
     }
+  }
+  const newDeviceOtp = String(options?.newDeviceOtp ?? '').trim();
+  if (newDeviceOtp) {
+    body.set('newDeviceOtp', newDeviceOtp);
   }
   const resp = await fetch('/identity/connect/token', {
     method: 'POST',
@@ -490,7 +509,20 @@ export async function registerAccount(args: {
   }
 }
 
-export async function getPasswordHint(email: string): Promise<{ masterPasswordHint: string | null }> {
+/** 读服务端配置。目前只用到 `mailDeliveryAvailable`（决定主密码提示的说明文案）。 */
+export async function getServerConfig(): Promise<{ mailDeliveryAvailable: boolean }> {
+  const resp = await fetch('/api/config', { cache: 'no-store' });
+  if (!resp.ok) return { mailDeliveryAvailable: false };
+  const body = (await parseJson<{ mailDeliveryAvailable?: boolean }>(resp)) || {};
+  return { mailDeliveryAvailable: body.mailDeliveryAvailable === true };
+}
+
+/**
+ * 请求主密码提示。配了 SMTP ⇒ 走邮箱（只有 `sent: true`）；未配 ⇒ 明文（`null` = 无提示）。
+ */
+export async function getPasswordHint(
+  email: string
+): Promise<{ sent: boolean; masterPasswordHint: string | null }> {
   const resp = await fetch('/api/accounts/password-hint', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -500,8 +532,11 @@ export async function getPasswordHint(email: string): Promise<{ masterPasswordHi
     const body = await parseJson<TokenError>(resp);
     throw new Error(translateServerError(body?.error_description || body?.error, t('txt_password_hint_load_failed')));
   }
-  const body = (await parseJson<{ masterPasswordHint?: string | null }>(resp)) || {};
-  return { masterPasswordHint: body.masterPasswordHint ?? null };
+  const body = (await parseJson<{ sent?: boolean; masterPasswordHint?: string | null }>(resp)) || {};
+  return {
+    sent: body.sent === true,
+    masterPasswordHint: body.masterPasswordHint ?? null,
+  };
 }
 
 export function createAuthedFetch(getSession: () => SessionState | null, setSession: SessionSetter) {
@@ -973,7 +1008,7 @@ export async function getEmailVerificationStatus(authedFetch: AuthedFetch): Prom
 export async function sendEmailVerificationCode(
   authedFetch: AuthedFetch
 ): Promise<{ email: string; expiresAt: string | null }> {
-  const resp = await authedFetch('/api/accounts/email-token', {
+  const resp = await authedFetch('/api/accounts/email-verification/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({}),
@@ -987,7 +1022,7 @@ export async function sendEmailVerificationCode(
 }
 
 export async function submitEmailVerificationCode(authedFetch: AuthedFetch, code: string): Promise<void> {
-  const resp = await authedFetch('/api/accounts/verify-email', {
+  const resp = await authedFetch('/api/accounts/email-verification/confirm', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code }),
@@ -1137,7 +1172,7 @@ export async function getVaultRevisionDate(authedFetch: AuthedFetch): Promise<nu
   return stamp;
 }
 
-export async function getTwoFactorProviderStatus(authedFetch: AuthedFetch): Promise<{ totpEnabled: boolean; yubikeyEnabled: boolean; passkeyEnabled: boolean }> {
+export async function getTwoFactorProviderStatus(authedFetch: AuthedFetch): Promise<{ totpEnabled: boolean; yubikeyEnabled: boolean; passkeyEnabled: boolean; emailEnabled: boolean }> {
   const resp = await authedFetch('/api/two-factor');
   if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
   const body = (await parseJson<{ data?: unknown[]; Data?: unknown[] }>(resp)) || {};
@@ -1151,7 +1186,71 @@ export async function getTwoFactorProviderStatus(authedFetch: AuthedFetch): Prom
     totpEnabled: enabledTypes.has(0),
     yubikeyEnabled: enabledTypes.has(3),
     passkeyEnabled: enabledTypes.has(7),
+    emailEnabled: enabledTypes.has(1),
   };
+}
+
+/** 发送邮件两步登录的登录验证码。**公开端点**（登录前调用，无会话）。 */
+export async function sendEmailTwoFactorLoginCode(email: string): Promise<void> {
+  const resp = await fetch('/api/two-factor/send-email-login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim().toLowerCase() }),
+  });
+  if (!resp.ok) {
+    const body = await parseJson<TokenError>(resp);
+    throw new Error(translateServerError(body?.error_description || body?.error, t('txt_email_code_send_failed')));
+  }
+}
+
+/**
+ * 新设备验证（NDV）输码页的「重新发送」。**公开端点**，用主密码哈希自证身份。
+ *
+ * ⚠️ 码**按设备绑定** ⇒ 必须带 `Device-Identifier` 头；服务端对「发了」与「没发」返回同一响应。
+ */
+export async function resendNewDeviceOtp(email: string, masterPasswordHash: string): Promise<void> {
+  const resp = await fetch('/accounts/resend-new-device-otp', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Device-Identifier': getOrCreateDeviceIdentifier(),
+    },
+    body: JSON.stringify({ email: email.trim().toLowerCase(), masterPasswordHash }),
+  });
+  if (!resp.ok) {
+    const body = await parseJson<TokenError>(resp);
+    throw new Error(translateServerError(body?.error_description || body?.error, t('txt_email_code_send_failed')));
+  }
+}
+
+/** 邮件两步登录的状态。`Available` 由服务端判定（邮箱已验证 + 能发信）。 */
+export async function getEmailTwoFactorStatus(
+  authedFetch: AuthedFetch
+): Promise<{ enabled: boolean; available: boolean; email: string }> {
+  const resp = await authedFetch('/api/two-factor/get-email', { method: 'POST' });
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
+  const body = (await parseJson<any>(resp)) || {};
+  // 服务端按客户端契约返回嵌套结构：外层 `Email` 是对象，内层才是 `Enabled` / `Email`。
+  const details = body.Email ?? body.email ?? {};
+  return {
+    enabled: details.Enabled === true || details.enabled === true,
+    available: body.Available === true || body.available === true,
+    email: String(details.Email ?? details.email ?? ''),
+  };
+}
+
+/** 启用 / 停用邮件两步登录。两者都需要主密码。 */
+export async function setEmailTwoFactorEnabled(
+  authedFetch: AuthedFetch,
+  enabled: boolean,
+  masterPasswordHash: string
+): Promise<void> {
+  const resp = await authedFetch('/api/two-factor/email', {
+    method: enabled ? 'PUT' : 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ masterPasswordHash }),
+  });
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_save_failed')));
 }
 
 export async function getTotpRecoveryCode(

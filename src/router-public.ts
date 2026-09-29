@@ -1,4 +1,5 @@
 import { LIMITS } from './config/limits';
+import { handleResendNewDeviceOtp } from './handlers/identity-new-device';
 import {
   handleAccessSend,
   handleAccessSendFile,
@@ -18,6 +19,7 @@ import {
   handleRegister,
   handleGetPasswordHint,
   handleRecoverTwoFactor,
+  handleSendEmailTwoFactorLogin,
 } from './handlers/accounts';
 import {
   handleCreateAuthRequest,
@@ -35,7 +37,7 @@ import { isSafeWebsiteIconContentType } from './utils/content-type';
 import { jsonResponse, unsupportedResponse } from './utils/response';
 import { StorageService } from './services/storage';
 import type { Env } from './types';
-import { getConfiguredWebAuthnAllowedOrigins } from './utils/origins';
+import { getConfiguredWebAuthnAllowedOrigins, isSameOriginWriteRequest } from './utils/origins';
 import { buildConfigResponse } from './config-response';
 
 type PublicRateLimiter = (category?: string, maxRequests?: number) => Promise<Response | null>;
@@ -52,25 +54,6 @@ export interface WebBootstrapResponse {
 
 function isWebsiteIconProxyEnabled(env: Env): boolean {
   return true;
-}
-
-function isSameOriginWriteRequest(request: Request): boolean {
-  const targetOrigin = new URL(request.url).origin;
-  const origin = request.headers.get('Origin');
-  if (origin) {
-    return origin === targetOrigin;
-  }
-
-  const referer = request.headers.get('Referer');
-  if (referer) {
-    try {
-      return new URL(referer).origin === targetOrigin;
-    } catch {
-      return false;
-    }
-  }
-
-  return false;
 }
 
 function getDefaultWebsiteIconSvg(): string {
@@ -441,8 +424,6 @@ export async function handlePublicRoute(
   }
 
   const publicMailBackedPaths = new Set([
-    '/api/accounts/resend-new-device-otp',
-    '/accounts/resend-new-device-otp',
     '/api/accounts/register/send-verification-email',
     '/accounts/register/send-verification-email',
     '/identity/accounts/register/send-verification-email',
@@ -454,8 +435,6 @@ export async function handlePublicRoute(
     '/identity/accounts/register/finish',
     '/api/accounts/verify-email-token',
     '/accounts/verify-email-token',
-    '/api/two-factor/send-email-login',
-    '/two-factor/send-email-login',
   ]);
   if (publicMailBackedPaths.has(path) && method === 'POST') {
     const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
@@ -463,10 +442,31 @@ export async function handlePublicRoute(
     return unsupportedResponse('Email link and email OTP flows are not implemented by this server.');
   }
 
+  // 邮件两步登录的发码端点：**公开**（登录前调用、无会话）⇒ 必须限流。
+  // 服务端内部还有按用户的配额（见 email-2fa.ts），两层各管一件事：
+  // 这里防「同一 IP 刷爆」，那里防「同一账号被反复发信」。
+  if ((path === '/api/two-factor/send-email-login' || path === '/two-factor/send-email-login') && method === 'POST') {
+    const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
+    if (blocked) return blocked;
+    return handleSendEmailTwoFactorLogin(request, env);
+  }
+
+  // 新设备验证的「重新发送验证码」：**公开**写端点（用主密码哈希自证），限流同 password-hint。
+  // ⚠️ 刻意**不做** `isSameOriginWriteRequest` 检查：官方桌面会带自己的 Origin
+  // （`bw-desktop-file://bundle`）⇒ 严格比较会把它 403 掉，而官方客户端的「重新发送」正是这条路径的主要使用者。
+  // 不设它也不构成 CSRF 面：请求体是 JSON（跨源表单发不出、跨源 fetch 过不了预检，见 `utils/response.ts` 的 CORS 策略），
+  // 且必须持有主密码哈希。最近的同类端点是 `/api/two-factor/send-email-login`（同样只限流）。
+  if ((path === '/api/accounts/resend-new-device-otp' || path === '/accounts/resend-new-device-otp') && method === 'POST') {
+    const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
+    if (blocked) return blocked;
+    return handleResendNewDeviceOtp(request, env);
+  }
+
   if (path === '/api/accounts/password-hint' && method === 'POST') {
     const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
     if (blocked) return blocked;
-    if (!isSameOriginWriteRequest(request)) {
+    // 宽松模式：官方客户端不带 `Origin`/`Referer`，严格模式会把它们一律 403。
+    if (!isSameOriginWriteRequest(request, true)) {
       return new Response(JSON.stringify({ error: 'Forbidden origin' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' },
@@ -479,7 +479,7 @@ export async function handlePublicRoute(
     const blocked = await enforcePublicRateLimit('public-read', LIMITS.rateLimit.publicReadRequestsPerMinute);
     if (blocked) return blocked;
     const origin = new URL(request.url).origin;
-    return jsonResponse(buildConfigResponse(origin), 200, { 'Cache-Control': 'no-store' });
+    return jsonResponse(await buildConfigResponse(origin, env), 200, { 'Cache-Control': 'no-store' });
   }
 
   if (path === '/api/version' && method === 'GET') {

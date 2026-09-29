@@ -46,10 +46,64 @@ export interface MailCopy {
     expiresLabel: string;
     outro: string;
   };
+  /** 邮件两步登录的登录挑战码。与 `verification` 分开：语义不同（登录 vs 验证邮箱归属）。 */
+  twoFactor: {
+    subject: string;
+    heading: string;
+    intro: string;
+    codeLabel: string;
+    expiresLabel: string;
+    outro: string;
+  };
+  /**
+   * Send 邮箱 OTP：打开「仅特定邮箱可用」的 Send 时的验证码。
+   * 与 `verification` 分开：收件人可能是**任意外部邮箱**，不是在验证账号邮箱归属。
+   */
+  sendOtp: {
+    subject: string;
+    heading: string;
+    intro: string;
+    codeLabel: string;
+    expiresLabel: string;
+    outro: string;
+  };
+  /**
+   * 新设备验证：陌生设备登录时的验证码。
+   * 与 `twoFactor` 分开：那个是用户**手动开启**的两步登录，本函是**默认开启**的陌生设备拦截。
+   */
+  newDeviceVerification: {
+    subject: string;
+    heading: string;
+    intro: string;
+    codeLabel: string;
+    expiresLabel: string;
+    outro: string;
+  };
+  /** 主密码提示（两个模板：有提示 / 无提示）。**无提示也发信** —— 否则「收到信」本身即可枚举账号。 */
+  passwordHint: {
+    subject: string;
+    heading: string;
+    intro: string;
+    hintLabel: string;
+    noHint: string;
+    outro: string;
+  };
   /**
    * 安全通知。**单模板 + 事件名映射**：`events` 只提供「发生了什么」，其余文案十种语言共用。
    * `subject` / `heading` 里的 `{event}` 由对应短句填充；正文不含保管库内容或条目数量。
    */
+  /**
+   * User Verification 的邮箱码（`/accounts/request-otp` + `/accounts/verify-otp`）：
+   * 敏感操作的二次确认。与 `twoFactor` 分开 —— 用户不是在登录。
+   */
+  userVerification: {
+    subject: string;
+    heading: string;
+    intro: string;
+    codeLabel: string;
+    expiresLabel: string;
+    outro: string;
+  };
   notifications: {
     subject: string;
     heading: string;
@@ -122,6 +176,14 @@ const en: MailCopy = {
     labels: { server: 'Server', encryption: 'Encryption', sentAt: 'Sent at' },
     outro: 'If you did not expect this message, someone with administrator access changed the mail settings.',
   },
+  passwordHint: {
+    subject: 'Your NodeWarden master password hint',
+    heading: 'Master password hint',
+    intro: 'You asked for the master password hint saved on your NodeWarden account.',
+    hintLabel: 'Your hint',
+    noHint: 'This account has no master password hint saved.',
+    outro: 'If you did not request this, ignore this message. Your master password is never sent by email.',
+  },
   verification: {
     subject: 'Verify your NodeWarden email address',
     heading: 'Confirm your email address',
@@ -129,6 +191,38 @@ const en: MailCopy = {
     codeLabel: 'Verification code',
     expiresLabel: 'This code expires at',
     outro: 'If you did not request this, ignore this message. Your address stays unconfirmed and no notifications will be sent.',
+  },
+  twoFactor: {
+    subject: 'Your NodeWarden login code',
+    heading: 'Confirm your sign-in',
+    intro: 'Enter this code to finish signing in to NodeWarden. It is only needed for this sign-in attempt.',
+    codeLabel: 'Login code',
+    expiresLabel: 'This code expires at',
+    outro: 'If you did not try to sign in, someone else may have your master password. Change it and review your active sessions.',
+  },
+  sendOtp: {
+    subject: 'Your NodeWarden Send verification code',
+    heading: 'Send verification code',
+    intro: 'A NodeWarden Send was shared with this email address. Enter this code to open it.',
+    codeLabel: 'Verification code',
+    expiresLabel: 'This code expires at',
+    outro: 'If you did not expect this, ignore this message and do not share the code with anyone.',
+  },
+  newDeviceVerification: {
+    subject: 'Your NodeWarden new device verification code',
+    heading: 'Verify this device',
+    intro: 'Someone signed in to your NodeWarden account from a device that has not been used before. Enter this code to allow that sign-in.',
+    codeLabel: 'Verification code',
+    expiresLabel: 'This code expires at',
+    outro: 'If this was not you, change your master password immediately: someone else knows it.',
+  },
+  userVerification: {
+    subject: 'Your NodeWarden verification code',
+    heading: 'Verify your identity',
+    intro: 'Enter this code to confirm this action on your NodeWarden account.',
+    codeLabel: 'Verification code',
+    expiresLabel: 'This code expires at',
+    outro: 'If you did not request this, you can ignore this message.',
   },
   notifications: {
     subject: 'Security alert: {event}',

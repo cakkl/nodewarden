@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { Clipboard, KeyRound, RefreshCw, Send, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
+import { Clipboard, KeyRound, Mail, RefreshCw, Send, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { calcTotpNow } from '@/lib/crypto';
 import qrcode from 'qrcode-generator';
 import type { AccountPasskeyCredential, MailEncryption, MailPreferences, MailPreferencesUpdate, MailSettings, MailSettingsInput, MailTestResult, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
 import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { describeMailFailure } from '@/hooks/useAdminMailActions';
+import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
 import { AVAILABLE_LOCALES, detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
 import { useDateTimeFormat } from '@/lib/datetime';
 import { detectBrowserTimeZone } from '@/lib/datetime';
@@ -32,6 +33,9 @@ interface SettingsPageProps {
   onBootstrapYubiKeyApiCredentials: (otp: string, masterPassword: string) => Promise<YubiKeyOtpSettings>;
   onDisableYubiKey: (masterPassword: string) => Promise<void>;
   onGetTwoFactorPasskeySettings: (masterPassword: string) => Promise<TwoFactorPasskeySettings>;
+  /** 邮件两步登录：读状态（`available` 由服务端判定）与开关。 */
+  onGetEmailTwoFactor: () => Promise<{ enabled: boolean; available: boolean; email: string }>;
+  onSetEmailTwoFactor: (enabled: boolean, masterPassword: string) => Promise<void>;
   onCreateTwoFactorPasskey: (name: string, masterPassword: string) => Promise<TwoFactorPasskeySettings>;
   onDeleteTwoFactorPasskey: (id: number, masterPassword: string) => Promise<TwoFactorPasskeySettings>;
   onDisableTwoFactorPasskeys: (masterPassword: string) => Promise<void>;
@@ -39,6 +43,8 @@ interface SettingsPageProps {
   onGetApiKey: (masterPassword: string) => Promise<string>;
   onRotateApiKey: (masterPassword: string) => Promise<string>;
   onLoadMailSettings: () => Promise<MailSettings>;
+  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到你的邮箱」。 */
+  mailDeliveryAvailable?: boolean;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
   /** 用户级「语言 / 时区」偏好；未提供时偏好页不显示时区块。 */
@@ -69,6 +75,8 @@ type MasterPasswordPromptAction =
   | 'manageTotp'
   | 'manageYubiKey'
   | 'managePasskey2fa'
+  | 'enableEmailTwoFactor'
+  | 'disableEmailTwoFactor'
   | 'createPasskey'
   | 'enablePasskeyDirectUnlock'
   | 'deletePasskey';
@@ -157,6 +165,8 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [yubiKeyDialogOpen, setYubiKeyDialogOpen] = useState(false);
   const [yubiKeyMasterPassword, setYubiKeyMasterPassword] = useState('');
   const [yubiKeyEnabled, setYubiKeyEnabled] = useState(props.yubikeyEnabled || !!props.profile.yubikeyEnabled);
+  const [emailTwoFactorEnabled, setEmailTwoFactorEnabled] = useState(false);
+  const [emailTwoFactorAvailable, setEmailTwoFactorAvailable] = useState(false);
   const [yubiKeyKeys, setYubiKeyKeys] = useState<[string, string, string, string, string]>(EMPTY_YUBIKEY_KEYS);
   const [yubiKeyStoredKeys, setYubiKeyStoredKeys] = useState<[string, string, string, string, string]>(EMPTY_YUBIKEY_KEYS);
   const [yubiKeyNfc, setYubiKeyNfc] = useState(false);
@@ -186,8 +196,7 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [selectedLocale, setSelectedLocale] = useState<Locale>(() => getLocale());
   const [activeSection, setActiveSection] = useState<SettingsSection>('preferences');
 
-  const [emailVerification, setEmailVerification] = useState<EmailVerificationStatus | null>(null);
-  const [verificationCode, setVerificationCode] = useState('');
+  const [emailVerification, setEmailVerification] = useState<EmailVerificationStatus | null>(null);  const [verificationCode, setVerificationCode] = useState('');
   const [emailVerificationBusy, setEmailVerificationBusy] = useState(false);
   const [emailVerificationDialogOpen, setEmailVerificationDialogOpen] = useState(false);
   /** 「允许发送通知邮件」的保存中状态（值本身是受控的：直接取自 props.mailPreferences）。 */
@@ -451,6 +460,30 @@ export default function SettingsPage(props: SettingsPageProps) {
     }
   }
 
+  /** 邮件两步登录的状态。失败时静默保持关闭 —— 它只是展示性信息，不该弹错打扰用户。 */
+  async function refreshEmailTwoFactor(): Promise<void> {
+    try {
+      const status = await props.onGetEmailTwoFactor();
+      setEmailTwoFactorEnabled(status.enabled);
+      setEmailTwoFactorAvailable(status.available);
+    } catch {
+      setEmailTwoFactorEnabled(false);
+      setEmailTwoFactorAvailable(false);
+    }
+  }
+
+  // 进入「两步登录」区时刷新：邮箱验证状态与邮件配置都可能刚在别的区改过，
+  // 而 `emailVerification` 只在「账户」区加载 ⇒ 不刷新就会拿着旧值把按钮禁用住。
+  useEffect(() => {
+    if (activeSection !== 'twoStep') return;
+    void refreshEmailTwoFactor();
+  }, [activeSection]);
+
+  useEffect(() => {
+    void refreshEmailTwoFactor();
+    // 邮箱验证状态变化会影响可用性（未验证 ⇒ 不可启用），所以一并作为依赖。
+  }, [emailVerification?.verified, emailVerification?.available]);
+
   function openMasterPasswordPrompt(action: MasterPasswordPromptAction, credentialId?: string): void {
     setMasterPasswordPrompt(action);
     setAccountPasskeyPromptId(credentialId || null);
@@ -527,6 +560,12 @@ export default function SettingsPage(props: SettingsPageProps) {
         applyTwoFactorPasskeySettings(settings);
         setTwoFactorPasskeyName(t('txt_passkey'));
         setTwoFactorPasskeyDialogOpen(true);
+      } else if (masterPasswordPrompt === 'enableEmailTwoFactor') {
+        await props.onSetEmailTwoFactor(true, masterPassword);
+        await refreshEmailTwoFactor();
+      } else if (masterPasswordPrompt === 'disableEmailTwoFactor') {
+        await props.onSetEmailTwoFactor(false, masterPassword);
+        await refreshEmailTwoFactor();
       } else if (masterPasswordPrompt === 'createPasskey') {
         await props.onVerifyMasterPassword(props.profile.email, masterPassword);
         setCreatePasskeyMasterPassword(masterPassword);
@@ -563,6 +602,10 @@ export default function SettingsPage(props: SettingsPageProps) {
             ? 'YubiKey'
             : masterPasswordPrompt === 'managePasskey2fa'
               ? t('txt_two_step_passkeys')
+            : masterPasswordPrompt === 'enableEmailTwoFactor'
+              ? t('txt_enable_email_two_step_login')
+            : masterPasswordPrompt === 'disableEmailTwoFactor'
+              ? t('txt_disable_email_two_step_login')
             : masterPasswordPrompt === 'createPasskey'
             ? t('txt_add_account_passkey')
             : masterPasswordPrompt === 'enablePasskeyDirectUnlock'
@@ -1082,12 +1125,14 @@ export default function SettingsPage(props: SettingsPageProps) {
                   <span>{t('txt_password_hint_optional')}</span>
                   <input
                     className="input"
-                    maxLength={120}
+                    maxLength={PASSWORD_HINT_MAX_LENGTH}
                     value={passwordHint}
                     placeholder={t('txt_password_hint_placeholder')}
                     onInput={(e) => setPasswordHint((e.currentTarget as HTMLInputElement).value)}
                   />
-                  <div className="field-help">{t('txt_password_hint_register_help')}</div>
+                  <div className="field-help">
+                    {t(props.mailDeliveryAvailable ? 'txt_password_hint_register_help_email' : 'txt_password_hint_register_help')}
+                  </div>
                 </label>
                 <button
                   type="button"
@@ -1203,6 +1248,29 @@ export default function SettingsPage(props: SettingsPageProps) {
                   </button>
                 </div>
                 <div className="two-step-provider-list">
+                  {/* 邮件两步登录。启用前置：邮箱已验证 **且** 服务端能发信 ——
+                      少了任何一条都会让用户陷入「开了但收不到码」的死局，所以这里直接禁用。 */}
+                  <div className="two-step-provider-row">
+                    <div className="two-step-provider-icon">
+                      <Mail size={28} />
+                    </div>
+                    <div className="two-step-provider-copy">
+                      <div className="two-step-provider-title">
+                        <strong>{t('txt_email_two_step_login')}</strong>
+                        {emailTwoFactorEnabled && <span className="two-step-enabled-badge">{t('txt_enabled')}</span>}
+                      </div>
+                      <span>{t('txt_email_two_step_login_help')}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      disabled={!emailTwoFactorAvailable}
+                      onClick={() => openMasterPasswordPrompt(emailTwoFactorEnabled ? 'disableEmailTwoFactor' : 'enableEmailTwoFactor')}
+                    >
+                      {emailTwoFactorEnabled ? t('txt_disable') : t('txt_enable')}
+                    </button>
+                  </div>
+
                   <div className="two-step-provider-row">
                     <div className="two-step-provider-icon">
                       <ShieldCheck size={28} />

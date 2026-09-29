@@ -28,6 +28,7 @@ import {
   saveTwoFactorPasskey,
   saveYubiKeyOtpApiCredentials,
   saveYubiKeyOtpSettings,
+  setEmailTwoFactorEnabled,
   setTotp,
   trustAuthorizedDevicePermanently,
   updateAuthorizedDeviceName,
@@ -42,6 +43,7 @@ import {
   createTwoFactorPasskeyCredential,
 } from '@/lib/account-passkeys';
 import { t } from '@/lib/i18n';
+import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
 import type { AppConfirmState } from '@/components/AppGlobalOverlays';
 import type { AuthedFetch } from '@/lib/api/shared';
 import type { AccountPasskeyCredential, AuthorizedDevice, Profile, SessionState, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
@@ -145,8 +147,8 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
       async savePasswordHint(masterPasswordHint: string) {
         if (!profile) return;
         const normalized = String(masterPasswordHint || '').trim();
-        if (normalized.length > 120) {
-          onNotify('error', t('txt_password_hint_too_long'));
+        if (normalized.length > PASSWORD_HINT_MAX_LENGTH) {
+          onNotify('error', t('txt_password_hint_too_long', { count: PASSWORD_HINT_MAX_LENGTH }));
           return;
         }
         try {
@@ -212,6 +214,16 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
         if (!normalized) throw new Error(t('txt_master_password_is_required'));
         const derived = await deriveLoginHash(profile.email, normalized, defaultKdfIterations);
         return getYubiKeyOtpSettings(authedFetch, derived.hash);
+      },
+
+      /** 邮件两步登录：开关。主密码必须先派生成登录哈希（服务端只认哈希）。 */
+      async setEmailTwoFactor(enabled: boolean, masterPassword: string): Promise<void> {
+        if (!profile) throw new Error(t('txt_profile_unavailable'));
+        const normalized = String(masterPassword || '');
+        if (!normalized) throw new Error(t('txt_master_password_is_required'));
+        const derived = await deriveLoginHash(profile.email, normalized, defaultKdfIterations);
+        await setEmailTwoFactorEnabled(authedFetch, enabled, derived.hash);
+        await refetchTwoFactorStatus();
       },
 
       /** 读取服务端真实保存的 TOTP 密钥（设置页「验证器」弹窗要用真值，不能用前端随机值） */

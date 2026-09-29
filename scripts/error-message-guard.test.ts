@@ -608,6 +608,11 @@ const REGISTERED_DYNAMIC_MESSAGES: RegisteredDynamicMessage[] = [
     count: 1,
     reason: 'LIMITS.performance.importItemLimit 是数值上限（number）',
   },
+  {
+    site: 'src/handlers/accounts.ts :: `masterPasswordHint must be ${LIMITS.auth.passwordHintMaxLength} characters or fewer`',
+    count: 3,
+    reason: 'LIMITS.auth.passwordHintMaxLength 是数值上限（真值在 shared/password-hint.ts，前后端共用）',
+  },
   // ── identity 端点：透传参数，唯一调用点传字面量 ───────────────────────
   {
     site: 'src/handlers/accounts.ts :: message',

@@ -65,7 +65,7 @@
     @apply text-2xl;
   }
 
-  .standalone-title-row {
+  .standalone-title-row.has-accessory {
     padding-inline: 68px;
   }
 

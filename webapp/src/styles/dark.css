@@ -455,9 +455,11 @@
   color: color-mix(in srgb, var(--muted) 62%, transparent);
 }
 
-/* #14 Toast 自动关闭进度条：原 rgba(15,23,42,.2) 叠在暗色上合成 ≈1.0:1，不可见 */
+/* #14 Toast 进度条：曾用 `var(--line)`，但实测只 1.31:1 —— 它是边框色，不是为「细线在
+   暗底上可辨」选的。写死一个算过的值：0.6 在 `--panel` 上 3.27:1（过 WCAG 3:1 线）。
+   浅色模式的值见 overlays.css。 */
 :root[data-theme='dark'] .toast-progress {
-  background: var(--line);
+  background: rgba(148, 163, 184, 0.6);
 }
 
 /* #15 Toast 关闭按钮交互反馈：原为黑色半透明叠加，在暗色上无视觉变化 */

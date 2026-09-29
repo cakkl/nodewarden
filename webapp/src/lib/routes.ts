@@ -92,3 +92,14 @@ export function normalizeRoutePath(path: string): string {
   const normalized = pathOnly.startsWith('/') ? pathOnly : `/${pathOnly}`;
   return normalized.length > 1 ? normalized.replace(/\/+$/, '') : '/';
 }
+
+/**
+ * 把旧的 hash 形态分享链接（`#/send/<id>/<key>`）换成路径形态；不是旧链接返回 `null`。
+ *
+ * ⚠️ 路由只读路径，hash 会被当成根路径 ⇒ 旧链接会落到登录页；已发出去的链接收不回来，
+ * 所以必须在渲染前替换（见 `main.tsx`）。
+ */
+export function legacyPublicSendPath(hash: string): string | null {
+  const match = /^#\/?(send\/[^/]+(?:\/[^/]+)?)\/?$/i.exec(String(hash || ''));
+  return match ? `/${match[1]}` : null;
+}

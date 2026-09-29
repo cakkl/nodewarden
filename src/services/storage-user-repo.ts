@@ -4,7 +4,7 @@ type SafeBind = (stmt: D1PreparedStatement, ...values: any[]) => D1PreparedState
 const USER_SELECT_COLUMNS =
   'id, email, name, master_password_hint, master_password_hash, key, private_key, public_key, ' +
   'kdf_type, kdf_iterations, kdf_memory, kdf_parallelism, security_stamp, role, status, verify_devices, ' +
-  'totp_secret, totp_recovery_code, yubikey_key1, yubikey_key2, yubikey_key3, yubikey_key4, yubikey_key5, yubikey_nfc, api_key, email_verified, locale, auto_locale, timezone, auto_timezone, mail_opt_in, created_at, updated_at';
+  'totp_secret, totp_recovery_code, yubikey_key1, yubikey_key2, yubikey_key3, yubikey_key4, yubikey_key5, yubikey_nfc, api_key, email_verified, locale, auto_locale, timezone, auto_timezone, mail_opt_in, two_factor_email_enabled, created_at, updated_at';
 
 function mapUserRow(row: any): User {
   return {
@@ -39,6 +39,7 @@ function mapUserRow(row: any): User {
     timezone: row.timezone ?? null,
     autoTimezone: row.auto_timezone == null ? false : !!row.auto_timezone,
     mailOptIn: row.mail_opt_in == null ? false : !!row.mail_opt_in,
+    twoFactorEmailEnabled: row.two_factor_email_enabled == null ? false : !!row.two_factor_email_enabled,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -161,6 +162,9 @@ export async function saveUserPreferences(
     timezone?: string | null;
     timezoneAuto?: boolean;
     mailOptIn?: boolean;
+    twoFactorEmailEnabled?: boolean;
+    /** 新设备验证（NDV）开关；默认开启，用户可在设置里关。 */
+    verifyDevices?: boolean;
   }
 ): Promise<void> {
   const sets: string[] = [];
@@ -184,6 +188,14 @@ export async function saveUserPreferences(
   if (update.mailOptIn !== undefined) {
     sets.push('mail_opt_in = ?');
     values.push(update.mailOptIn ? 1 : 0);
+  }
+  if (update.twoFactorEmailEnabled !== undefined) {
+    sets.push('two_factor_email_enabled = ?');
+    values.push(update.twoFactorEmailEnabled ? 1 : 0);
+  }
+  if (update.verifyDevices !== undefined) {
+    sets.push('verify_devices = ?');
+    values.push(update.verifyDevices ? 1 : 0);
   }
   if (!sets.length) return;
   sets.push('updated_at = ?');

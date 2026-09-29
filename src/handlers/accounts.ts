@@ -13,6 +13,14 @@ import { createRecoveryCode, recoveryCodeEquals } from '../utils/recovery-code';
 import { buildAccountKeys } from '../utils/user-decryption';
 import { buildProfileResponse } from '../utils/profile-response';
 import { isYubiKeyEnabled, isYubiKeyPublicId, requestYubicoApiCredentials, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
+import { clearChallengeCode, issueChallengeCode, checkSendQuota } from '../services/email-2fa';
+import { emailAvailabilityForUser } from '../services/email-availability';
+import { isMailDeliveryAvailableSoft, resolveMailConnection, resolveMailRenderPreferences } from '../services/mail-settings';
+import { clearNewDeviceOtpsForUser, isNewDeviceVerificationEnabled } from '../services/new-device-otp';
+import { renderTwoFactorEmail, renderPasswordHintEmail } from '../services/mail';
+import { waitUntil } from 'cloudflare:workers';
+import { sendSmtpMail } from '../services/smtp-client';
+import { getUser, saveUserPreferences } from '../services/storage-user-repo';
 import {
   getYubicoCredentials,
   initializeYubicoCredentialsOnce,
@@ -308,8 +316,11 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
   if (!looksLikeEncString(privateKey)) {
     return errorResponse('encryptedPrivateKey is not a valid encrypted string', 400);
   }
-  if (masterPasswordHint && masterPasswordHint.length > 120) {
-    return errorResponse('masterPasswordHint must be 120 characters or fewer', 400);
+  if (masterPasswordHint && masterPasswordHint.length > LIMITS.auth.passwordHintMaxLength) {
+    return errorResponse(
+      `masterPasswordHint must be ${LIMITS.auth.passwordHintMaxLength} characters or fewer`,
+      400
+    );
   }
 
   const kdfErr = validateKdfParams(body.kdf, body.kdfIterations, body.kdfMemory, body.kdfParallelism);
@@ -335,7 +346,8 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
     securityStamp: generateUUID(),
     role: 'user',
     status: 'active',
-    verifyDevices: false, // new-device verification is not implemented yet
+    // 新设备验证默认开启（未验证邮箱的用户永远不会被拦，见 `emailAvailabilityForUser`）。
+    verifyDevices: true,
     totpSecret: null,
     totpRecoveryCode: null,
     yubikeyKey1: null,
@@ -436,44 +448,33 @@ export async function handleGetPasswordHint(request: Request, env: Env): Promise
   }
 
   const rateLimit = new RateLimitService(env.DB);
+  // 两级限流各算各的固定窗口。若只报先撞上的那个，用户会看到「40 秒」→ 重试 →「1975 秒」
+  // （分钟窗口刚过、小时窗口还没过）⇒ 先都检查一遍，报**最长**的那个，让用户一次就知道要等多久。
   const minuteBudget = await rateLimit.consumeStrictBudgetWithWindow(
     `${clientIdentifier}:password-hint`,
     LIMITS.rateLimit.passwordHintRequestsPerMinute,
     60
   );
-  if (!minuteBudget.allowed) {
-    return new Response(
-      JSON.stringify({
-        error: 'Too many requests',
-        error_description: `Rate limit exceeded. Try again in ${minuteBudget.retryAfterSeconds || 60} seconds.`,
-      }),
-      {
-        status: 429,
-        headers: {
-          'Content-Type': 'application/json',
-          'Retry-After': String(minuteBudget.retryAfterSeconds || 60),
-          'X-RateLimit-Remaining': '0',
-        },
-      }
-    );
-  }
-
   const hourlyBudget = await rateLimit.consumeStrictBudgetWithWindow(
     `${clientIdentifier}:password-hint-hour`,
     LIMITS.rateLimit.passwordHintRequestsPerHour,
     60 * 60
   );
-  if (!hourlyBudget.allowed) {
+  if (!minuteBudget.allowed || !hourlyBudget.allowed) {
+    const retryAfterSeconds = Math.max(
+      minuteBudget.allowed ? 0 : minuteBudget.retryAfterSeconds || 60,
+      hourlyBudget.allowed ? 0 : hourlyBudget.retryAfterSeconds || 3600
+    );
     return new Response(
       JSON.stringify({
         error: 'Too many requests',
-        error_description: `Rate limit exceeded. Try again in ${hourlyBudget.retryAfterSeconds || 3600} seconds.`,
+        error_description: `Rate limit exceeded. Try again in ${retryAfterSeconds} seconds.`,
       }),
       {
         status: 429,
         headers: {
           'Content-Type': 'application/json',
-          'Retry-After': String(hourlyBudget.retryAfterSeconds || 3600),
+          'Retry-After': String(retryAfterSeconds),
           'X-RateLimit-Remaining': '0',
         },
       }
@@ -482,11 +483,53 @@ export async function handleGetPasswordHint(request: Request, env: Env): Promise
 
   const user = await storage.getUser(email);
   const hint = user?.status === 'active' ? normalizeMasterPasswordHint(user.masterPasswordHint) : null;
+
+  // 配了 SMTP 时**一律走邮箱**：四种情况（已验证 / 未验证 / 不存在 / 被禁用）响应**完全一致**，
+  // 否则「响应不同」即可枚举账号。未验证邮箱不发信 —— 那个地址不能保证真是用户的。
+  if (await isMailDeliveryAvailableSoft(env)) {
+    if (user && user.status === 'active' && user.emailVerified === true) {
+      // 发信排在响应之后：waitUntil 只延长生命周期，不拖慢本次响应。
+      waitUntil(sendPasswordHintMail(env, storage, user, hint, request));
+    }
+    return jsonResponse({ object: 'passwordHint', sent: true });
+  }
+
+  // 未配 SMTP：保持明文（无更好选择）。`hasHint` 已移除 —— 它直接暴露账号是否存在。
   return jsonResponse({
     object: 'passwordHint',
-    hasHint: !!hint,
     masterPasswordHint: hint,
   });
+}
+
+/** 发送主密码提示邮件。**失败不能让请求失败**（用户会以为邮箱不存在），只写审计事件。 */
+async function sendPasswordHintMail(
+  env: Env,
+  storage: StorageService,
+  user: User,
+  hint: string | null,
+  request: Request
+): Promise<void> {
+  try {
+    const connection = await resolveMailConnection(env.DB, env);
+    if (connection.status !== 'ok') return;
+    const mail = renderPasswordHintEmail({ hint }, resolveMailRenderPreferences(user));
+    await sendSmtpMail(connection.settings, {
+      to: user.email,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+    });
+  } catch (error) {
+    await writeAuditEvent(storage, {
+      actorUserId: user.id,
+      action: 'auth.password_hint.send_failed',
+      category: 'auth',
+      level: 'warn',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { reason: error instanceof Error ? error.message : String(error), ...auditRequestMetadata(request) },
+    });
+  }
 }
 
 // GET /api/accounts/profile
@@ -514,8 +557,11 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
   }
 
   const masterPasswordHint = normalizeMasterPasswordHint(body.masterPasswordHint);
-  if (masterPasswordHint && masterPasswordHint.length > 120) {
-    return errorResponse('masterPasswordHint must be 120 characters or fewer', 400);
+  if (masterPasswordHint && masterPasswordHint.length > LIMITS.auth.passwordHintMaxLength) {
+    return errorResponse(
+      `masterPasswordHint must be ${LIMITS.auth.passwordHintMaxLength} characters or fewer`,
+      400
+    );
   }
 
   user.masterPasswordHint = masterPasswordHint;
@@ -539,31 +585,87 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
   return jsonResponse(await buildProfileResponse(user, env));
 }
 
-// PUT/POST /api/accounts/verify-devices
-// New-device verification is not implemented yet. This endpoint always rejects the request so
-// clients receive clear feedback that the feature is unavailable rather than silently ignoring
-// the user's preference.
+// 新设备验证（NDV）的设置响应。
+// 报**有效**值：未验证邮箱 / 发不出信 / 全局开关关着时该保护不会生效，报 true 就是虚假的安全姿态。
+async function deviceVerificationSettingsResponse(env: Env, user: User): Promise<Record<string, unknown>> {
+  const availability = await emailAvailabilityForUser(env, user);
+  const enabled = user.verifyDevices === true
+    && availability.ok
+    && await isNewDeviceVerificationEnabled(env.DB);
+  return {
+    Enabled: enabled,
+    enabled,
+    VerifyDevices: enabled,
+    verifyDevices: enabled,
+    Object: 'deviceVerificationSettings',
+    object: 'deviceVerificationSettings',
+  };
+}
+
+/**
+ * 写入 NDV 开关（`PUT /accounts/verify-devices`）。
+ *
+ * - 必须带密钥 —— 安全设置，与 2FA 各开关同一要求；
+ * - **开启**前要求「能给这个用户发信」：开了也收不到码 ⇒ 直接拒掉比让用户以为自己受保护更诚实；
+ * - 切换时清掉待用码，避免已发出的旧码在新状态下仍然可用。
+ */
+async function applyVerifyDevicesSetting(
+  request: Request,
+  env: Env,
+  storage: StorageService,
+  user: User,
+  enabled: boolean,
+  secret: string
+): Promise<Response> {
+  const auth = new AuthService(env);
+  if (!await verifyUserSecret(auth, user, secret)) {
+    return errorResponse('User verification failed.', 400);
+  }
+  if (enabled && !(await emailAvailabilityForUser(env, user)).ok) {
+    return errorResponse('Verify your email address before enabling new device verification.', 400);
+  }
+
+  await saveUserPreferences(env.DB, user.id, { verifyDevices: enabled });
+  await clearNewDeviceOtpsForUser(env.DB, user.id);
+  AuthService.invalidateUserCache(user.id);
+  await writeAuditEvent(storage, {
+    actorUserId: user.id,
+    action: 'account.verify_devices.update',
+    category: 'security',
+    level: 'security',
+    targetType: 'user',
+    targetId: user.id,
+    metadata: {
+      // 键名必须是 `trigger`（`source` 未登记，会被 sanitizeMetadata 静默丢弃）；
+      // 取值沿用既有的同功能触发器（已有标签，别再自创）。
+      trigger: 'two-factor.device-verification-settings',
+      enabled,
+      ...auditRequestMetadata(request),
+    },
+  });
+  user.verifyDevices = enabled;
+  return jsonResponse(await deviceVerificationSettingsResponse(env, user));
+}
+
+// PUT/POST /api/accounts/verify-devices（官方客户端：profile 读状态 → 本端点写状态）
 export async function handleSetVerifyDevices(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
   const user = await storage.getUserById(userId);
   if (!user) return errorResponse('User not found', 404);
 
-  // Log the attempt for audit purposes, but do not change state.
-  await writeAuditEvent(storage, {
-    actorUserId: user.id,
-    action: 'account.verify_devices.update.rejected',
-    category: 'security',
-    level: 'info',
-    targetType: 'user',
-    targetId: user.id,
-    metadata: {
-      // 日志中心拿它拼 `txt_log_reason_<snake>` 查标签；写成句子会拼出查不到的键、回退成英文。
-      reason: 'new_device_verification_unsupported',
-      ...auditRequestMetadata(request),
-    },
-  });
+  let body: Record<string, unknown>;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
 
-  return errorResponse('New device verification is not available on this server. Enable TOTP or WebAuthn two-factor authentication instead.', 400);
+  const rawEnabled = body.verifyDevices ?? body.VerifyDevices ?? body.enabled ?? body.Enabled;
+  if (typeof rawEnabled !== 'boolean') {
+    return errorResponse('verifyDevices must be a boolean', 400);
+  }
+  const secret = readBodyString(body, ['masterPasswordHash', 'MasterPasswordHash', 'otp', 'OTP', 'secret', 'Secret']);
+  return applyVerifyDevicesSetting(request, env, storage, user, rawEnabled, secret);
 }
 
 // GET /api/accounts/keys
@@ -766,8 +868,11 @@ export async function handleChangePassword(request: Request, env: Env, userId: s
   }
   const shouldUpdateHint = typeof body.masterPasswordHint === 'string' || body.masterPasswordHint === null;
   const nextMasterPasswordHint = shouldUpdateHint ? normalizeMasterPasswordHint(body.masterPasswordHint) : undefined;
-  if (nextMasterPasswordHint && nextMasterPasswordHint.length > 120) {
-    return errorResponse('masterPasswordHint must be 120 characters or fewer', 400);
+  if (nextMasterPasswordHint && nextMasterPasswordHint.length > LIMITS.auth.passwordHintMaxLength) {
+    return errorResponse(
+      `masterPasswordHint must be ${LIMITS.auth.passwordHintMaxLength} characters or fewer`,
+      400
+    );
   }
 
   user.masterPasswordHash = await auth.hashPasswordServer(newMasterPasswordHash, user.email);
@@ -842,18 +947,7 @@ function yubiKeyResponse(user: User): Record<string, unknown> {
   };
 }
 
-// New-device verification is not implemented yet (it needs to email OTP challenges to unknown
-// devices). The settings response always reports disabled regardless of any legacy DB value.
-function deviceVerificationSettingsResponse(_user: User): Record<string, unknown> {
-  return {
-    Enabled: false,
-    enabled: false,
-    VerifyDevices: false,
-    verifyDevices: false,
-    Object: 'deviceVerificationSettings',
-    object: 'deviceVerificationSettings',
-  };
-}
+// GET /api/two-factor 的 NDV 设置响应已改为「有效值」版（见文件上方 deviceVerificationSettingsResponse）。
 
 async function yubiKeySettingsResponse(storage: StorageService, env: Env, user: User): Promise<Record<string, unknown>> {
   void storage;
@@ -943,57 +1037,6 @@ export async function handleGetTwoFactorYubiKey(request: Request, env: Env, user
   if (!verified) return errorResponse('User verification failed.', 400);
 
   return jsonResponse(await yubiKeySettingsResponse(storage, env, user));
-}
-
-// POST /api/two-factor/get-device-verification-settings
-export async function handleGetDeviceVerificationSettings(request: Request, env: Env, userId: string): Promise<Response> {
-  void request;
-  const storage = new StorageService(env.DB);
-  const user = await storage.getUserById(userId);
-  if (!user) return errorResponse('User not found', 404);
-  return jsonResponse(deviceVerificationSettingsResponse(user));
-}
-
-// PUT/POST /api/two-factor/device-verification-settings
-// New-device verification is not implemented yet.
-// Reject any attempt to enable it; always return disabled state.
-export async function handlePutDeviceVerificationSettings(request: Request, env: Env, userId: string): Promise<Response> {
-  const storage = new StorageService(env.DB);
-  const user = await storage.getUserById(userId);
-  if (!user) return errorResponse('User not found', 404);
-
-  let body: Record<string, unknown>;
-  try {
-    body = await readRequestBody(request);
-  } catch {
-    return errorResponse('Invalid JSON', 400);
-  }
-
-  const rawEnabled = body.enabled ?? body.Enabled ?? body.verifyDevices ?? body.VerifyDevices;
-
-  // Log the attempt for audit purposes — never change state.
-  await writeAuditEvent(storage, {
-    actorUserId: user.id,
-    action: 'account.verify_devices.update.rejected',
-    category: 'security',
-    level: 'info',
-    targetType: 'user',
-    targetId: user.id,
-    metadata: {
-      requested: rawEnabled,
-      reason: 'new_device_verification_unsupported',
-      // 键名必须是 `trigger`（原 `source` 未登记，会被 sanitizeMetadata 静默丢弃）。
-      trigger: 'two-factor.device-verification-settings',
-      ...auditRequestMetadata(request),
-    },
-  });
-
-  if (rawEnabled === true) {
-    return errorResponse('New device verification is not available on this server. Enable TOTP or WebAuthn two-factor authentication instead.', 400);
-  }
-
-  // Setting to false is the only supported state — return it.
-  return jsonResponse(deviceVerificationSettingsResponse(user));
 }
 
 // PUT/POST /api/two-factor/authenticator
@@ -1645,4 +1688,172 @@ function randomStringAlphanum(length: number): string {
   }
 
   return result;
+}
+
+// ─────────────────────────── 邮件两步登录（2FA provider 1） ───────────────────────────
+
+// POST /api/two-factor/get-email
+export async function handleGetTwoFactorEmail(request: Request, env: Env, userId: string): Promise<Response> {
+  void request;
+  const storage = new StorageService(env.DB);
+  const user = await storage.getUserById(userId);
+  if (!user) return errorResponse('User not found', 404);
+
+  const availability = await emailAvailabilityForUser(env, user);
+  // 结构必须与客户端契约一致：外层 `Email` 是**对象**，内层才是 `Enabled` / `Email`。
+  // 客户端执行 `new TwoFactorEmailDetailsResponse(getResponseProperty('Email'))`，
+  // 若外层给字符串，内层字段取不到 ⇒ 界面上的邮箱占位符不会被替换（显示成 `__$1__`）。
+  return jsonResponse({
+    Email: {
+      Enabled: user.twoFactorEmailEnabled === true,
+      Email: user.email,
+    },
+    // 客户端据此决定是否允许开启；未验证邮箱 / 未配 SMTP 时为 false。
+    Available: availability.ok,
+  });
+}
+
+// PUT/POST /api/two-factor/email
+export async function handlePutTwoFactorEmail(request: Request, env: Env, userId: string): Promise<Response> {
+  const storage = new StorageService(env.DB);
+  const auth = new AuthService(env);
+  const user = await storage.getUserById(userId);
+  if (!user) return errorResponse('User not found', 404);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
+
+  const secret = readBodyString(body, ['masterPasswordHash', 'MasterPasswordHash', 'otp', 'OTP', 'secret', 'Secret']);
+  const verified = await verifyUserSecret(auth, user, secret);
+  if (!verified) return errorResponse('User verification failed.', 400);
+
+  const availability = await emailAvailabilityForUser(env, user);
+  if (!availability.ok) {
+    return errorResponse(
+      availability.reason === 'email-unverified'
+        ? 'Verify your email address before enabling email two-step login.'
+        : 'Email delivery is not configured on this server',
+      400
+    );
+  }
+
+  await saveUserPreferences(env.DB, user.id, { twoFactorEmailEnabled: true });
+  await writeAuditEvent(storage, {
+    actorUserId: user.id,
+    action: 'account.two_factor.email.enable',
+    category: 'security',
+    level: 'security',
+    targetType: 'user',
+    targetId: user.id,
+    metadata: { ...auditRequestMetadata(request) },
+  });
+  return jsonResponse({ Enabled: true, Email: user.email });
+}
+
+// DELETE /api/two-factor/email
+export async function handleDeleteTwoFactorEmail(request: Request, env: Env, userId: string): Promise<Response> {
+  const storage = new StorageService(env.DB);
+  const auth = new AuthService(env);
+  const user = await storage.getUserById(userId);
+  if (!user) return errorResponse('User not found', 404);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
+
+  const secret = readBodyString(body, ['masterPasswordHash', 'MasterPasswordHash', 'otp', 'OTP', 'secret', 'Secret']);
+  const verified = await verifyUserSecret(auth, user, secret);
+  if (!verified) return errorResponse('User verification failed.', 400);
+
+  await saveUserPreferences(env.DB, user.id, { twoFactorEmailEnabled: false });
+  // 停用后立即作废待用码：否则已发出的码在有效期内仍能通过校验。
+  await clearChallengeCode(env.DB, user.id);
+  await writeAuditEvent(storage, {
+    actorUserId: user.id,
+    action: 'account.two_factor.email.disable',
+    category: 'security',
+    level: 'security',
+    targetType: 'user',
+    targetId: user.id,
+    metadata: { ...auditRequestMetadata(request) },
+  });
+  return jsonResponse({ Enabled: false, Email: user.email });
+}
+
+/**
+ * POST /api/two-factor/send-email-login —— 登录流程中发送挑战码。
+ *
+ * **公开端点**（登录前调用）⇒ 必须限流，否则会被当作发信跳板。
+ * 发信失败返回明确的 5xx，**不能**表现为「登录失败」（用户会以为密码错了）。
+ */
+export async function handleSendEmailTwoFactorLogin(request: Request, env: Env): Promise<Response> {
+  let body: Record<string, unknown>;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
+
+  const email = readBodyString(body, ['email', 'Email']).trim().toLowerCase();
+  if (!email) return errorResponse('Email is required', 400);
+
+  const storage = new StorageService(env.DB);
+  const user = await getUser(env.DB, email);
+  // 不区分「用户不存在」与「未启用」：避免把「这个邮箱在本站注册过」暴露给未认证的调用方。
+  if (!user || user.twoFactorEmailEnabled !== true || user.emailVerified !== true) {
+    return errorResponse('Email two-step login is not enabled for this account', 400);
+  }
+
+  const quota = await checkSendQuota(env.DB, user.id);
+  if (!quota.allowed) {
+    if (quota.reason === 'too-soon') {
+      return errorResponse('Please wait before requesting another code', 429);
+    }
+    if (quota.reason === 'hourly-limit') {
+      return errorResponse('Too many codes were requested this hour', 429);
+    }
+    return errorResponse('The daily code limit has been reached', 429);
+  }
+
+  const connection = await resolveMailConnection(env.DB, env);
+  if (connection.status !== 'ok') {
+    return errorResponse('Email delivery is not configured on this server', 503);
+  }
+
+  const issued = await issueChallengeCode(env.DB, user.id, env.JWT_SECRET);
+  const mail = renderTwoFactorEmail(
+    { code: issued.code, expiresAt: new Date(issued.expiresAt) },
+    resolveMailRenderPreferences(user)
+  );
+  try {
+    await sendSmtpMail(connection.settings, {
+      to: user.email,
+      subject: mail.subject,
+      html: mail.html,
+      text: mail.text,
+    });
+  } catch (error) {
+    // 发信失败：作废刚写入的码（否则用户拿不到码、库里却留着一枚有效码），
+    // 并返回明确的 503 —— 不是「密码错误」，用户重试即可。
+    await clearChallengeCode(env.DB, user.id);
+    await writeAuditEvent(storage, {
+      actorUserId: user.id,
+      action: 'auth.two_factor.email.send_failed',
+      category: 'auth',
+      level: 'warn',
+      targetType: 'user',
+      targetId: user.id,
+      metadata: { reason: error instanceof Error ? error.message : String(error), ...auditRequestMetadata(request) },
+    });
+    return errorResponse('Unable to send the verification code. Please try again.', 503);
+  }
+
+  return jsonResponse({ Object: 'twoFactorEmail', Sent: true, ExpiresAt: issued.expiresAt });
 }

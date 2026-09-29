@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeft, Eye, EyeOff, KeyRound, LogIn, LogOut, Unlock,
 import NetworkStatusBadge from '@/components/NetworkStatusBadge';
 import StandalonePageFrame from '@/components/StandalonePageFrame';
 import { t } from '@/lib/i18n';
+import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
 import { getCurrentNetworkStatus, subscribeNetworkStatus, type NetworkStatus } from '@/lib/network-status';
 
 interface LoginValues {
@@ -33,6 +34,8 @@ interface AuthViewsProps {
   passkeyPassword: string;
   registerValues: RegisterValues;
   registrationInviteRequired?: boolean;
+  /** 服务端能发信 ⇒ 主密码提示的说明文案改为「会发送到你的邮箱」。 */
+  mailDeliveryAvailable?: boolean;
   unlockPassword: string;
   emailForLock: string;
   loginHintLoading: boolean;
@@ -244,9 +247,9 @@ export default function AuthViews(props: AuthViewsProps) {
               <span>{t('txt_password_hint_optional')}</span>
               <input
                 className="input"
-                maxLength={120}
+                maxLength={PASSWORD_HINT_MAX_LENGTH}
                 value={props.registerValues.passwordHint}
-                placeholder={t('txt_password_hint_register_placeholder')}
+                placeholder={t(props.mailDeliveryAvailable ? 'txt_password_hint_register_placeholder_email' : 'txt_password_hint_register_placeholder')}
                 onInput={(e) =>
                   props.onChangeRegister({ ...props.registerValues, passwordHint: (e.currentTarget as HTMLInputElement).value })
                 }

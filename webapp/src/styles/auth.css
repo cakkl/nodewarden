@@ -486,6 +486,11 @@
 
 .standalone-title-row {
   @apply relative mb-1 flex min-h-9 items-center justify-center;
+}
+
+/* 只有存在右侧附件（网络状态徽标）时才留出避让空间：
+   无附件时留白会把居中标题挤成两行（窄卡片上尤其明显）。 */
+.standalone-title-row.has-accessory {
   padding-inline: 84px;
 }
 

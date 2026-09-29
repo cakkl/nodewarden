@@ -16,7 +16,7 @@ import { createSendFileUploadToken, verifySendFileUploadToken } from '../utils/j
 import {
   formatSize,
   getAliasedProp,
-  normalizeEmails,
+  parseSendEmails,
   notifySendCreateForRequest,
   notifySendDeleteForRequest,
   notifySendUpdateForRequest,
@@ -34,8 +34,24 @@ import {
   validateDeletionDate,
 } from './sends-shared';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
+import { isMailDeliveryAvailableSoft } from '../services/mail-settings';
+import { clearSendOtpsForSend } from '../services/send-email-otp';
 
-const SEND_EMAIL_AUTH_UNSUPPORTED_MESSAGE = 'Send email verification is not supported by this server.';
+/** 名单不合法时的统一响应。⚠️ 上限是字面量（guard 禁插值）⇒ 改 `SEND_EMAIL_LIST_MAX` 时必须同步改。 */
+function sendEmailListErrorResponse(reason: 'invalid' | 'too-many'): Response {
+  return reason === 'too-many'
+    ? errorResponse('Too many email addresses (max 20)', 400)
+    : errorResponse('Invalid emails', 400);
+}
+
+/** 邮箱认证的 Send 依赖服务端能发信（发不出去等于谁都打不开）⇒ 保存前先确认邮件可用。 */
+async function requireMailDeliveryForEmailSend(env: Env): Promise<Response | null> {
+  if (await isMailDeliveryAvailableSoft(env)) return null;
+  return errorResponse(
+    'Email delivery is not configured on this server, so a Send limited to specific email addresses cannot be saved',
+    503
+  );
+}
 
 async function writeSendAudit(
   storage: StorageService,
@@ -218,16 +234,16 @@ export async function handleCreateSend(request: Request, env: Env, userId: strin
   if (authTypeRaw.present && requestedAuthType === null) {
     return errorResponse('Invalid authType', 400);
   }
-  if (requestedAuthType === SendAuthType.Email) {
-    return errorResponse(SEND_EMAIL_AUTH_UNSUPPORTED_MESSAGE, 501);
-  }
 
-  const normalizedEmails = normalizeEmails(emailsRaw.value);
-  if (emailsRaw.present && emailsRaw.value !== null && normalizedEmails === null) {
-    return errorResponse('Invalid emails', 400);
+  const emailsResult = parseSendEmails(emailsRaw.value);
+  if (!emailsResult.ok) return sendEmailListErrorResponse(emailsResult.reason);
+  const normalizedEmails = emailsResult.value;
+  if (requestedAuthType === SendAuthType.Email && !normalizedEmails) {
+    return errorResponse('emails is required for email auth', 400);
   }
   if (normalizedEmails) {
-    return errorResponse(SEND_EMAIL_AUTH_UNSUPPORTED_MESSAGE, 501);
+    const mailGate = await requireMailDeliveryForEmailSend(env);
+    if (mailGate) return mailGate;
   }
 
   const now = new Date().toISOString();
@@ -242,7 +258,8 @@ export async function handleCreateSend(request: Request, env: Env, userId: strin
     passwordHash: null,
     passwordSalt: null,
     passwordIterations: null,
-    authType: requestedAuthType ?? SendAuthType.None,
+    // 名单非空 ⇒ 就是邮箱认证（`authType` 只是展示字段，访问判定看 `emails`）
+    authType: normalizedEmails ? SendAuthType.Email : requestedAuthType ?? SendAuthType.None,
     emails: normalizedEmails,
     maxAccessCount: maxAccess.value,
     accessCount: 0,
@@ -254,9 +271,10 @@ export async function handleCreateSend(request: Request, env: Env, userId: strin
     deletionDate: deletionDate.toISOString(),
   };
 
-  if (typeof passwordRaw.value === 'string' && passwordRaw.value.length > 0) {
+  // 邮箱认证优先：不与密码并存（并存会让客户端同时显示密码框）
+  if (!normalizedEmails && typeof passwordRaw.value === 'string' && passwordRaw.value.length > 0) {
     await setSendPassword(send, passwordRaw.value);
-  } else if (send.authType === SendAuthType.Password) {
+  } else if (!normalizedEmails && send.authType === SendAuthType.Password) {
     return errorResponse('Password is required for password auth', 400);
   }
 
@@ -348,16 +366,16 @@ export async function handleCreateFileSendV2(request: Request, env: Env, userId:
   if (authTypeRaw.present && requestedAuthType === null) {
     return errorResponse('Invalid authType', 400);
   }
-  if (requestedAuthType === SendAuthType.Email) {
-    return errorResponse(SEND_EMAIL_AUTH_UNSUPPORTED_MESSAGE, 501);
-  }
 
-  const normalizedEmails = normalizeEmails(emailsRaw.value);
-  if (emailsRaw.present && emailsRaw.value !== null && normalizedEmails === null) {
-    return errorResponse('Invalid emails', 400);
+  const emailsResult = parseSendEmails(emailsRaw.value);
+  if (!emailsResult.ok) return sendEmailListErrorResponse(emailsResult.reason);
+  const normalizedEmails = emailsResult.value;
+  if (requestedAuthType === SendAuthType.Email && !normalizedEmails) {
+    return errorResponse('emails is required for email auth', 400);
   }
   if (normalizedEmails) {
-    return errorResponse(SEND_EMAIL_AUTH_UNSUPPORTED_MESSAGE, 501);
+    const mailGate = await requireMailDeliveryForEmailSend(env);
+    if (mailGate) return mailGate;
   }
 
   const now = new Date().toISOString();
@@ -372,7 +390,8 @@ export async function handleCreateFileSendV2(request: Request, env: Env, userId:
     passwordHash: null,
     passwordSalt: null,
     passwordIterations: null,
-    authType: requestedAuthType ?? SendAuthType.None,
+    // 名单非空 ⇒ 就是邮箱认证（`authType` 只是展示字段，访问判定看 `emails`）
+    authType: normalizedEmails ? SendAuthType.Email : requestedAuthType ?? SendAuthType.None,
     emails: normalizedEmails,
     maxAccessCount: maxAccess.value,
     accessCount: 0,
@@ -384,9 +403,10 @@ export async function handleCreateFileSendV2(request: Request, env: Env, userId:
     deletionDate: deletionDate.toISOString(),
   };
 
-  if (typeof passwordRaw.value === 'string' && passwordRaw.value.length > 0) {
+  // 邮箱认证优先：不与密码并存（并存会让客户端同时显示密码框）
+  if (!normalizedEmails && typeof passwordRaw.value === 'string' && passwordRaw.value.length > 0) {
     await setSendPassword(send, passwordRaw.value);
-  } else if (send.authType === SendAuthType.Password) {
+  } else if (!normalizedEmails && send.authType === SendAuthType.Password) {
     return errorResponse('Password is required for password auth', 400);
   }
 
@@ -606,38 +626,55 @@ export async function handleUpdateSend(request: Request, env: Env, userId: strin
     }
   }
 
+  const previousAuthType = Number(send.authType);
   const authTypeRaw = getAliasedProp(body, ['authType', 'AuthType']);
+  let requestedAuthType: SendAuthType | null = null;
   if (authTypeRaw.present) {
-    const parsedAuthType = parseSendAuthType(authTypeRaw.value);
-    if (parsedAuthType === null) {
+    requestedAuthType = parseSendAuthType(authTypeRaw.value);
+    if (requestedAuthType === null) {
       return errorResponse('Invalid authType', 400);
     }
-    if (parsedAuthType === SendAuthType.Email) {
-      return errorResponse(SEND_EMAIL_AUTH_UNSUPPORTED_MESSAGE, 501);
-    }
-    send.authType = parsedAuthType;
-    send.emails = null;
   }
 
   const emailsRaw = getAliasedProp(body, ['emails', 'Emails']);
+  let emailsProvided = false;
+  let nextEmails = send.emails;
   if (emailsRaw.present) {
-    const normalizedEmails = normalizeEmails(emailsRaw.value);
-    if (emailsRaw.value !== null && normalizedEmails === null) {
-      return errorResponse('Invalid emails', 400);
-    }
-    if (normalizedEmails) {
-      return errorResponse(SEND_EMAIL_AUTH_UNSUPPORTED_MESSAGE, 501);
-    }
-    send.emails = normalizedEmails;
-    if (send.emails) {
-      send.authType = SendAuthType.Email;
-    } else if (Number(send.authType) === SendAuthType.Email) {
-      send.authType = SendAuthType.None;
-    }
+    const emailsResult = parseSendEmails(emailsRaw.value);
+    if (!emailsResult.ok) return sendEmailListErrorResponse(emailsResult.reason);
+    emailsProvided = true;
+    nextEmails = emailsResult.value;
+  }
+
+  // 只有「本次真的在设/改邮箱认证」才要求邮件可用 —— 否则邮件临时停用时
+  // 连改个名字都做不了（已有的邮箱认证 Send 保持原样）。
+  const emailAuthWanted = requestedAuthType === SendAuthType.Email || (emailsProvided && !!nextEmails);
+  if (emailAuthWanted) {
+    const mailGate = await requireMailDeliveryForEmailSend(env);
+    if (mailGate) return mailGate;
+  }
+  if (requestedAuthType === SendAuthType.Email && !nextEmails) {
+    return errorResponse('emails is required for email auth', 400);
+  }
+
+  if (nextEmails) {
+    send.authType = SendAuthType.Email;
+    send.emails = nextEmails;
+    // 邮箱认证优先：清掉可能残留的密码
+    send.passwordHash = null;
+    send.passwordSalt = null;
+    send.passwordIterations = null;
+  } else {
+    send.authType = requestedAuthType ?? (previousAuthType === SendAuthType.Email ? SendAuthType.None : send.authType);
+    send.emails = null;
+  }
+  // 名单被改过 ⇒ 旧码立即作废，否则「已被移出名单的邮箱」还能拿着手上的码打开
+  if (emailsProvided) {
+    await clearSendOtpsForSend(env.DB, send.id);
   }
 
   const passwordRaw = getAliasedProp(body, ['password', 'Password']);
-  if (passwordRaw.present && typeof passwordRaw.value === 'string') {
+  if (!nextEmails && passwordRaw.present && typeof passwordRaw.value === 'string') {
     await setSendPassword(send, passwordRaw.value);
   }
 
