@@ -30,6 +30,7 @@ import {
 } from '../utils/account-passkeys';
 import { auditRequestMetadata, safeWriteAuditEvent } from '../services/audit-events';
 import { auditAndNotify } from '../services/security-notifications';
+import { reconcileDefaultTwoFactorProvider } from '../services/two-factor-default';
 import { createRecoveryCode } from '../utils/recovery-code';
 
 const MAX_ACCOUNT_PASSKEYS = 5;
@@ -473,6 +474,7 @@ export async function handlePutTwoFactorWebAuthn(request: Request, env: Env, use
     user.updatedAt = now;
     await storage.saveUser(user);
   }
+  await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
   await storage.deleteRefreshTokensByUserId(userId);
   AuthService.invalidateUserCache(userId);
 
@@ -514,6 +516,7 @@ export async function handleDeleteTwoFactorWebAuthn(request: Request, env: Env, 
 
   const deleted = await storage.deleteAccountPasskeyCredential(userId, credential.id, 'twoFactor');
   if (!deleted) return errorResponse('Unable to delete WebAuthn credential.', 400);
+  await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
   await storage.deleteRefreshTokensByUserId(userId);
   AuthService.invalidateUserCache(userId);
 

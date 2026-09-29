@@ -7,6 +7,12 @@ import qrcode from 'qrcode-generator';
 import type { AccountPasskeyCredential, MailEncryption, MailPreferences, MailPreferencesUpdate, MailSettings, MailSettingsInput, MailTestResult, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
 import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { describeMailFailure } from '@/hooks/useAdminMailActions';
+import {
+  TWO_FACTOR_PROVIDER_AUTHENTICATOR,
+  TWO_FACTOR_PROVIDER_EMAIL,
+  TWO_FACTOR_PROVIDER_WEBAUTHN,
+  TWO_FACTOR_PROVIDER_YUBIKEY,
+} from '@/lib/two-factor-providers';
 import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
 import { AVAILABLE_LOCALES, detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
 import { useDateTimeFormat } from '@/lib/datetime';
@@ -18,6 +24,9 @@ interface SettingsPageProps {
   totpEnabled: boolean;
   yubikeyEnabled: boolean;
   passkey2faEnabled: boolean;
+  /** 登录时**优先使用**的两步登录提供程序（provider 数字）；null = 未选定，服务端取第一个已启用项。 */
+  defaultProvider: number | null;
+  onSetDefaultTwoFactorProvider: (providerType: number) => Promise<void>;
   themePreference: ThemePreference;
   lockTimeoutMinutes: 0 | 1 | 5 | 15 | 30;
   sessionTimeoutAction: 'lock' | 'logout';
@@ -324,6 +333,37 @@ export default function SettingsPage(props: SettingsPageProps) {
       return ['UTC'];
     }
   }, []);
+
+  /** 「语言 / 时区」偏好与两步登录的默认方式都是**普通偏好**：不需要主密码。 */
+  const [defaultProviderBusy, setDefaultProviderBusy] = useState(false);
+
+  /** 设置登录时优先使用的提供程序。仅已启用的行可点（未启用 / 已是默认的行按钮禁用）。 */
+  async function setDefaultTwoFactorProvider(providerType: number): Promise<void> {
+    if (defaultProviderBusy || props.defaultProvider === providerType) return;
+    setDefaultProviderBusy(true);
+    try {
+      await props.onSetDefaultTwoFactorProvider(providerType);
+    } catch (error) {
+      props.onNotify?.('error', error instanceof Error ? error.message : t('txt_save_failed'));
+    } finally {
+      setDefaultProviderBusy(false);
+    }
+  }
+
+  /** 该行的「默认」按钮：已选中的显示为「默认」并禁用，未启用的也禁用。 */
+  function defaultProviderButton(providerType: number, enabled: boolean) {
+    const isDefault = props.defaultProvider === providerType;
+    return (
+      <button
+        type="button"
+        className="btn btn-secondary"
+        disabled={!enabled || isDefault || defaultProviderBusy}
+        onClick={() => void setDefaultTwoFactorProvider(providerType)}
+      >
+        {isDefault ? t('txt_two_step_default') : t('txt_two_step_set_default')}
+      </button>
+    );
+  }
 
   /**
    * 「自动」档在下拉里显示**实际生效值**（如「自动（简体中文）」），而不是「按浏览器」字样：
@@ -1264,14 +1304,17 @@ export default function SettingsPage(props: SettingsPageProps) {
                       </div>
                       <span>{t('txt_email_two_step_login_help')}</span>
                     </div>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      disabled={!emailTwoFactorAvailable}
-                      onClick={() => openMasterPasswordPrompt(emailTwoFactorEnabled ? 'disableEmailTwoFactor' : 'enableEmailTwoFactor')}
-                    >
-                      {emailTwoFactorEnabled ? t('txt_disable') : t('txt_enable')}
-                    </button>
+                    <div className="actions">
+                      {defaultProviderButton(TWO_FACTOR_PROVIDER_EMAIL, emailTwoFactorEnabled)}
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={!emailTwoFactorAvailable}
+                        onClick={() => openMasterPasswordPrompt(emailTwoFactorEnabled ? 'disableEmailTwoFactor' : 'enableEmailTwoFactor')}
+                      >
+                        {emailTwoFactorEnabled ? t('txt_disable') : t('txt_enable')}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="two-step-provider-row">
@@ -1285,9 +1328,12 @@ export default function SettingsPage(props: SettingsPageProps) {
                       </div>
                       <span>{t('txt_authenticator_app_help')}</span>
                     </div>
-                    <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('manageTotp')}>
-                      {t('txt_manage')}
-                    </button>
+                    <div className="actions">
+                      {defaultProviderButton(TWO_FACTOR_PROVIDER_AUTHENTICATOR, totpLocked)}
+                      <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('manageTotp')}>
+                        {t('txt_manage')}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="two-step-provider-row">
@@ -1301,9 +1347,12 @@ export default function SettingsPage(props: SettingsPageProps) {
                       </div>
                       <span>{t('txt_passkey_provider_help')}</span>
                     </div>
-                    <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('managePasskey2fa')}>
-                      {t('txt_manage')}
-                    </button>
+                    <div className="actions">
+                      {defaultProviderButton(TWO_FACTOR_PROVIDER_WEBAUTHN, twoFactorPasskeyEnabled)}
+                      <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('managePasskey2fa')}>
+                        {t('txt_manage')}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="two-step-provider-row">
@@ -1315,9 +1364,12 @@ export default function SettingsPage(props: SettingsPageProps) {
                       </div>
                       <span>{t('txt_yubico_otp_security_key_help')}</span>
                     </div>
-                    <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('manageYubiKey')}>
-                      {t('txt_manage')}
-                    </button>
+                    <div className="actions">
+                      {defaultProviderButton(TWO_FACTOR_PROVIDER_YUBIKEY, yubiKeyEnabled)}
+                      <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('manageYubiKey')}>
+                        {t('txt_manage')}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </section>

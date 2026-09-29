@@ -9,7 +9,6 @@ export const ROUTES = {
   login: '/login',
   register: '/register',
   lock: '/lock',
-  recoverTwoFactor: '/recover-2fa',
 
   vault: '/vault',
   vaultTotp: '/vault/totp',
@@ -52,7 +51,6 @@ export const AUTH_ROUTE_PATHS = [
   ROUTES.login,
   ROUTES.register,
   ROUTES.lock,
-  ROUTES.recoverTwoFactor,
 ] as const;
 
 /** `AppMainRoutes` 的 `Switch` 必须注册的全部路径（含直接别名与需跳转的别名）。 */

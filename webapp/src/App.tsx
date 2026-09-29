@@ -8,7 +8,6 @@ import AuthRequestApprovalDialog from '@/components/AuthRequestApprovalDialog';
 import AuthViews from '@/components/AuthViews';
 import NotFoundPage from '@/components/NotFoundPage';
 import PublicSendPage from '@/components/PublicSendPage';
-import RecoverTwoFactorPage from '@/components/RecoverTwoFactorPage';
 import JwtWarningPage from '@/components/JwtWarningPage';
 import {
   createAuthedFetch,
@@ -260,7 +259,6 @@ export default function App() {
   const [authRequestDialogDismissedId, setAuthRequestDialogDismissedId] = useState<string | null>(null);
   const [authRequestDialogSelectedId, setAuthRequestDialogSelectedId] = useState<string | null>(null);
   const [authRequestSubmittingId, setAuthRequestSubmittingId] = useState<string | null>(null);
-  const [recoverValues, setRecoverValues] = useState({ email: '', password: '', recoveryCode: '' });
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(() => resolveSystemTheme());
   const [lockTimeoutMinutes, setLockTimeoutMinutesState] = useState<LockTimeoutMinutes>(() => readLockTimeoutMinutes());
@@ -862,17 +860,28 @@ export default function App() {
     }
   }
 
-  async function handleRecoverTwoFactorSubmit() {
-    const email = recoverValues.email.trim().toLowerCase();
-    const password = recoverValues.password;
-    const recoveryCode = recoverValues.recoveryCode.trim();
-    if (!email || !password || !recoveryCode) {
-      pushToast('error', t('txt_email_password_and_recovery_code_are_required'));
-      return;
-    }
+  /**
+   * 登录弹窗里用一次性恢复码恢复（就地，不跳页；主密码材料取自 `pendingTotp`）。
+   * 服务端收到恢复码后会**停用全部两步登录**并轮换恢复码 ⇒ 成功提示要把新码带出来。
+   */
+  async function handleSubmitTotpRecoveryCode(recoveryCode: string): Promise<void> {
+    if (totpSubmitting || !pendingTotp) return;
+    const code = recoveryCode.trim();
+    if (!code) return;
+    setTotpSubmitting(true);
     try {
-      const recovered = await performRecoverTwoFactorLogin(email, password, recoveryCode, defaultKdfIterations);
+      const recovered = await performRecoverTwoFactorLogin(
+        pendingTotp.email,
+        {
+          passwordHash: pendingTotp.passwordHash,
+          masterKey: pendingTotp.masterKey,
+          kdfIterations: pendingTotp.kdfIterations,
+        },
+        code
+      );
       if (recovered.login) {
+        setPendingTotp(null);
+        setPendingTotpMode(null);
         await finalizeLogin(recovered.login);
         if (recovered.newRecoveryCode) {
           pushToast('success', t('txt_text_2fa_recovered_new_recovery_code_code', { code: recovered.newRecoveryCode }));
@@ -1176,8 +1185,8 @@ export default function App() {
         onRememberDeviceChange={() => {}}
         onConfirmTotp={() => {}}
         onSelectTotpProvider={() => {}}
+        onSubmitRecoveryCode={() => {}}
         onCancelTotp={() => {}}
-        onUseRecoveryCode={() => {}}
         totpSubmitting={false}
         disableTotpOpen={false}
         disableTotpPassword=""
@@ -2138,7 +2147,6 @@ export default function App() {
   const routeLocation = normalizeRoutePath(location);
   const effectiveLocation = routeLocation;
   const publicSendMatch = effectiveLocation.match(/^\/send\/([^/]+)(?:\/([^/]+))?\/?$/i);
-  const isRecoverTwoFactorRoute = effectiveLocation === ROUTES.recoverTwoFactor;
   const isPublicSendRoute = !!publicSendMatch;
   const isMalformedSendRoute = PUBLIC_SEND_PATH_PATTERN.test(effectiveLocation) && !publicSendMatch;
   const isKnownRoute = isKnownRoutePath(routeLocation);
@@ -2231,6 +2239,7 @@ export default function App() {
     totpEnabled: !!twoFactorStatusQuery.data?.totpEnabled,
     yubikeyEnabled: !!twoFactorStatusQuery.data?.yubikeyEnabled,
     passkey2faEnabled: !!twoFactorStatusQuery.data?.passkeyEnabled,
+    defaultProvider: twoFactorStatusQuery.data?.defaultProvider ?? null,
     lockTimeoutMinutes,
     sessionTimeoutAction,
     authorizedDevices: authorizedDevicesQuery.data || [],
@@ -2288,6 +2297,7 @@ export default function App() {
     onSaveYubiKeyApiCredentials: accountSecurityActions.saveYubiKeyApiCredentials,
     onBootstrapYubiKeyApiCredentials: accountSecurityActions.bootstrapYubiKeyApiCredentials,
     onDisableYubiKey: accountSecurityActions.disableYubiKey,
+    onSetDefaultTwoFactorProvider: accountSecurityActions.setDefaultTwoFactorProvider,
     onGetTwoFactorPasskeySettings: accountSecurityActions.getTwoFactorPasskeySettings,
     onGetEmailTwoFactor: () => getEmailTwoFactorStatus(authedFetch),
     onSetEmailTwoFactor: accountSecurityActions.setEmailTwoFactor,
@@ -2447,23 +2457,6 @@ export default function App() {
     );
   }
 
-  if (isRecoverTwoFactorRoute && phase !== 'app') {
-    return (
-      <>
-        <RecoverTwoFactorPage
-          values={recoverValues}
-          onChange={setRecoverValues}
-          onSubmit={() => void handleRecoverTwoFactorSubmit()}
-          onCancel={() => {
-            setRecoverValues({ email: '', password: '', recoveryCode: '' });
-            navigate(ROUTES.login);
-          }}
-        />
-        {renderPassiveOverlays()}
-      </>
-    );
-  }
-
   if (phase === 'register' || phase === 'login' || phase === 'locked') {
     return (
       <>
@@ -2539,20 +2532,13 @@ export default function App() {
           onRememberDeviceChange={setRememberDevice}
           onConfirmTotp={() => void handleTotpVerify()}
           onSelectTotpProvider={handleSelectTotpProvider}
+          onSubmitRecoveryCode={(recoveryCode) => void handleSubmitTotpRecoveryCode(recoveryCode)}
           onCancelTotp={() => {
             if (totpSubmitting) return;
             setPendingTotp(null);
             setPendingTotpMode(null);
             setTotpCode('');
             setRememberDevice(true);
-          }}
-          onUseRecoveryCode={() => {
-            if (totpSubmitting) return;
-            setPendingTotp(null);
-            setPendingTotpMode(null);
-            setTotpCode('');
-            setRememberDevice(true);
-            navigate(ROUTES.recoverTwoFactor);
           }}
           totpSubmitting={totpSubmitting}
           onResendEmailCode={() => {
@@ -2621,8 +2607,8 @@ export default function App() {
         onRememberDeviceChange={() => {}}
         onConfirmTotp={() => {}}
         onSelectTotpProvider={() => {}}
+        onSubmitRecoveryCode={() => {}}
         onCancelTotp={() => {}}
-        onUseRecoveryCode={() => {}}
         totpSubmitting={false}
         disableTotpOpen={disableTotpOpen}
         disableTotpPassword={disableTotpPassword}

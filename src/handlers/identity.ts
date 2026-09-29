@@ -17,6 +17,7 @@ import {
 } from '../utils/user-decryption';
 import { auditRequestMetadata, safeWriteAuditEvent } from '../services/audit-events';
 import { auditAndNotify } from '../services/security-notifications';
+import { orderTwoFactorProvidersForChallenge, resolveDefaultTwoFactorProvider } from '../services/two-factor-default';
 import {
   assertAccountPasskeyCredential,
   assertTwoFactorPasskeyCredential,
@@ -299,8 +300,14 @@ async function twoFactorRequiredResponse(
     webAuthnOptions = await buildTwoFactorPasskeyAssertionOptions(request, env, storage, user) as Record<string, unknown> | null;
     if (webAuthnOptions) providers.push(String(TWO_FACTOR_PROVIDER_WEBAUTHN));
   }
+  // 用户选定的默认提供程序排到首位：客户端（官方与本仓库前端）默认选中列表第一项。
+  // 只改顺序 —— 少了任何一项都会让某些客户端报错或漏掉一种登录方式。
+  const orderedProviders = orderTwoFactorProvidersForChallenge(
+    providers,
+    user ? await resolveDefaultTwoFactorProvider(storage, user) : null
+  );
   const providers2: Record<string, Record<string, unknown> | null> = {};
-  for (const provider of providers) {
+  for (const provider of orderedProviders) {
     providers2[provider] = provider === String(TWO_FACTOR_PROVIDER_YUBIKEY)
       ? { Nfc: user?.yubikeyNfc ?? false }
       : provider === String(TWO_FACTOR_PROVIDER_WEBAUTHN) && webAuthnOptions
@@ -312,7 +319,7 @@ async function twoFactorRequiredResponse(
           : null;
   }
   const customResponse = {
-    TwoFactorProviders: providers,
+    TwoFactorProviders: orderedProviders,
     TwoFactorProviders2: providers2,
     SsoEmail2faSessionToken: null,
     MasterPasswordPolicy: masterPasswordPolicyResponse(),

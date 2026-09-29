@@ -20,7 +20,12 @@ import { clearNewDeviceOtpsForUser, isNewDeviceVerificationEnabled } from '../se
 import { renderTwoFactorEmail, renderPasswordHintEmail } from '../services/mail';
 import { waitUntil } from 'cloudflare:workers';
 import { sendSmtpMail } from '../services/smtp-client';
-import { getUser, saveUserPreferences } from '../services/storage-user-repo';
+import { getUser, saveUserPreferences, setDefaultTwoFactorProvider } from '../services/storage-user-repo';
+import {
+  listConfiguredTwoFactorProviders,
+  reconcileDefaultTwoFactorProvider,
+  resolveDefaultTwoFactorProvider,
+} from '../services/two-factor-default';
 import {
   getYubicoCredentials,
   initializeYubicoCredentialsOnce,
@@ -983,6 +988,9 @@ export async function handleGetTwoFactorProviders(request: Request, env: Env, us
     Data: data,
     ContinuationToken: null,
     Object: 'list',
+    // 本站扩展：默认提供程序（设置页用它给「默认」按钮打勾）。
+    // 存的值若已不可用，这里就返回第一个仍启用的项 ⇒ 界面永远显示真正生效的那个。
+    DefaultProvider: await resolveDefaultTwoFactorProvider(storage, user),
   });
 }
 
@@ -1073,6 +1081,7 @@ export async function handlePutTwoFactorAuthenticator(request: Request, env: Env
   }
   user.updatedAt = new Date().toISOString();
   await storage.saveUser(user);
+  await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
   await auditAndNotify(env, {
@@ -1152,6 +1161,7 @@ export async function handlePutTwoFactorYubiKey(request: Request, env: Env, user
   }
   user.updatedAt = new Date().toISOString();
   await storage.saveUser(user);
+  await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
   await auditAndNotify(env, {
@@ -1304,6 +1314,7 @@ export async function handleDisableTwoFactorProvider(request: Request, env: Env,
   }
   user.updatedAt = new Date().toISOString();
   await storage.saveUser(user);
+  await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
   await auditAndNotify(env, {
@@ -1375,6 +1386,7 @@ export async function handleSetTotpStatus(request: Request, env: Env, userId: st
     }
     user.updatedAt = new Date().toISOString();
     await storage.saveUser(user);
+    await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
     await storage.deleteRefreshTokensByUserId(user.id);
     AuthService.invalidateUserCache(user.id);
     await auditAndNotify(env, {
@@ -1399,6 +1411,7 @@ export async function handleSetTotpStatus(request: Request, env: Env, userId: st
     user.totpSecret = null;
     user.updatedAt = new Date().toISOString();
     await storage.saveUser(user);
+    await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
     await storage.deleteRefreshTokensByUserId(user.id);
     AuthService.invalidateUserCache(user.id);
     await auditAndNotify(env, {
@@ -1539,6 +1552,8 @@ export async function handleRecoverTwoFactor(request: Request, env: Env): Promis
   user.securityStamp = generateUUID();
   user.updatedAt = new Date().toISOString();
   await storage.saveUser(user);
+  // 所有提供程序都被清空了 ⇒ 默认值也随之清空（否则库里留着一个永远不生效的偏好）
+  await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
   await storage.deleteRefreshTokensByUserId(user.id);
   AuthService.invalidateUserCache(user.id);
   await rateLimit.clearLoginAttempts(recoverLimitKey);
@@ -1742,6 +1757,9 @@ export async function handlePutTwoFactorEmail(request: Request, env: Env, userId
   }
 
   await saveUserPreferences(env.DB, user.id, { twoFactorEmailEnabled: true });
+  // 本地对象也要跟上：reconcile 依赖它判断「现在有哪些提供程序可用」
+  user.twoFactorEmailEnabled = true;
+  await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
   await writeAuditEvent(storage, {
     actorUserId: user.id,
     action: 'account.two_factor.email.enable',
@@ -1775,6 +1793,8 @@ export async function handleDeleteTwoFactorEmail(request: Request, env: Env, use
   await saveUserPreferences(env.DB, user.id, { twoFactorEmailEnabled: false });
   // 停用后立即作废待用码：否则已发出的码在有效期内仍能通过校验。
   await clearChallengeCode(env.DB, user.id);
+  user.twoFactorEmailEnabled = false;
+  await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
   await writeAuditEvent(storage, {
     actorUserId: user.id,
     action: 'account.two_factor.email.disable',
@@ -1785,6 +1805,47 @@ export async function handleDeleteTwoFactorEmail(request: Request, env: Env, use
     metadata: { ...auditRequestMetadata(request) },
   });
   return jsonResponse({ Enabled: false, Email: user.email });
+}
+
+/**
+ * PUT /api/accounts/two-factor/default-provider —— 设置登录时**优先使用**的两步登录提供程序。
+ * 不需要主密码（它只是偏好，不放宽任何验证要求）；只接受**已启用**的提供程序 ——
+ * 否则等于存下一个登录时永远不会出现的默认值。
+ */
+export async function handlePutTwoFactorDefaultProvider(request: Request, env: Env, userId: string): Promise<Response> {
+  const storage = new StorageService(env.DB);
+  const user = await storage.getUserById(userId);
+  if (!user) return errorResponse('User not found', 404);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
+
+  const typeRaw = body.providerType ?? body.ProviderType ?? body.type ?? body.Type;
+  const providerType = typeof typeRaw === 'number' ? typeRaw : Number.parseInt(String(typeRaw), 10);
+  if (!Number.isInteger(providerType)) {
+    return errorResponse('providerType is required', 400);
+  }
+  const configured = await listConfiguredTwoFactorProviders(storage, user);
+  if (!configured.includes(providerType)) {
+    return errorResponse('That two-step login provider is not enabled', 400);
+  }
+
+  await setDefaultTwoFactorProvider(env.DB, user.id, providerType);
+  AuthService.invalidateUserCache(user.id);
+  await writeAuditEvent(storage, {
+    actorUserId: user.id,
+    action: 'account.two_factor.default.set',
+    category: 'security',
+    level: 'info',
+    targetType: 'user',
+    targetId: user.id,
+    metadata: { providerType, ...auditRequestMetadata(request) },
+  });
+  return jsonResponse({ Object: 'twoFactorDefaultProvider', ProviderType: providerType });
 }
 
 /**

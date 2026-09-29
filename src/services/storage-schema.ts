@@ -18,7 +18,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT, master_password_hint TEXT, master_password_hash TEXT NOT NULL, ' +
   'key TEXT NOT NULL, private_key TEXT, public_key TEXT, kdf_type INTEGER NOT NULL, ' +
   'kdf_iterations INTEGER NOT NULL, kdf_memory INTEGER, kdf_parallelism INTEGER, ' +
-  'security_stamp TEXT NOT NULL, role TEXT NOT NULL DEFAULT \'user\', status TEXT NOT NULL DEFAULT \'active\', verify_devices INTEGER NOT NULL DEFAULT 0, totp_secret TEXT, totp_recovery_code TEXT, yubikey_key1 TEXT, yubikey_key2 TEXT, yubikey_key3 TEXT, yubikey_key4 TEXT, yubikey_key5 TEXT, yubikey_nfc INTEGER NOT NULL DEFAULT 0, api_key TEXT, email_verified INTEGER NOT NULL DEFAULT 0, locale TEXT, auto_locale INTEGER NOT NULL DEFAULT 0, timezone TEXT, auto_timezone INTEGER NOT NULL DEFAULT 0, mail_opt_in INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)',
+  'security_stamp TEXT NOT NULL, role TEXT NOT NULL DEFAULT \'user\', status TEXT NOT NULL DEFAULT \'active\', verify_devices INTEGER NOT NULL DEFAULT 0, totp_secret TEXT, totp_recovery_code TEXT, yubikey_key1 TEXT, yubikey_key2 TEXT, yubikey_key3 TEXT, yubikey_key4 TEXT, yubikey_key5 TEXT, yubikey_nfc INTEGER NOT NULL DEFAULT 0, api_key TEXT, email_verified INTEGER NOT NULL DEFAULT 0, locale TEXT, auto_locale INTEGER NOT NULL DEFAULT 0, timezone TEXT, auto_timezone INTEGER NOT NULL DEFAULT 0, mail_opt_in INTEGER NOT NULL DEFAULT 0, two_factor_email_enabled INTEGER NOT NULL DEFAULT 0, two_factor_default_provider INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)',
   'ALTER TABLE users ADD COLUMN master_password_hint TEXT',
   'ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT \'user\'',
   'ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT \'active\'',
@@ -47,6 +47,9 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // 邮件两步登录（2FA provider 1）是否启用；默认 0 = 关闭。
   // 启用前置：邮箱已验证 **且** 服务端能发信。
   'ALTER TABLE users ADD COLUMN two_factor_email_enabled INTEGER NOT NULL DEFAULT 0',
+  // 用户选定的**默认**两步登录提供程序（provider 数字）；NULL = 未选定。
+  // 只存偏好，不允许它决定「能不能登录」：读取时若该提供程序已不可用会回退到其它已启用项。
+  'ALTER TABLE users ADD COLUMN two_factor_default_provider INTEGER',
 
   // 邮箱验证码。`user_id` 作主键 ⇒ 每个用户同时只有一个待用码（新码覆盖旧码）。
   // 存 `email` 是为了让「发码后用户改了邮箱」的旧码立即失效。
@@ -271,9 +274,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   "DELETE FROM config WHERE key IN ('globalSettings__mail__locale', 'globalSettings__mail__timezone')",
 
   // 新设备验证：该列历史上建库时默认 0（= 关闭），而我们要「默认开启」。
-  // 用 `schema.version` 当标记：旧库首次跑到这里时版本还不等于新版本 ⇒ 恰好翻转一次；
-  // 之后 storage.ts 写入新版本号，`EXISTS` 恒为假 ⇒ 天然幂等（不会盖掉用户自己关掉的设置）。
-  "UPDATE users SET verify_devices = 1 WHERE verify_devices = 0 AND EXISTS (SELECT 1 FROM config WHERE key = 'schema.version' AND value <> '2026-09-29-new-device-verification')",
+  // 新设备验证：历史上建库默认 0（= 关闭），这里要翻转成「默认开启」。
+  // ⚠️ 条件必须是「版本号**早于**本次翻转」。用 `<> '<本次版本>'` 会随
+  //    STORAGE_SCHEMA_VERSION 往后走而把每个库都判成「还没翻过」，于是强制重建 schema
+  //    时会重新打开用户手动关掉的开关（new-device 测试抓到过）。下面的串是历史分界，永远冻结。
+  "UPDATE users SET verify_devices = 1 WHERE verify_devices = 0 AND (SELECT value FROM config WHERE key = 'schema.version') < '2026-09-29-new-device-verification'",
 ];
 
 async function executeSchemaStatement(db: D1Database, statement: string): Promise<void> {

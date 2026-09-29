@@ -1175,25 +1175,40 @@ export async function getVaultRevisionDate(authedFetch: AuthedFetch): Promise<nu
   return stamp;
 }
 
-export async function getTwoFactorProviderStatus(authedFetch: AuthedFetch): Promise<{ totpEnabled: boolean; yubikeyEnabled: boolean; passkeyEnabled: boolean; emailEnabled: boolean }> {
+export async function getTwoFactorProviderStatus(authedFetch: AuthedFetch): Promise<{ totpEnabled: boolean; yubikeyEnabled: boolean; passkeyEnabled: boolean; emailEnabled: boolean; defaultProvider: number | null }> {
   const resp = await authedFetch('/api/two-factor');
   if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
-  const body = (await parseJson<{ data?: unknown[]; Data?: unknown[] }>(resp)) || {};
+  const body = (await parseJson<{ data?: unknown[]; Data?: unknown[]; DefaultProvider?: unknown; defaultProvider?: unknown }>(resp)) || {};
   const providers = Array.isArray(body.data) ? body.data : Array.isArray(body.Data) ? body.Data : [];
   const enabledTypes = new Set(
     providers
       .map((provider: any) => Number(provider?.type ?? provider?.Type))
       .filter((type) => Number.isFinite(type))
   );
+  // 服务端返回的是**已解析**的默认值（存的提供程序已停用时它会回退），界面直接用它打勾。
+  const defaultProviderRaw = body.DefaultProvider ?? body.defaultProvider;
+  const defaultProvider = defaultProviderRaw == null ? null : Number(defaultProviderRaw);
   return {
     totpEnabled: enabledTypes.has(0),
     yubikeyEnabled: enabledTypes.has(3),
     passkeyEnabled: enabledTypes.has(7),
     emailEnabled: enabledTypes.has(1),
+    defaultProvider: defaultProvider != null && Number.isFinite(defaultProvider) ? defaultProvider : null,
   };
 }
 
-/** 发送邮件两步登录的登录验证码。**公开端点**（登录前调用，无会话）。 */
+/** 设置登录时**优先使用**的两步登录提供程序（本站扩展端点；官方客户端没有这个偏好）。 */
+export async function setDefaultTwoFactorProvider(authedFetch: AuthedFetch, providerType: number): Promise<void> {
+  const resp = await authedFetch('/api/accounts/two-factor/default-provider', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providerType }),
+  });
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_save_failed')));
+}
+
+/** 发送邮件两步登录的登录验证码。**公开端点**（登录前调用，无会话）。
+ * 限流时把服务端的 `Retry-After` 附到错误上 ⇒ 界面可在按钮上倒计时。 */
 export async function sendEmailTwoFactorLoginCode(email: string): Promise<void> {
   const resp = await fetch('/api/two-factor/send-email-login', {
     method: 'POST',

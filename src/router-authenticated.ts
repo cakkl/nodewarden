@@ -20,6 +20,7 @@ import {
   handlePutTwoFactorYubiKeyConfig,
   handleBootstrapTwoFactorYubiKeyConfig,
   handleDisableTwoFactorProvider,
+  handlePutTwoFactorDefaultProvider,
   handleGetTwoFactorEmail,
   handlePutTwoFactorEmail,
   handleDeleteTwoFactorEmail,
@@ -237,6 +238,12 @@ export async function handleAuthenticatedRoute(
 
   if (path === '/api/two-factor') {
     if (method === 'GET') return handleGetTwoFactorProviders(request, env, userId);
+    return errorResponse('Method not allowed', 405);
+  }
+
+  // 登录时优先使用的两步登录提供程序（本站扩展；官方客户端没有这个偏好，它们只读列表顺序）。
+  if (path === '/api/accounts/two-factor/default-provider') {
+    if (method === 'PUT' || method === 'POST') return handlePutTwoFactorDefaultProvider(request, env, userId);
     return errorResponse('Method not allowed', 405);
   }
 
