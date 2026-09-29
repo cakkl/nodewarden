@@ -27,6 +27,14 @@ const sv: MailCopy = {
     expiresLabel: 'Koden gäller till',
     outro: 'Om du inte försökte logga in kan någon annan ha ditt huvudlösenord. Byt det och granska dina aktiva sessioner.',
   },
+  newDeviceVerification: {
+    subject: 'Din verifieringskod för ny enhet i NodeWarden',
+    heading: 'Verifiera den här enheten',
+    intro: 'Någon loggar in på ditt NodeWarden-konto från en enhet som inte använts tidigare. Ange den här koden för att tillåta inloggningen.',
+    codeLabel: 'Verifieringskod',
+    expiresLabel: 'Koden gäller till',
+    outro: 'Om detta inte var du känner någon annan till ditt huvudlösenord. Byt det omedelbart.',
+  },
   sendOtp: {
     subject: 'Din verifieringskod för NodeWarden Send',
     heading: 'Verifieringskod för Send',

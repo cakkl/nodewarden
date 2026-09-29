@@ -31,6 +31,7 @@ import { getYubicoCredentials, initializeYubicoCredentialsOnce } from '../servic
 import { verifyChallengeCode, clearChallengeCode } from '../services/email-2fa';
 import { isMailDeliveryAvailableSoft } from '../services/mail-settings';
 import { saveUserPreferences } from '../services/storage-user-repo';
+import { resolveNewDeviceVerification } from './identity-new-device';
 
 const TWO_FACTOR_REMEMBER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const TWO_FACTOR_PROVIDER_AUTHENTICATOR = 0;
@@ -636,6 +637,18 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
         );
       }
     }
+
+    // 新设备验证（NDV）：陌生设备登录要求邮件验证码。判定链见 identity-new-device.ts。
+    // 位置固定在「密码校验 + 2FA 通过」之后、「写设备行 / 签发 token」之前。
+    const newDeviceCheck = await resolveNewDeviceVerification(env, storage, {
+      user,
+      deviceIdentifier: deviceInfo.deviceIdentifier ?? '',
+      twoFactorEnabled: !!(effectiveTotpSecret || effectiveYubiKeyPublicIds.length > 0 || effectiveWebAuthnCredentials.length > 0 || emailTwoFactorEnabled),
+      newDeviceOtp: String(readBodyValue(body, ['newDeviceOtp', 'NewDeviceOtp']) ?? '').trim() || null,
+      // 使用设备登录（auth request）由已有设备确认，本身就是第二因素 ⇒ 不叠加邮件码
+      skipForAuthRequest: !!authRequestId,
+    });
+    if (!newDeviceCheck.allow) return newDeviceCheck.response;
 
     // Persist device only after successful password + (optional) 2FA verification.
     const deviceSession = await persistAndResolveDeviceSession(storage, user.id, deviceInfo);

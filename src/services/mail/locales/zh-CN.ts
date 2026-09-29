@@ -27,6 +27,14 @@ const zhCN: MailCopy = {
     expiresLabel: '验证码有效期至',
     outro: '如果你没有尝试登录，说明他人可能已知道你的主密码。请立即修改主密码并检查已登录的设备。',
   },
+  newDeviceVerification: {
+    subject: '你的 NodeWarden 新设备验证码',
+    heading: '验证这台设备',
+    intro: '有人正从未使用过的设备登录你的 NodeWarden 账户。请输入下面的验证码以允许本次登录。',
+    codeLabel: '验证码',
+    expiresLabel: '验证码有效期至',
+    outro: '如果这不是你本人操作，说明他人已掌握你的主密码，请立即修改主密码。',
+  },
   sendOtp: {
     subject: '你的 NodeWarden Send 验证码',
     heading: 'Send 验证码',

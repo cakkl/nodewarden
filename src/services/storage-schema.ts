@@ -22,7 +22,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'ALTER TABLE users ADD COLUMN master_password_hint TEXT',
   'ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT \'user\'',
   'ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT \'active\'',
-  'ALTER TABLE users ADD COLUMN verify_devices INTEGER NOT NULL DEFAULT 0',
+  'ALTER TABLE users ADD COLUMN verify_devices INTEGER NOT NULL DEFAULT 1',
   'ALTER TABLE users ADD COLUMN totp_secret TEXT',
   'ALTER TABLE users ADD COLUMN totp_recovery_code TEXT',
   'ALTER TABLE users ADD COLUMN yubikey_key1 TEXT',
@@ -71,6 +71,16 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     'expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, ' +
     'PRIMARY KEY (send_id, email), ' +
     'FOREIGN KEY (send_id) REFERENCES sends(id) ON DELETE CASCADE)',
+
+  // 新设备验证（NDV）的验证码。
+  // 主键是 (user_id, device_identifier)：码**绑定设备**（哈希里也混了 device_identifier），
+  // 所以不能复用上面两张以 user_id 为主键的码表（同时只能存一枚码，绑设备会互相覆盖）。
+  // ⚠️ 只有「已验证邮箱 + 服务器能发信 + 用户未关闭」的用户才会进到这张表（见 new-device-otp.ts）。
+  'CREATE TABLE IF NOT EXISTS new_device_otps (' +
+    'user_id TEXT NOT NULL, device_identifier TEXT NOT NULL, code_hash TEXT NOT NULL, ' +
+    'expires_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, ' +
+    'PRIMARY KEY (user_id, device_identifier), ' +
+    'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)',
 
   'CREATE TABLE IF NOT EXISTS domain_settings (' +
   'user_id TEXT PRIMARY KEY, equivalent_domains TEXT NOT NULL DEFAULT \'[]\', custom_equivalent_domains TEXT NOT NULL DEFAULT \'[]\', excluded_global_equivalent_domains TEXT NOT NULL DEFAULT \'[]\', updated_at TEXT NOT NULL, ' +
@@ -259,6 +269,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   "UPDATE users SET timezone = (SELECT value FROM config WHERE key = 'globalSettings__mail__timezone'), auto_timezone = 1 WHERE timezone IS NULL AND EXISTS (SELECT 1 FROM config WHERE key = 'globalSettings__mail__timezone')",
   // 删掉全局键，避免以后再次生效（此后 `EXISTS` 恒为假，天然幂等）。
   "DELETE FROM config WHERE key IN ('globalSettings__mail__locale', 'globalSettings__mail__timezone')",
+
+  // 新设备验证：该列历史上建库时默认 0（= 关闭），而我们要「默认开启」。
+  // 用 `schema.version` 当标记：旧库首次跑到这里时版本还不等于新版本 ⇒ 恰好翻转一次；
+  // 之后 storage.ts 写入新版本号，`EXISTS` 恒为假 ⇒ 天然幂等（不会盖掉用户自己关掉的设置）。
+  "UPDATE users SET verify_devices = 1 WHERE verify_devices = 0 AND EXISTS (SELECT 1 FROM config WHERE key = 'schema.version' AND value <> '2026-09-29-new-device-verification')",
 ];
 
 async function executeSchemaStatement(db: D1Database, statement: string): Promise<void> {

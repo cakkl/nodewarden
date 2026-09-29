@@ -258,6 +258,8 @@ export function translateServerError(message: string | null | undefined, fallbac
     'Invite code is required': 'txt_server_error_invite_required',
     'Invite not found': 'txt_server_error_invite_not_found',
     'Invalid backup timezone': 'txt_backup_error_timezone_invalid',
+    // 新设备验证（NDV）输错码；服务端文案逐字见 src/handlers/identity-new-device.ts
+    'Invalid New Device OTP': 'txt_new_device_verification_invalid_code',
     'Invalid password': 'txt_server_error_invalid_password',
     'Invalid refresh token': 'txt_server_error_invalid_refresh_token',
     'Invalid remote backup path': 'txt_backup_error_remote_path_invalid',

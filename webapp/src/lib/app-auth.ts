@@ -3,6 +3,7 @@ import {
   deriveLoginHashLocally,
   getAccountPasskeyAssertionOptions,
   getProfile,
+  isNewDeviceVerificationRequired,
   loadProfileSnapshot,
   loadSession,
   loginWithAccountPasskeyAssertion,
@@ -39,6 +40,18 @@ export interface PendingTotp {
   providerData?: unknown;
   availableProviders: number[];
   providerDataByType: Record<number, unknown>;
+}
+
+/**
+ * 新设备验证（NDV）待验证状态。
+ *
+ * 保留已经派生好的主密码哈希 / `masterKey`，才能在输码后**不重新派生**地重发同一个 password grant。
+ */
+export interface PendingDeviceVerification {
+  email: string;
+  passwordHash: string;
+  masterKey: Uint8Array;
+  kdfIterations: number;
 }
 
 export interface PendingPasskeyPassword {
@@ -99,6 +112,7 @@ type TwoFactorTokenError = {
     TwoFactorProviders?: unknown;
     TwoFactorProviders2?: unknown;
   };
+  ErrorModel?: { Message?: string };
   error_description?: string;
   error?: string;
 };
@@ -176,6 +190,7 @@ function resolvePendingTwoFactorProvider(providers: unknown): number {
 export type PasswordLoginResult =
   | { kind: 'success'; login: CompletedLogin }
   | { kind: 'totp'; pendingTotp: PendingTotp }
+  | { kind: 'device-verification'; pendingDeviceVerification: PendingDeviceVerification }
   | { kind: 'error'; message: string };
 
 export type PasskeyLoginResult =
@@ -561,6 +576,18 @@ export async function performPasswordLogin(
   }
 
   const tokenError = token as TwoFactorTokenError;
+  // 新设备验证：服务端在同一次请求里已把码发到邮箱，这里只需切到输码界面。
+  if (isNewDeviceVerificationRequired(tokenError)) {
+    return {
+      kind: 'device-verification',
+      pendingDeviceVerification: {
+        email: normalizedEmail,
+        passwordHash: derived.hash,
+        masterKey: derived.masterKey,
+        kdfIterations: derived.kdfIterations,
+      },
+    };
+  }
   const providers = readTwoFactorProviders(tokenError);
   if (providers) {
     const providerType = resolvePendingTwoFactorProvider(providers);
@@ -663,6 +690,20 @@ export async function performTotpLogin(
   throw new Error(translateServerError(tokenError.error_description || tokenError.error, fallback));
 }
 
+export async function performNewDeviceOtpLogin(
+  pending: PendingDeviceVerification,
+  code: string
+): Promise<CompletedLogin> {
+  const token = await loginWithPassword(pending.email, pending.passwordHash, { newDeviceOtp: code.trim() });
+  if ('access_token' in token && token.access_token) {
+    return completeLogin(token, pending.email, pending.masterKey, pending.kdfIterations, pending.passwordHash);
+  }
+  const tokenError = token as { error_description?: string; error?: string };
+  throw new Error(
+    translateServerError(tokenError.error_description || tokenError.error, t('txt_new_device_verification_invalid_code'))
+  );
+}
+
 export async function performRecoverTwoFactorLogin(
   email: string,
   password: string,
@@ -763,6 +804,18 @@ export async function performUnlock(
   }
 
   const tokenError = token as TwoFactorTokenError;
+  // 解锁同样走 password grant ⇒ 设备行被清掉后也会碰到新设备验证（不能只处理登录路径）。
+  if (isNewDeviceVerificationRequired(tokenError)) {
+    return {
+      kind: 'device-verification',
+      pendingDeviceVerification: {
+        email: normalizedEmail,
+        passwordHash: derived.hash,
+        masterKey: derived.masterKey,
+        kdfIterations: derived.kdfIterations,
+      },
+    };
+  }
   const providers = readTwoFactorProviders(tokenError);
   if (providers) {
     const providerType = resolvePendingTwoFactorProvider(providers);

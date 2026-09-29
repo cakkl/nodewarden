@@ -13,7 +13,7 @@ import de from './locales/de';
 import fr from './locales/fr';
 import it from './locales/it';
 import sv from './locales/sv';
-import { renderTestMail, renderVerificationMail, renderTwoFactorMail, renderSendOtpMail, renderPasswordHintMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
+import { renderTestMail, renderVerificationMail, renderTwoFactorMail, renderSendOtpMail, renderNewDeviceVerificationMail, renderPasswordHintMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
 
 export type MailLocale = 'en' | 'zh-CN' | 'zh-TW' | 'ru' | 'es' | 'fi' | 'de' | 'fr' | 'it' | 'sv';
 
@@ -97,6 +97,15 @@ export function renderSendOtpEmail(
 ): RenderedMail & { locale: MailLocale } {
   const { locale: resolved, copy } = resolveMailCopy(context.locale);
   return { ...renderSendOtpMail(copy, input, { ...context, locale: resolved }), locale: resolved };
+}
+
+/** 新设备验证：陌生设备登录时的拦截码（只发给已验证邮箱的用户）。 */
+export function renderNewDeviceVerificationEmail(
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail & { locale: MailLocale } {
+  const { locale: resolved, copy } = resolveMailCopy(context.locale);
+  return { ...renderNewDeviceVerificationMail(copy, input, { ...context, locale: resolved }), locale: resolved };
 }
 
 /** 主密码提示邮件。`hint` 为 `null` 时发「未设置提示」的版本（避免枚举）。 */

@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS users (
   security_stamp TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'user',
   status TEXT NOT NULL DEFAULT 'active',
-  verify_devices INTEGER NOT NULL DEFAULT 0,
+  verify_devices INTEGER NOT NULL DEFAULT 1,
   totp_secret TEXT,
   totp_recovery_code TEXT,
   -- YubiKey OTP：最多 5 个密钥槽 + NFC 开关。
@@ -100,6 +100,18 @@ CREATE TABLE IF NOT EXISTS send_email_otps (
   created_at TEXT NOT NULL,
   PRIMARY KEY (send_id, email),
   FOREIGN KEY (send_id) REFERENCES sends(id) ON DELETE CASCADE
+);
+
+-- 新设备验证（NDV）的验证码；主键 (user_id, device_identifier) —— 码绑定设备。
+CREATE TABLE IF NOT EXISTS new_device_otps (
+  user_id TEXT NOT NULL,
+  device_identifier TEXT NOT NULL,
+  code_hash TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, device_identifier),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS domain_settings (

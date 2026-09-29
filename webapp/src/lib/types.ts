@@ -538,6 +538,11 @@ export interface TokenSuccess {
 export interface TokenError {
   error?: string;
   error_description?: string;
+  /** 官方错误模型。新设备验证（NDV）挑战**逐字**依赖 `ErrorModel.Message`。 */
+  ErrorModel?: {
+    Message?: string;
+    Object?: string;
+  };
   TwoFactorProviders?: unknown;
   TwoFactorProviders2?: unknown;
   CustomResponse?: {

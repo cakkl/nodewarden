@@ -108,6 +108,19 @@ function hasTwoFactorChallenge(error: TokenError): boolean {
   return providers != null || providers2 != null;
 }
 
+/**
+ * 新设备验证（NDV）挑战。
+ *
+ * ⚠️ 官方**逐字**依赖全小写的 `ErrorModel.Message`；服务端侧同源定义见
+ * `src/handlers/identity-new-device.ts`。
+ */
+export function isNewDeviceVerificationRequired(error: TokenError): boolean {
+  const expected = 'new device verification required';
+  if (String(error.ErrorModel?.Message ?? '').trim().toLowerCase() === expected) return true;
+  return String(error.error ?? '').trim().toLowerCase() === 'device_error'
+    && String(error.error_description ?? '').trim().toLowerCase() === expected;
+}
+
 export function loadSession(): SessionState | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -266,6 +279,8 @@ export async function loginWithPassword(
     twoFactorProvider?: number;
     rememberDevice?: boolean;
     useRememberToken?: boolean;
+    /** 新设备验证码：带它重登同一个 password grant（官方同构） */
+    newDeviceOtp?: string;
     signal?: AbortSignal;
   }
 ): Promise<TokenSuccess | TokenError> {
@@ -288,6 +303,10 @@ export async function loginWithPassword(
     if (options.rememberDevice) {
       body.set('twoFactorRemember', '1');
     }
+  }
+  const newDeviceOtp = String(options?.newDeviceOtp ?? '').trim();
+  if (newDeviceOtp) {
+    body.set('newDeviceOtp', newDeviceOtp);
   }
   const resp = await fetch('/identity/connect/token', {
     method: 'POST',
@@ -1177,6 +1196,26 @@ export async function sendEmailTwoFactorLoginCode(email: string): Promise<void> 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: email.trim().toLowerCase() }),
+  });
+  if (!resp.ok) {
+    const body = await parseJson<TokenError>(resp);
+    throw new Error(translateServerError(body?.error_description || body?.error, t('txt_email_code_send_failed')));
+  }
+}
+
+/**
+ * 新设备验证（NDV）输码页的「重新发送」。**公开端点**，用主密码哈希自证身份。
+ *
+ * ⚠️ 码**按设备绑定** ⇒ 必须带 `Device-Identifier` 头；服务端对「发了」与「没发」返回同一响应。
+ */
+export async function resendNewDeviceOtp(email: string, masterPasswordHash: string): Promise<void> {
+  const resp = await fetch('/accounts/resend-new-device-otp', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Device-Identifier': getOrCreateDeviceIdentifier(),
+    },
+    body: JSON.stringify({ email: email.trim().toLowerCase(), masterPasswordHash }),
   });
   if (!resp.ok) {
     const body = await parseJson<TokenError>(resp);

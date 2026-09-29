@@ -1,4 +1,5 @@
 import { LIMITS } from './config/limits';
+import { handleResendNewDeviceOtp } from './handlers/identity-new-device';
 import {
   handleAccessSend,
   handleAccessSendFile,
@@ -423,8 +424,6 @@ export async function handlePublicRoute(
   }
 
   const publicMailBackedPaths = new Set([
-    '/api/accounts/resend-new-device-otp',
-    '/accounts/resend-new-device-otp',
     '/api/accounts/register/send-verification-email',
     '/accounts/register/send-verification-email',
     '/identity/accounts/register/send-verification-email',
@@ -450,6 +449,17 @@ export async function handlePublicRoute(
     const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
     if (blocked) return blocked;
     return handleSendEmailTwoFactorLogin(request, env);
+  }
+
+  // 新设备验证的「重新发送验证码」：**公开**写端点（用主密码哈希自证），限流同 password-hint。
+  // ⚠️ 刻意**不做** `isSameOriginWriteRequest` 检查：官方桌面会带自己的 Origin
+  // （`bw-desktop-file://bundle`）⇒ 严格比较会把它 403 掉，而官方客户端的「重新发送」正是这条路径的主要使用者。
+  // 不设它也不构成 CSRF 面：请求体是 JSON（跨源表单发不出、跨源 fetch 过不了预检，见 `utils/response.ts` 的 CORS 策略），
+  // 且必须持有主密码哈希。最近的同类端点是 `/api/two-factor/send-email-login`（同样只限流）。
+  if ((path === '/api/accounts/resend-new-device-otp' || path === '/accounts/resend-new-device-otp') && method === 'POST') {
+    const blocked = await enforcePublicRateLimit('public-sensitive', LIMITS.rateLimit.sensitivePublicRequestsPerMinute);
+    if (blocked) return blocked;
+    return handleResendNewDeviceOtp(request, env);
   }
 
   if (path === '/api/accounts/password-hint' && method === 'POST') {

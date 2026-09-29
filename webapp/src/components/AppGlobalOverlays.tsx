@@ -18,6 +18,22 @@ export interface AppConfirmState {
   onCancel?: () => void;
 }
 
+/**
+ * 新设备验证（NDV）输码界面的外部状态。
+ *
+ * 聚成一个可选对象：本组件在两个分支里各渲染一次，拆成多个 prop 要在两处各补一遍。
+ */
+interface DeviceVerificationDialogState {
+  email: string;
+  code: string;
+  submitting: boolean;
+  resending: boolean;
+  onCodeChange: (value: string) => void;
+  onConfirm: () => void;
+  onResend: () => void;
+  onCancel: () => void;
+}
+
 interface AppGlobalOverlaysProps {
   toasts: ToastMessage[];
   onCloseToast: (id: string) => void;
@@ -41,6 +57,8 @@ interface AppGlobalOverlaysProps {
   /** 邮件 2FA：重新发送验证码。未提供时（或非邮件 provider）不显示该按钮。 */
   onResendEmailCode?: () => void;
   emailCodeResending?: boolean;
+  /** 非空时弹出新设备验证的输码对话框；未提供则不渲染。 */
+  deviceVerification?: DeviceVerificationDialogState | null;
   disableTotpOpen: boolean;
   disableTotpPassword: string;
   onDisableTotpPasswordChange: (value: string) => void;
@@ -210,6 +228,43 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
           <span>{t('txt_trust_this_device_for_30_days')}</span>
         </label>
       </ConfirmDialog>
+
+      {props.deviceVerification && (
+        <ConfirmDialog
+          open
+          title={t('txt_new_device_verification')}
+          message={t('txt_new_device_verification_email_sent', { email: props.deviceVerification.email })}
+          confirmText={t('txt_verify')}
+          hideCancel
+          closeButton
+          showIcon={false}
+          confirmDisabled={props.deviceVerification.submitting || !props.deviceVerification.code.trim()}
+          cancelDisabled={props.deviceVerification.submitting}
+          onConfirm={props.deviceVerification.onConfirm}
+          onCancel={props.deviceVerification.onCancel}
+        >
+          <label className="field">
+            <span>{t('txt_email_verification_code')}</span>
+            <input
+              className="input"
+              type="text"
+              autoComplete="one-time-code"
+              value={props.deviceVerification.code}
+              onInput={(e) => props.deviceVerification?.onCodeChange((e.currentTarget as HTMLInputElement).value)}
+            />
+          </label>
+          {/* 说明为何被拦：用户第一次在这个浏览器登录，看到「新设备验证」不会一头雾水。 */}
+          <p className="muted-inline settings-field-note">{t('txt_new_device_verification_help')}</p>
+          <button
+            type="button"
+            className="btn btn-secondary dialog-btn"
+            disabled={props.deviceVerification.submitting || props.deviceVerification.resending}
+            onClick={props.deviceVerification.onResend}
+          >
+            {t('txt_resend_code')}
+          </button>
+        </ConfirmDialog>
+      )}
 
       <ConfirmDialog
         open={props.disableTotpOpen}

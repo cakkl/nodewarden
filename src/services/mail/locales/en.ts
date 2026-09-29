@@ -67,6 +67,18 @@ export interface MailCopy {
     expiresLabel: string;
     outro: string;
   };
+  /**
+   * 新设备验证：陌生设备登录时的验证码。
+   * 与 `twoFactor` 分开：那个是用户**手动开启**的两步登录，本函是**默认开启**的陌生设备拦截。
+   */
+  newDeviceVerification: {
+    subject: string;
+    heading: string;
+    intro: string;
+    codeLabel: string;
+    expiresLabel: string;
+    outro: string;
+  };
   /** 主密码提示（两个模板：有提示 / 无提示）。**无提示也发信** —— 否则「收到信」本身即可枚举账号。 */
   passwordHint: {
     subject: string;
@@ -183,6 +195,14 @@ const en: MailCopy = {
     codeLabel: 'Verification code',
     expiresLabel: 'This code expires at',
     outro: 'If you did not expect this, ignore this message and do not share the code with anyone.',
+  },
+  newDeviceVerification: {
+    subject: 'Your NodeWarden new device verification code',
+    heading: 'Verify this device',
+    intro: 'Someone signed in to your NodeWarden account from a device that has not been used before. Enter this code to allow that sign-in.',
+    codeLabel: 'Verification code',
+    expiresLabel: 'This code expires at',
+    outro: 'If this was not you, change your master password immediately: someone else knows it.',
   },
   notifications: {
     subject: 'Security alert: {event}',

@@ -14,7 +14,9 @@ import { buildAccountKeys } from '../utils/user-decryption';
 import { buildProfileResponse } from '../utils/profile-response';
 import { isYubiKeyEnabled, isYubiKeyPublicId, requestYubicoApiCredentials, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
 import { clearChallengeCode, issueChallengeCode, checkSendQuota } from '../services/email-2fa';
+import { emailAvailabilityForUser } from '../services/email-availability';
 import { isMailDeliveryAvailableSoft, resolveMailConnection, resolveMailRenderPreferences } from '../services/mail-settings';
+import { clearNewDeviceOtpsForUser, isNewDeviceVerificationEnabled } from '../services/new-device-otp';
 import { renderTwoFactorEmail, renderPasswordHintEmail } from '../services/mail';
 import { waitUntil } from 'cloudflare:workers';
 import { sendSmtpMail } from '../services/smtp-client';
@@ -344,7 +346,8 @@ export async function handleRegister(request: Request, env: Env): Promise<Respon
     securityStamp: generateUUID(),
     role: 'user',
     status: 'active',
-    verifyDevices: false, // new-device verification is not implemented yet
+    // 新设备验证默认开启（未验证邮箱的用户永远不会被拦，见 `emailAvailabilityForUser`）。
+    verifyDevices: true,
     totpSecret: null,
     totpRecoveryCode: null,
     yubikeyKey1: null,
@@ -582,31 +585,87 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
   return jsonResponse(await buildProfileResponse(user, env));
 }
 
-// PUT/POST /api/accounts/verify-devices
-// New-device verification is not implemented yet. This endpoint always rejects the request so
-// clients receive clear feedback that the feature is unavailable rather than silently ignoring
-// the user's preference.
+// 新设备验证（NDV）的设置响应。
+// 报**有效**值：未验证邮箱 / 发不出信 / 全局开关关着时该保护不会生效，报 true 就是虚假的安全姿态。
+async function deviceVerificationSettingsResponse(env: Env, user: User): Promise<Record<string, unknown>> {
+  const availability = await emailAvailabilityForUser(env, user);
+  const enabled = user.verifyDevices === true
+    && availability.ok
+    && await isNewDeviceVerificationEnabled(env.DB);
+  return {
+    Enabled: enabled,
+    enabled,
+    VerifyDevices: enabled,
+    verifyDevices: enabled,
+    Object: 'deviceVerificationSettings',
+    object: 'deviceVerificationSettings',
+  };
+}
+
+/**
+ * 写入 NDV 开关（`PUT /accounts/verify-devices`；上游的 `two-factor/…` 旧路径也走这里）。
+ *
+ * - 必须带密钥 —— 安全设置，与 2FA 各开关同一要求；
+ * - **开启**前要求「能给这个用户发信」：开了也收不到码 ⇒ 直接拒掉比让用户以为自己受保护更诚实；
+ * - 切换时清掉待用码，避免已发出的旧码在新状态下仍然可用。
+ */
+async function applyVerifyDevicesSetting(
+  request: Request,
+  env: Env,
+  storage: StorageService,
+  user: User,
+  enabled: boolean,
+  secret: string
+): Promise<Response> {
+  const auth = new AuthService(env);
+  if (!await verifyUserSecret(auth, user, secret)) {
+    return errorResponse('User verification failed.', 400);
+  }
+  if (enabled && !(await emailAvailabilityForUser(env, user)).ok) {
+    return errorResponse('Verify your email address before enabling new device verification.', 400);
+  }
+
+  await saveUserPreferences(env.DB, user.id, { verifyDevices: enabled });
+  await clearNewDeviceOtpsForUser(env.DB, user.id);
+  AuthService.invalidateUserCache(user.id);
+  await writeAuditEvent(storage, {
+    actorUserId: user.id,
+    action: 'account.verify_devices.update',
+    category: 'security',
+    level: 'security',
+    targetType: 'user',
+    targetId: user.id,
+    metadata: {
+      // 键名必须是 `trigger`（`source` 未登记，会被 sanitizeMetadata 静默丢弃）；
+      // 取值沿用既有的同功能触发器（已有标签，别再自创）。
+      trigger: 'two-factor.device-verification-settings',
+      enabled,
+      ...auditRequestMetadata(request),
+    },
+  });
+  user.verifyDevices = enabled;
+  return jsonResponse(await deviceVerificationSettingsResponse(env, user));
+}
+
+// PUT/POST /api/accounts/verify-devices（官方客户端：profile 读状态 → 本端点写状态）
 export async function handleSetVerifyDevices(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
   const user = await storage.getUserById(userId);
   if (!user) return errorResponse('User not found', 404);
 
-  // Log the attempt for audit purposes, but do not change state.
-  await writeAuditEvent(storage, {
-    actorUserId: user.id,
-    action: 'account.verify_devices.update.rejected',
-    category: 'security',
-    level: 'info',
-    targetType: 'user',
-    targetId: user.id,
-    metadata: {
-      // 日志中心拿它拼 `txt_log_reason_<snake>` 查标签；写成句子会拼出查不到的键、回退成英文。
-      reason: 'new_device_verification_unsupported',
-      ...auditRequestMetadata(request),
-    },
-  });
+  let body: Record<string, unknown>;
+  try {
+    body = await readRequestBody(request);
+  } catch {
+    return errorResponse('Invalid JSON', 400);
+  }
 
-  return errorResponse('New device verification is not available on this server. Enable TOTP or WebAuthn two-factor authentication instead.', 400);
+  const rawEnabled = body.verifyDevices ?? body.VerifyDevices ?? body.enabled ?? body.Enabled;
+  if (typeof rawEnabled !== 'boolean') {
+    return errorResponse('verifyDevices must be a boolean', 400);
+  }
+  const secret = readBodyString(body, ['masterPasswordHash', 'MasterPasswordHash', 'otp', 'OTP', 'secret', 'Secret']);
+  return applyVerifyDevicesSetting(request, env, storage, user, rawEnabled, secret);
 }
 
 // GET /api/accounts/keys
@@ -888,18 +947,7 @@ function yubiKeyResponse(user: User): Record<string, unknown> {
   };
 }
 
-// New-device verification is not implemented yet (it needs to email OTP challenges to unknown
-// devices). The settings response always reports disabled regardless of any legacy DB value.
-function deviceVerificationSettingsResponse(_user: User): Record<string, unknown> {
-  return {
-    Enabled: false,
-    enabled: false,
-    VerifyDevices: false,
-    verifyDevices: false,
-    Object: 'deviceVerificationSettings',
-    object: 'deviceVerificationSettings',
-  };
-}
+// GET /api/two-factor 的 NDV 设置响应已改为「有效值」版（见文件上方 deviceVerificationSettingsResponse）。
 
 async function yubiKeySettingsResponse(storage: StorageService, env: Env, user: User): Promise<Record<string, unknown>> {
   void storage;
@@ -997,12 +1045,10 @@ export async function handleGetDeviceVerificationSettings(request: Request, env:
   const storage = new StorageService(env.DB);
   const user = await storage.getUserById(userId);
   if (!user) return errorResponse('User not found', 404);
-  return jsonResponse(deviceVerificationSettingsResponse(user));
+  return jsonResponse(await deviceVerificationSettingsResponse(env, user));
 }
 
-// PUT/POST /api/two-factor/device-verification-settings
-// New-device verification is not implemented yet.
-// Reject any attempt to enable it; always return disabled state.
+// PUT/POST /api/two-factor/device-verification-settings（与 /api/accounts/verify-devices 等价）
 export async function handlePutDeviceVerificationSettings(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
   const user = await storage.getUserById(userId);
@@ -1016,30 +1062,11 @@ export async function handlePutDeviceVerificationSettings(request: Request, env:
   }
 
   const rawEnabled = body.enabled ?? body.Enabled ?? body.verifyDevices ?? body.VerifyDevices;
-
-  // Log the attempt for audit purposes — never change state.
-  await writeAuditEvent(storage, {
-    actorUserId: user.id,
-    action: 'account.verify_devices.update.rejected',
-    category: 'security',
-    level: 'info',
-    targetType: 'user',
-    targetId: user.id,
-    metadata: {
-      requested: rawEnabled,
-      reason: 'new_device_verification_unsupported',
-      // 键名必须是 `trigger`（原 `source` 未登记，会被 sanitizeMetadata 静默丢弃）。
-      trigger: 'two-factor.device-verification-settings',
-      ...auditRequestMetadata(request),
-    },
-  });
-
-  if (rawEnabled === true) {
-    return errorResponse('New device verification is not available on this server. Enable TOTP or WebAuthn two-factor authentication instead.', 400);
+  if (typeof rawEnabled !== 'boolean') {
+    return errorResponse('enabled must be a boolean', 400);
   }
-
-  // Setting to false is the only supported state — return it.
-  return jsonResponse(deviceVerificationSettingsResponse(user));
+  const secret = readBodyString(body, ['masterPasswordHash', 'MasterPasswordHash', 'otp', 'OTP', 'secret', 'Secret']);
+  return applyVerifyDevicesSetting(request, env, storage, user, rawEnabled, secret);
 }
 
 // PUT/POST /api/two-factor/authenticator
@@ -1695,20 +1722,6 @@ function randomStringAlphanum(length: number): string {
 
 // ─────────────────────────── 邮件两步登录（2FA provider 1） ───────────────────────────
 
-/**
- * 邮件 2FA 的启用前置：邮箱已验证 **且** 服务端能发信。
- * 少了任何一条，用户都会陷入「开了但收不到码」的死局。
- */
-async function emailTwoFactorAvailability(env: Env, user: User): Promise<{ ok: true } | { ok: false; reason: 'email-unverified' | 'mail-unavailable' }> {
-  if (user.emailVerified !== true) {
-    return { ok: false, reason: 'email-unverified' };
-  }
-  if (!(await isMailDeliveryAvailableSoft(env))) {
-    return { ok: false, reason: 'mail-unavailable' };
-  }
-  return { ok: true };
-}
-
 // POST /api/two-factor/get-email
 export async function handleGetTwoFactorEmail(request: Request, env: Env, userId: string): Promise<Response> {
   void request;
@@ -1716,7 +1729,7 @@ export async function handleGetTwoFactorEmail(request: Request, env: Env, userId
   const user = await storage.getUserById(userId);
   if (!user) return errorResponse('User not found', 404);
 
-  const availability = await emailTwoFactorAvailability(env, user);
+  const availability = await emailAvailabilityForUser(env, user);
   // 结构必须与客户端契约一致：外层 `Email` 是**对象**，内层才是 `Enabled` / `Email`。
   // 客户端执行 `new TwoFactorEmailDetailsResponse(getResponseProperty('Email'))`，
   // 若外层给字符串，内层字段取不到 ⇒ 界面上的邮箱占位符不会被替换（显示成 `__$1__`）。
@@ -1748,7 +1761,7 @@ export async function handlePutTwoFactorEmail(request: Request, env: Env, userId
   const verified = await verifyUserSecret(auth, user, secret);
   if (!verified) return errorResponse('User verification failed.', 400);
 
-  const availability = await emailTwoFactorAvailability(env, user);
+  const availability = await emailAvailabilityForUser(env, user);
   if (!availability.ok) {
     return errorResponse(
       availability.reason === 'email-unverified'

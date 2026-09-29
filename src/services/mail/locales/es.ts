@@ -27,6 +27,14 @@ const es: MailCopy = {
     expiresLabel: 'Este código caduca el',
     outro: 'Si no intentaste iniciar sesión, alguien más podría conocer tu contraseña maestra. Cámbiala y revisa tus sesiones activas.',
   },
+  newDeviceVerification: {
+    subject: 'Tu código de verificación de nuevo dispositivo de NodeWarden',
+    heading: 'Verifica este dispositivo',
+    intro: 'Alguien ha iniciado sesión en tu cuenta de NodeWarden desde un dispositivo que no se había usado antes. Introduce este código para permitir ese inicio de sesión.',
+    codeLabel: 'Código de verificación',
+    expiresLabel: 'El código caduca el',
+    outro: 'Si no has sido tú, otra persona conoce tu contraseña maestra. Cámbiala de inmediato.',
+  },
   sendOtp: {
     subject: 'Tu código de verificación de NodeWarden Send',
     heading: 'Código de verificación de Send',

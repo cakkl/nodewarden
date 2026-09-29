@@ -163,6 +163,8 @@ export async function saveUserPreferences(
     timezoneAuto?: boolean;
     mailOptIn?: boolean;
     twoFactorEmailEnabled?: boolean;
+    /** 新设备验证（NDV）开关；默认开启，用户可在设置里关。 */
+    verifyDevices?: boolean;
   }
 ): Promise<void> {
   const sets: string[] = [];
@@ -190,6 +192,10 @@ export async function saveUserPreferences(
   if (update.twoFactorEmailEnabled !== undefined) {
     sets.push('two_factor_email_enabled = ?');
     values.push(update.twoFactorEmailEnabled ? 1 : 0);
+  }
+  if (update.verifyDevices !== undefined) {
+    sets.push('verify_devices = ?');
+    values.push(update.verifyDevices ? 1 : 0);
   }
   if (!sets.length) return;
   sets.push('updated_at = ?');

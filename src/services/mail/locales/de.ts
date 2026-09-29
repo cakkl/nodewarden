@@ -27,6 +27,14 @@ const de: MailCopy = {
     expiresLabel: 'Dieser Code läuft ab am',
     outro: 'Wenn du dich nicht anmelden wolltest, kennt jemand anderes möglicherweise dein Master-Passwort. Ändere es und prüfe deine aktiven Sitzungen.',
   },
+  newDeviceVerification: {
+    subject: 'Dein NodeWarden-Code zur Verifizierung eines neuen Geräts',
+    heading: 'Dieses Gerät verifizieren',
+    intro: 'Jemand meldet sich von einem bisher unbekannten Gerät bei deinem NodeWarden-Konto an. Gib diesen Code ein, um diese Anmeldung zu erlauben.',
+    codeLabel: 'Bestätigungscode',
+    expiresLabel: 'Der Code läuft ab am',
+    outro: 'Wenn du das nicht warst, kennt jemand anderes dein Master-Passwort. Ändere es sofort.',
+  },
   sendOtp: {
     subject: 'Dein NodeWarden-Send-Bestätigungscode',
     heading: 'Send-Bestätigungscode',

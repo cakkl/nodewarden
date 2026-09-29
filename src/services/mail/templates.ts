@@ -289,8 +289,48 @@ export function renderSendOtpMail(
   };
 }
 
-/** 主密码提示邮件。**无提示时也发信**（防枚举，见 `MailCopy.passwordHint`）。 */
-export function renderPasswordHintMail(
+/**
+ * 新设备验证（NDV）邮件：陌生设备登录的拦截码。
+ *
+ * 收件人必然已验证邮箱（调用方已过发信门禁）⇒ 正文**不拉**「偏好未设定」提示句。
+ */
+export function renderNewDeviceVerificationMail(
+  copy: MailCopy,
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  const expiresAt = formatMailTime(input.expiresAt, context.timezone);
+  const expiryLine = `${copy.newDeviceVerification.expiresLabel} ${expiresAt}`;
+
+  return {
+    subject: copy.newDeviceVerification.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.newDeviceVerification.heading,
+      bodyHtml:
+        mailParagraph(copy.newDeviceVerification.intro) +
+        mailCodeBlock(copy.newDeviceVerification.codeLabel, input.code) +
+        mailParagraph(expiryLine, { muted: true }) +
+        mailParagraph(copy.newDeviceVerification.outro, { muted: true }),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.newDeviceVerification.heading,
+      '',
+      copy.newDeviceVerification.intro,
+      '',
+      `${copy.newDeviceVerification.codeLabel}: ${input.code}`,
+      expiryLine,
+      '',
+      copy.newDeviceVerification.outro,
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
+/** 主密码提示邮件。**无提示时也发信**（防枚举，见 `MailCopy.passwordHint`）。 */export function renderPasswordHintMail(
   copy: MailCopy,
   input: { hint: string | null },
   context: MailRenderContext = {}

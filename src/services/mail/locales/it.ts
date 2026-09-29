@@ -27,6 +27,14 @@ const it: MailCopy = {
     expiresLabel: 'Questo codice scade il',
     outro: 'Se non hai tentato di accedere, qualcun altro potrebbe conoscere la tua password principale. Cambiala e controlla le sessioni attive.',
   },
+  newDeviceVerification: {
+    subject: 'Il tuo codice di verifica del nuovo dispositivo NodeWarden',
+    heading: 'Verifica questo dispositivo',
+    intro: 'Qualcuno sta accedendo al tuo account NodeWarden da un dispositivo mai usato prima. Inserisci questo codice per consentire l\'accesso.',
+    codeLabel: 'Codice di verifica',
+    expiresLabel: 'Il codice scade il',
+    outro: 'Se non sei stato tu, qualcun altro conosce la tua password principale. Cambiala subito.',
+  },
   sendOtp: {
     subject: 'Il tuo codice di verifica NodeWarden Send',
     heading: 'Codice di verifica Send',

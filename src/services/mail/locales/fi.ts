@@ -27,6 +27,14 @@ const fi: MailCopy = {
     expiresLabel: 'Koodi vanhenee',
     outro: 'Jos et yrittänyt kirjautua, jollain muulla saattaa olla pääsalasanasi. Vaihda se ja tarkista aktiiviset istunnot.',
   },
+  newDeviceVerification: {
+    subject: 'NodeWarden-koodi uuden laitteen vahvistamiseen',
+    heading: 'Vahvista tämä laite',
+    intro: 'Joku kirjautuu NodeWarden-tilillesi laitteella, jota ei ole aiemmin käytetty. Syötä tämä koodi salliaksesi kirjautumisen.',
+    codeLabel: 'Vahvistuskoodi',
+    expiresLabel: 'Koodi vanhenee',
+    outro: 'Jos tämä et ollut sinä, joku muu tietää pääsalasanasi. Vaihda se heti.',
+  },
   sendOtp: {
     subject: 'NodeWarden Send -vahvistuskoodisi',
     heading: 'Sendin vahvistuskoodi',

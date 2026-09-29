@@ -27,6 +27,14 @@ const zhTW: MailCopy = {
     expiresLabel: '驗證碼有效期至',
     outro: '如果你沒有嘗試登入，表示他人可能已知悉你的主密碼。請立即變更主密碼並檢查已登入的裝置。',
   },
+  newDeviceVerification: {
+    subject: '你的 NodeWarden 新裝置驗證碼',
+    heading: '驗證這台裝置',
+    intro: '有人正從未曾使用過的裝置登入你的 NodeWarden 帳戶。請輸入下方驗證碼以允許本次登入。',
+    codeLabel: '驗證碼',
+    expiresLabel: '驗證碼有效期限至',
+    outro: '如果這不是你本人的操作，代表他人已取得你的主密碼，請立即變更主密碼。',
+  },
   sendOtp: {
     subject: '你的 NodeWarden Send 驗證碼',
     heading: 'Send 驗證碼',
