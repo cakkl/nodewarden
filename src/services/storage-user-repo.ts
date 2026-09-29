@@ -4,7 +4,7 @@ type SafeBind = (stmt: D1PreparedStatement, ...values: any[]) => D1PreparedState
 const USER_SELECT_COLUMNS =
   'id, email, name, master_password_hint, master_password_hash, key, private_key, public_key, ' +
   'kdf_type, kdf_iterations, kdf_memory, kdf_parallelism, security_stamp, role, status, verify_devices, ' +
-  'totp_secret, totp_recovery_code, yubikey_key1, yubikey_key2, yubikey_key3, yubikey_key4, yubikey_key5, yubikey_nfc, api_key, email_verified, locale, auto_locale, timezone, auto_timezone, mail_opt_in, two_factor_email_enabled, created_at, updated_at';
+  'totp_secret, totp_recovery_code, yubikey_key1, yubikey_key2, yubikey_key3, yubikey_key4, yubikey_key5, yubikey_nfc, api_key, email_verified, locale, auto_locale, timezone, auto_timezone, mail_opt_in, two_factor_email_enabled, two_factor_default_provider, created_at, updated_at';
 
 function mapUserRow(row: any): User {
   return {
@@ -40,6 +40,10 @@ function mapUserRow(row: any): User {
     autoTimezone: row.auto_timezone == null ? false : !!row.auto_timezone,
     mailOptIn: row.mail_opt_in == null ? false : !!row.mail_opt_in,
     twoFactorEmailEnabled: row.two_factor_email_enabled == null ? false : !!row.two_factor_email_enabled,
+    // 列存 provider 数字（0/1/3/7）；NULL 与非法值一律当「未设定」，避免把脏数据当成有效偏好。
+    defaultTwoFactorProvider: Number.isFinite(Number(row.two_factor_default_provider)) && row.two_factor_default_provider != null
+      ? Number(row.two_factor_default_provider)
+      : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -141,6 +145,17 @@ export async function setEmailVerified(db: D1Database, userId: string, verified:
   await db
     .prepare('UPDATE users SET email_verified = ?, updated_at = ? WHERE id = ?')
     .bind(verified ? 1 : 0, new Date().toISOString(), userId)
+    .run();
+}
+
+/**
+ * 默认提供程序走**专用 UPDATE**（不挂 saveUser）：被无关的全字段覆盖误重置会导致
+ * 「登录时默认方式悄悄变了」。
+ */
+export async function setDefaultTwoFactorProvider(db: D1Database, userId: string, providerType: number | null): Promise<void> {
+  await db
+    .prepare('UPDATE users SET two_factor_default_provider = ?, updated_at = ? WHERE id = ?')
+    .bind(providerType == null ? null : providerType, new Date().toISOString(), userId)
     .run();
 }
 

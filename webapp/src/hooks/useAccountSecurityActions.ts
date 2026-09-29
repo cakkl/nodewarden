@@ -28,6 +28,7 @@ import {
   saveTwoFactorPasskey,
   saveYubiKeyOtpApiCredentials,
   saveYubiKeyOtpSettings,
+  setDefaultTwoFactorProvider,
   setEmailTwoFactorEnabled,
   setTotp,
   trustAuthorizedDevicePermanently,
@@ -223,6 +224,12 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
         if (!normalized) throw new Error(t('txt_master_password_is_required'));
         const derived = await deriveLoginHash(profile.email, normalized, defaultKdfIterations);
         await setEmailTwoFactorEnabled(authedFetch, enabled, derived.hash);
+        await refetchTwoFactorStatus();
+      },
+
+      /** 设置登录时优先使用的提供程序。**不需要主密码**：只是偏好，不放宽任何验证要求。 */
+      async setDefaultTwoFactorProvider(providerType: number): Promise<void> {
+        await setDefaultTwoFactorProvider(authedFetch, providerType);
         await refetchTwoFactorStatus();
       },
 

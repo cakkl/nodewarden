@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- 邮件两步登录（2FA provider 1）是否启用。默认 0 = 关闭。
   -- 启用前置：邮箱已验证 **且** 服务端能发信 —— 否则等于把登录码发给不属于用户的邮箱。
   two_factor_email_enabled INTEGER NOT NULL DEFAULT 0,
+  -- 用户选定的**默认**两步登录提供程序（provider 数字）；NULL = 未选定。
+  -- 只存偏好，不允许它决定「能不能登录」：读取时若该提供程序已不可用，会回退到其它已启用项。
+  two_factor_default_provider INTEGER,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

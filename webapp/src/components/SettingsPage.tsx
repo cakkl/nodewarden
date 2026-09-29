@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { MAIL_TEST_COOLDOWN_SECONDS, RESEND_COOLDOWN_SECONDS, resendLabel, useResendCountdown } from '@/hooks/useResendCountdown';
 import { Clipboard, KeyRound, Mail, RefreshCw, Send, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { calcTotpNow } from '@/lib/crypto';
@@ -6,6 +7,12 @@ import qrcode from 'qrcode-generator';
 import type { AccountPasskeyCredential, MailEncryption, MailPreferences, MailPreferencesUpdate, MailSettings, MailSettingsInput, MailTestResult, Profile, TwoFactorPasskeyCredential, TwoFactorPasskeySettings, YubiKeyOtpSettings } from '@/lib/types';
 import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { describeMailFailure } from '@/hooks/useAdminMailActions';
+import {
+  TWO_FACTOR_PROVIDER_AUTHENTICATOR,
+  TWO_FACTOR_PROVIDER_EMAIL,
+  TWO_FACTOR_PROVIDER_WEBAUTHN,
+  TWO_FACTOR_PROVIDER_YUBIKEY,
+} from '@/lib/two-factor-providers';
 import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
 import { AVAILABLE_LOCALES, detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
 import { useDateTimeFormat } from '@/lib/datetime';
@@ -17,6 +24,9 @@ interface SettingsPageProps {
   totpEnabled: boolean;
   yubikeyEnabled: boolean;
   passkey2faEnabled: boolean;
+  /** 登录时**优先使用**的两步登录提供程序（provider 数字）；null = 未选定，服务端取第一个已启用项。 */
+  defaultProvider: number | null;
+  onSetDefaultTwoFactorProvider: (providerType: number) => Promise<void>;
   themePreference: ThemePreference;
   lockTimeoutMinutes: 0 | 1 | 5 | 15 | 30;
   sessionTimeoutAction: 'lock' | 'logout';
@@ -43,7 +53,7 @@ interface SettingsPageProps {
   onGetApiKey: (masterPassword: string) => Promise<string>;
   onRotateApiKey: (masterPassword: string) => Promise<string>;
   onLoadMailSettings: () => Promise<MailSettings>;
-  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到你的邮箱」。 */
+  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   mailDeliveryAvailable?: boolean;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
@@ -201,7 +211,8 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [emailVerificationDialogOpen, setEmailVerificationDialogOpen] = useState(false);
   /** 「允许发送通知邮件」的保存中状态（值本身是受控的：直接取自 props.mailPreferences）。 */
   const [mailOptInBusy, setMailOptInBusy] = useState(false);
-  const [verificationResendIn, setVerificationResendIn] = useState(0);
+  // 与服务端的冷却窗口对齐，避免按钮点了必然失败（剩余秒数能拿到时优先用服务端值）。
+  const [verificationResendIn, startVerificationResend, resetVerificationResend] = useResendCountdown();
 
   // 用 ref 持有最新的加载函数：父组件传的是内联箭头函数，每帧都是新引用，
   // 直接放进依赖数组会让 effect 反复重跑，未完成的旧请求还会把刚更新的验证状态盖回去。
@@ -225,22 +236,16 @@ export default function SettingsPage(props: SettingsPageProps) {
     };
   }, [activeSection]);
 
-  // 与服务端的 RESEND_INTERVAL_MS 对齐，避免按钮点了必然失败
-  const RESEND_COOLDOWN_SECONDS = 60;
-
-  useEffect(() => {
-    if (verificationResendIn <= 0) return;
-    const timer = window.setTimeout(() => setVerificationResendIn((n) => n - 1), 1000);
-    return () => window.clearTimeout(timer);
-  }, [verificationResendIn]);
-
   const sendVerificationCode = async () => {
     if (!props.onSendEmailVerificationCode) return;
     setEmailVerificationBusy(true);
     try {
       await props.onSendEmailVerificationCode();
-      setVerificationResendIn(RESEND_COOLDOWN_SECONDS);
+      startVerificationResend(RESEND_COOLDOWN_SECONDS);
     } catch (error) {
+      // 限流：用服务端的 `Retry-After` 把倒计时对齐到真实剩余时间。
+      const retryAfter = (error as { retryAfterSeconds?: number } | null)?.retryAfterSeconds;
+      if (retryAfter) startVerificationResend(retryAfter);
       props.onNotify?.('error', error instanceof Error ? error.message : t('txt_email_verification_failed'));
     } finally {
       setEmailVerificationBusy(false);
@@ -271,7 +276,7 @@ export default function SettingsPage(props: SettingsPageProps) {
       await props.onSubmitEmailVerificationCode(code);
       setEmailVerification((prev) => (prev ? { ...prev, verified: true, pendingExpiresAt: null } : prev));
       setVerificationCode('');
-      setVerificationResendIn(0);
+      resetVerificationResend();
       setEmailVerificationDialogOpen(false);
       props.onNotify?.('success', t('txt_email_verification_verified_badge'));
     } catch (error) {
@@ -329,6 +334,37 @@ export default function SettingsPage(props: SettingsPageProps) {
     }
   }, []);
 
+  /** 「语言 / 时区」偏好与两步登录的默认方式都是**普通偏好**：不需要主密码。 */
+  const [defaultProviderBusy, setDefaultProviderBusy] = useState(false);
+
+  /** 设置登录时优先使用的提供程序。仅已启用的行可点（未启用 / 已是默认的行按钮禁用）。 */
+  async function setDefaultTwoFactorProvider(providerType: number): Promise<void> {
+    if (defaultProviderBusy || props.defaultProvider === providerType) return;
+    setDefaultProviderBusy(true);
+    try {
+      await props.onSetDefaultTwoFactorProvider(providerType);
+    } catch (error) {
+      props.onNotify?.('error', error instanceof Error ? error.message : t('txt_save_failed'));
+    } finally {
+      setDefaultProviderBusy(false);
+    }
+  }
+
+  /** 该行的「默认」按钮：已选中的显示为「默认」并禁用，未启用的也禁用。 */
+  function defaultProviderButton(providerType: number, enabled: boolean) {
+    const isDefault = props.defaultProvider === providerType;
+    return (
+      <button
+        type="button"
+        className="btn btn-secondary"
+        disabled={!enabled || isDefault || defaultProviderBusy}
+        onClick={() => void setDefaultTwoFactorProvider(providerType)}
+      >
+        {isDefault ? t('txt_two_step_default') : t('txt_two_step_set_default')}
+      </button>
+    );
+  }
+
   /**
    * 「自动」档在下拉里显示**实际生效值**（如「自动（简体中文）」），而不是「按浏览器」字样：
    * 用户要看的是现在到底用的是什么。服务端还没有值时用本机检测值兜底。
@@ -363,13 +399,20 @@ export default function SettingsPage(props: SettingsPageProps) {
   }
 
   /** 测试不需要主密码：只给操作者自己发一封信，不是敏感写操作。 */
+  /** 测试发信有 10 秒窗口，按钮上给倒计时，否则用户只能靠报错反推。 */
+  const [mailTestResendIn, startMailTestCountdown] = useResendCountdown();
+
   async function submitMailTest(): Promise<void> {
-    if (!mailCanTest) return;
+    if (!mailCanTest || mailTestResendIn > 0) return;
     setMailSubmitting(true);
     try {
       await props.onSendTestMail(mailInput);
+      startMailTestCountdown(MAIL_TEST_COOLDOWN_SECONDS);
       setMailTested(true);
     } catch (error) {
+      // 服务端限流时会把剩余秒数放在 `Retry-After` 上，用它对齐倒计时。
+      const retryAfter = (error as { retryAfterSeconds?: number } | null)?.retryAfterSeconds;
+      if (retryAfter) startMailTestCountdown(retryAfter);
       props.onNotify?.('error', describeMailFailure(error));
     } finally {
       setMailSubmitting(false);
@@ -942,49 +985,49 @@ export default function SettingsPage(props: SettingsPageProps) {
                 </label>
               </section>
 
+              {/* 语言与时区同属「本地化偏好」⇒ 合为一个区块（分隔线只画在类别之间） */}
               <section className="settings-submodule">
-                <label className="field">
-                  <span>{t('txt_display_language')}</span>
-                  <select
-                    className="input"
-                    value={props.mailPreferences?.autoLocale ? AUTO_OPTION : selectedLocale}
-                    onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale | typeof AUTO_OPTION)}
-                  >
-                    <option value={AUTO_OPTION}>
-                      {t('txt_preferences_auto', { value: localeLabel(autoLocaleValue) })}
-                    </option>
-                    {AVAILABLE_LOCALES.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="field-help">{t('txt_display_language_help')}</div>
-                </label>
-              </section>
-
-              {props.onSaveMailPreferences && (
-                <section className="settings-submodule">
+                <div className="settings-vertical-fields">
                   <label className="field">
-                    <span>{t('txt_timezone')}</span>
+                    <span>{t('txt_display_language')}</span>
                     <select
                       className="input"
-                      value={props.mailPreferences?.autoTimezone || !props.mailPreferences?.timezone ? AUTO_OPTION : props.mailPreferences.timezone}
-                      onInput={(e) => void changeTimezone((e.currentTarget as HTMLSelectElement).value)}
+                      value={props.mailPreferences?.autoLocale ? AUTO_OPTION : selectedLocale}
+                      onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale | typeof AUTO_OPTION)}
                     >
                       <option value={AUTO_OPTION}>
-                        {t('txt_preferences_auto', { value: autoTimezoneValue })}
+                        {t('txt_preferences_auto', { value: localeLabel(autoLocaleValue) })}
                       </option>
-                      {timezoneOptions.map((zone) => (
-                        <option key={zone} value={zone}>
-                          {zone}
+                      {AVAILABLE_LOCALES.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
                         </option>
                       ))}
                     </select>
-                    <div className="field-help">{t('txt_timezone_help')}</div>
+                    <div className="field-help">{t('txt_display_language_help')}</div>
                   </label>
-                </section>
-              )}
+                  {props.onSaveMailPreferences && (
+                    <label className="field">
+                      <span>{t('txt_timezone')}</span>
+                      <select
+                        className="input"
+                        value={props.mailPreferences?.autoTimezone || !props.mailPreferences?.timezone ? AUTO_OPTION : props.mailPreferences.timezone}
+                        onInput={(e) => void changeTimezone((e.currentTarget as HTMLSelectElement).value)}
+                      >
+                        <option value={AUTO_OPTION}>
+                          {t('txt_preferences_auto', { value: autoTimezoneValue })}
+                        </option>
+                        {timezoneOptions.map((zone) => (
+                          <option key={zone} value={zone}>
+                            {zone}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="field-help">{t('txt_timezone_help')}</div>
+                    </label>
+                  )}
+                </div>
+              </section>
 
               <section className="settings-submodule">
                 <div className="session-timeout-fields">
@@ -1261,14 +1304,17 @@ export default function SettingsPage(props: SettingsPageProps) {
                       </div>
                       <span>{t('txt_email_two_step_login_help')}</span>
                     </div>
-                    <button
-                      type="button"
-                      className="btn btn-secondary"
-                      disabled={!emailTwoFactorAvailable}
-                      onClick={() => openMasterPasswordPrompt(emailTwoFactorEnabled ? 'disableEmailTwoFactor' : 'enableEmailTwoFactor')}
-                    >
-                      {emailTwoFactorEnabled ? t('txt_disable') : t('txt_enable')}
-                    </button>
+                    <div className="actions">
+                      {defaultProviderButton(TWO_FACTOR_PROVIDER_EMAIL, emailTwoFactorEnabled)}
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={!emailTwoFactorAvailable}
+                        onClick={() => openMasterPasswordPrompt(emailTwoFactorEnabled ? 'disableEmailTwoFactor' : 'enableEmailTwoFactor')}
+                      >
+                        {emailTwoFactorEnabled ? t('txt_disable') : t('txt_enable')}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="two-step-provider-row">
@@ -1282,9 +1328,12 @@ export default function SettingsPage(props: SettingsPageProps) {
                       </div>
                       <span>{t('txt_authenticator_app_help')}</span>
                     </div>
-                    <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('manageTotp')}>
-                      {t('txt_manage')}
-                    </button>
+                    <div className="actions">
+                      {defaultProviderButton(TWO_FACTOR_PROVIDER_AUTHENTICATOR, totpLocked)}
+                      <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('manageTotp')}>
+                        {t('txt_manage')}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="two-step-provider-row">
@@ -1298,9 +1347,12 @@ export default function SettingsPage(props: SettingsPageProps) {
                       </div>
                       <span>{t('txt_passkey_provider_help')}</span>
                     </div>
-                    <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('managePasskey2fa')}>
-                      {t('txt_manage')}
-                    </button>
+                    <div className="actions">
+                      {defaultProviderButton(TWO_FACTOR_PROVIDER_WEBAUTHN, twoFactorPasskeyEnabled)}
+                      <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('managePasskey2fa')}>
+                        {t('txt_manage')}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="two-step-provider-row">
@@ -1312,9 +1364,12 @@ export default function SettingsPage(props: SettingsPageProps) {
                       </div>
                       <span>{t('txt_yubico_otp_security_key_help')}</span>
                     </div>
-                    <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('manageYubiKey')}>
-                      {t('txt_manage')}
-                    </button>
+                    <div className="actions">
+                      {defaultProviderButton(TWO_FACTOR_PROVIDER_YUBIKEY, yubiKeyEnabled)}
+                      <button type="button" className="btn btn-secondary" onClick={() => openMasterPasswordPrompt('manageYubiKey')}>
+                        {t('txt_manage')}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </section>
@@ -1459,11 +1514,11 @@ export default function SettingsPage(props: SettingsPageProps) {
                     <button
                       type="button"
                       className="btn btn-secondary"
-                      disabled={!mailCanTest}
+                      disabled={!mailCanTest || mailTestResendIn > 0}
                       onClick={() => void submitMailTest()}
                     >
                       <Send size={14} className="btn-icon" />
-                      {t('txt_mail_send_test')}
+                      {resendLabel(t('txt_mail_send_test'), mailTestResendIn)}
                     </button>
                     {mailEnabled && (
                       <button
@@ -1489,6 +1544,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         hideConfirm
         hideCancel
         closeButton
+        dismissable={false}
         onConfirm={() => undefined}
         onCancel={closeMailPrompt}
         afterActions={
@@ -1526,6 +1582,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         cancelText={t('txt_cancel')}
         confirmDisabled={masterPasswordPromptSubmitting || !masterPasswordPromptValue.trim()}
         cancelDisabled={masterPasswordPromptSubmitting}
+        dismissable={false}
         onConfirm={() => void submitMasterPasswordPrompt()}
         onCancel={closeMasterPasswordPrompt}
       >
@@ -1546,6 +1603,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         message={t('txt_email_verification_description')}
         confirmText={t('txt_email_verification_submit')}
         confirmDisabled={emailVerificationBusy || verificationCode.length !== 6}
+        dismissable={false}
         onConfirm={() => void submitVerificationCode()}
         onCancel={closeVerificationDialog}
       >
@@ -1556,6 +1614,7 @@ export default function SettingsPage(props: SettingsPageProps) {
             <input
               className="input"
               inputMode="numeric"
+              autoComplete="one-time-code"
               maxLength={6}
               value={verificationCode}
               onInput={(e) => setVerificationCode((e.currentTarget as HTMLInputElement).value.replace(/\D/g, ''))}
@@ -1570,9 +1629,7 @@ export default function SettingsPage(props: SettingsPageProps) {
               disabled={emailVerificationBusy || verificationResendIn > 0}
               onClick={() => void sendVerificationCode()}
             >
-              {verificationResendIn > 0
-                ? `${t('txt_email_verification_resend_code')} (${verificationResendIn}s)`
-                : t('txt_email_verification_resend_code')}
+              {resendLabel(t('txt_email_verification_resend_code'), verificationResendIn)}
             </button>
           </div>
         </div>
@@ -1585,6 +1642,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         hideCancel
         hideConfirm
         closeButton
+        dismissable={false}
         onConfirm={() => {}}
         onCancel={closeTotpManageDialog}
       >
@@ -1680,6 +1738,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         hideConfirm
         hideCancel
         closeButton
+        dismissable={false}
         onConfirm={() => {
           if (yubiKeySubmitting) return;
           if (yubiKeyYubicoConfigured) {

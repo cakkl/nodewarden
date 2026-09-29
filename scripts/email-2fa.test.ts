@@ -28,8 +28,9 @@ import {
   handleDeleteTwoFactorEmail,
   handleGetTwoFactorEmail,
   handlePutTwoFactorEmail,
+  handleSendEmailTwoFactorLogin,
 } from '../src/handlers/accounts';
-import { getUserById, saveUserPreferences } from '../src/services/storage-user-repo';
+import { getUserById, saveUserPreferences, setEmailVerified } from '../src/services/storage-user-repo';
 import type { Env } from '../src/types';
 import { TEST_JWT_SECRET, createSchemaDatabase, insertUser } from './lib/test-harness';
 
@@ -49,6 +50,14 @@ async function setup() {
 function jsonRequest(body: unknown): Request {
   return new Request('https://vault.example/api/two-factor/email', {
     method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+function sendEmailLoginRequest(body: unknown): Request {
+  return new Request('https://vault.example/api/two-factor/send-email-login', {
+    method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -110,6 +119,12 @@ test('限流：两次发码之间有最小间隔', async () => {
   const quota = await checkSendQuota(handle.db, USER_ID);
   assert.equal(quota.allowed, false);
   assert.equal(quota.allowed === false && quota.reason, 'too-soon');
+  // 剩余秒数供 429 的 `Retry-After` 用；界面靠它在重发按钮上倒计时。
+  assert.ok(
+    quota.allowed === false && quota.reason === 'too-soon' && quota.retryAfterSeconds > 0
+      && quota.retryAfterSeconds <= RESEND_INTERVAL_MS / 1000,
+    'too-soon 必须回报 (0, 间隔秒数] 的剩余秒数'
+  );
 
   // 超过间隔后恢复
   const later = new Date(Date.now() + RESEND_INTERVAL_MS + 1000);
@@ -196,6 +211,42 @@ test('开关端点：停用会立即作废待用码', async () => {
   assert.equal(user?.twoFactorEmailEnabled, false);
   // 已发出的码必须失效
   assert.equal(await verifyChallengeCode(handle.db, USER_ID, issued.code, TEST_JWT_SECRET), 'no-code');
+});
+
+// 发码端点是**公开**的（登录前调用）⇒ 限流必须能被客户端读懂：
+// 状态码 + `Retry-After`（秒），界面靠它在「重新发送」按钮上倒计时。
+test('发码端点：间隔内返回 429 + Retry-After（供按钮倒计时）', async () => {
+  const { handle, env } = await setup();
+  await saveUserPreferences(handle.db, USER_ID, { twoFactorEmailEnabled: true });
+  await setEmailVerified(handle.db, USER_ID, true);
+  // 最近刚发过一封信 ⇒ 落在最小间隔内
+  await issueChallengeCode(handle.db, USER_ID, TEST_JWT_SECRET);
+
+  const response = await handleSendEmailTwoFactorLogin(
+    sendEmailLoginRequest({ email: USER_EMAIL }),
+    env
+  );
+
+  assert.equal(response.status, 429);
+  const retryAfter = Number(response.headers.get('Retry-After'));
+  assert.ok(retryAfter > 0 && retryAfter <= RESEND_INTERVAL_MS / 1000, `Retry-After 应是 (0, ${RESEND_INTERVAL_MS / 1000}] 的秒数，实际 ${retryAfter}`);
+  const body = (await response.json()) as Record<string, any>;
+  assert.match(String(body.Message), /wait/i, '文案保持英文常量：界面按它映射本地化键');
+});
+
+test('发码端点：未启用/未验证邮箱时统一 400（不泄露账号是否存在）', async () => {
+  const { env } = await setup();
+
+  const unknown = await handleSendEmailTwoFactorLogin(sendEmailLoginRequest({ email: 'nobody@example.test' }), env);
+  const disabled = await handleSendEmailTwoFactorLogin(sendEmailLoginRequest({ email: USER_EMAIL }), env);
+
+  assert.equal(unknown.status, 400);
+  assert.equal(disabled.status, 400);
+  assert.equal(
+    await unknown.text(),
+    await disabled.text(),
+    '「没这个邮箱」与「没启用」必须逐字相同，否则可以拿来枚举账号'
+  );
 });
 
 test('状态端点：未验证邮箱时 Available 为 false', async () => {

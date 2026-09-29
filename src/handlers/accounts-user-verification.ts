@@ -18,7 +18,7 @@ import { resolveMailConnection, resolveMailRenderPreferences } from '../services
 import { sendSmtpMail } from '../services/smtp-client';
 import { StorageService } from '../services/storage';
 import type { Env } from '../types';
-import { errorResponse, jsonResponse } from '../utils/response';
+import { errorResponse, jsonResponse, tooManyRequestsResponse } from '../utils/response';
 
 /** 空 body 当 `{}`（客户端不一定发 body）⇒ 后续按「缺码」报 400，而不是 JSON 解析错。 */
 async function readOptionalJsonBody(request: Request): Promise<Record<string, unknown>> {
@@ -54,7 +54,9 @@ export async function handleRequestAccountOtp(request: Request, env: Env, userId
 
   const quota = await checkSendQuota(env.DB, user.id);
   if (!quota.allowed) {
-    if (quota.reason === 'too-soon') return errorResponse('Please wait before requesting another code', 429);
+    if (quota.reason === 'too-soon') {
+      return tooManyRequestsResponse('Please wait before requesting another code', quota.retryAfterSeconds);
+    }
     if (quota.reason === 'hourly-limit') return errorResponse('Too many codes were requested this hour', 429);
     return errorResponse('The daily code limit has been reached', 429);
   }

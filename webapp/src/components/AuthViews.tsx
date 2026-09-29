@@ -34,7 +34,7 @@ interface AuthViewsProps {
   passkeyPassword: string;
   registerValues: RegisterValues;
   registrationInviteRequired?: boolean;
-  /** 服务端能发信 ⇒ 主密码提示的说明文案改为「会发送到你的邮箱」。 */
+  /** 服务端能发信 ⇒ 主密码提示的说明 文案改为「会发送到您的邮箱」。 */
   mailDeliveryAvailable?: boolean;
   unlockPassword: string;
   emailForLock: string;

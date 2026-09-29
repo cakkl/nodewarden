@@ -44,7 +44,7 @@ const EXISTING_DEVICE_ID = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 /** 又一台陌生设备（既不在 devices 表里，也不是本次请求的标识）—— 用来验「码绑设备」 */
 const OTHER_NEW_DEVICE_ID = 'cccccccc-3333-4333-8333-cccccccccccc';
 const SCHEMA_VERSION_KEY = 'schema.version';
-const CURRENT_SCHEMA_VERSION = '2026-09-29-new-device-verification';
+const CURRENT_SCHEMA_VERSION = '2026-09-29-two-factor-default-provider';
 
 interface Harness {
   handle: Awaited<ReturnType<typeof createSchemaDatabase>>;
@@ -364,6 +364,59 @@ test('已开 2FA 的用户：走 2FA 挑战，不叠加新设备验证', async (
     assert.notEqual(errorModel?.Message, 'new device verification required', '不能同时是新设备验证挑战');
     assert.equal(errorModel?.Message, 'Two factor required.');
     assert.equal(getSmtpConnectCalls().length, 0);
+  } finally {
+    resetSmtpScript();
+    h.handle.close();
+  }
+});
+
+test('用恢复码登录：同一请求内停用 2FA 并签发 token，不会被新设备验证二次拦截', async () => {
+  const h = await setup({ yubikeyKey1: 'yubikey-public-id' });
+  setSmtpScript();
+  try {
+    const recoveryCode = 'RECOVERY-CODE-ABCDEFGH';
+    h.handle.connection
+      .prepare('UPDATE users SET totp_recovery_code = ? WHERE id = ?')
+      .run(recoveryCode, USER_ID);
+
+    // 恢复码本身就是 2FA 提供程序（8）。官方客户端就是这么登的 ⇒ 这条行为属于兼容契约。
+    const { status, body } = await login(h, { twoFactorProvider: '8', twoFactorToken: recoveryCode });
+    assert.equal(status, 200, '恢复码登录必须直接签发 token');
+    assert.ok(body.access_token, '响应里应当带着 access_token');
+    assert.equal(getSmtpConnectCalls().length, 0, '本次请求已通过第二因素，不该再要一封新设备验证码');
+
+    // 停用 + 轮换是恢复码的语义，别因为「不用 /recover-2fa 了」就漏掉。
+    const row = h.handle.connection
+      .prepare('SELECT yubikey_key1 AS yubikey, totp_recovery_code AS code FROM users WHERE id = ?')
+      .get(USER_ID) as { yubikey: string | null; code: string | null };
+    assert.equal(row.yubikey, null, '恢复码必须停用其余 2FA');
+    assert.notEqual(row.code, recoveryCode, '恢复码必须轮换');
+  } finally {
+    resetSmtpScript();
+    h.handle.close();
+  }
+});
+
+test('用恢复码登录：邮件 2FA 也要一并停用（否则下次登录又卡在邮件码）', async () => {
+  const h = await setup({});
+  setSmtpScript();
+  try {
+    const recoveryCode = 'RECOVERY-CODE-ABCDEFGH';
+    h.handle.connection
+      .prepare('UPDATE users SET totp_recovery_code = ?, two_factor_email_enabled = 1 WHERE id = ?')
+      .run(recoveryCode, USER_ID);
+
+    const { status } = await login(h, { twoFactorProvider: '8', twoFactorToken: recoveryCode });
+    assert.equal(status, 200);
+
+    const row = h.handle.connection
+      .prepare('SELECT two_factor_email_enabled AS email FROM users WHERE id = ?')
+      .get(USER_ID) as { email: number };
+    assert.equal(row.email, 0, '邮件 2FA 必须被恢复码停用');
+
+    // 停了就是停了：下一次登录不该再被要求邮件码（这正是「收不到邮件」的死循环入口）
+    const again = await login(h);
+    assert.equal(again.status, 200, '2FA 已全部停用 ⇒ 再次登录应当直接成功');
   } finally {
     resetSmtpScript();
     h.handle.close();

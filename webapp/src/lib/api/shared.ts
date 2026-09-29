@@ -49,10 +49,20 @@ export async function parseErrorMessage(resp: Response, fallback: string): Promi
   return translateServerError(body?.error_description || body?.error, fallback);
 }
 
-export function createApiError(message: string, status?: number): Error & { status?: number } {
-  const error = new Error(message) as Error & { status?: number };
+export function createApiError(message: string, status?: number, retryAfterSeconds?: number): Error & { status?: number; retryAfterSeconds?: number } {
+  const error = new Error(message) as Error & { status?: number; retryAfterSeconds?: number };
   if (status !== undefined) error.status = status;
+  if (retryAfterSeconds !== undefined) error.retryAfterSeconds = retryAfterSeconds;
   return error;
+}
+
+/**
+ * 429 响应里的 `Retry-After`（秒）；缺失/非法返回 undefined。
+ * 服务端只把剩余秒数放响应头（错误文案禁止插值）⇒ 按钮倒计时只能读这里。
+ */
+export function readRetryAfterSeconds(response: Response): number | undefined {
+  const raw = Number(String(response.headers.get('Retry-After') || '').trim());
+  return Number.isFinite(raw) && raw > 0 ? Math.ceil(raw) : undefined;
 }
 
 export function requiredError(messageKey: string): never {

@@ -870,6 +870,7 @@ export default function ImportPage({ onImport, onImportEncryptedRaw, accountKeys
         confirmText={isExporting ? t('txt_loading') : t('txt_verify')}
         cancelText={t('txt_cancel')}
         showIcon={false}
+        dismissable={false}
         confirmDisabled={isExporting}
         cancelDisabled={isExporting}
         onConfirm={() => void handleExportConfirmPassword()}
@@ -897,6 +898,7 @@ export default function ImportPage({ onImport, onImportEncryptedRaw, accountKeys
         confirmText={isPasswordSubmitting ? t('txt_loading') : t('txt_import')}
         cancelText={t('txt_cancel')}
         showIcon={false}
+        dismissable={false}
         confirmDisabled={isPasswordSubmitting}
         cancelDisabled={isPasswordSubmitting}
         onConfirm={() => void handlePasswordImportConfirm()}
@@ -925,6 +927,7 @@ export default function ImportPage({ onImport, onImportEncryptedRaw, accountKeys
         confirmText={isZipPasswordSubmitting ? t('txt_loading') : t('txt_import')}
         cancelText={t('txt_cancel')}
         showIcon={false}
+        dismissable={false}
         confirmDisabled={isZipPasswordSubmitting}
         cancelDisabled={isZipPasswordSubmitting}
         onConfirm={() => void handleZipPasswordImportConfirm()}

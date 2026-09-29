@@ -90,6 +90,11 @@ export interface User {
    * 启用前置：邮箱已验证 **且** 服务端能发信 —— 否则等于把登录码发给不属于用户的邮箱。
    */
   twoFactorEmailEnabled?: boolean;
+  /**
+   * 用户选定的**默认**两步登录提供程序（provider 数字；无可用项时为 null）。
+   * 登录挑战会把它排到 `TwoFactorProviders` 首位 ⇒ 客户端默认选中它；停用时会落到下一个仍启用的。
+   */
+  defaultTwoFactorProvider?: number | null;
   createdAt: string;
   updatedAt: string;
 }

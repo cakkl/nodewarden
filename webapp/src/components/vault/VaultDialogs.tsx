@@ -233,6 +233,7 @@ export default function VaultDialogs(props: VaultDialogsProps) {
         confirmText={t('txt_unlock')}
         cancelText={t('txt_cancel')}
         showIcon={false}
+        dismissable={false}
         confirmDisabled={props.busy}
         cancelDisabled={props.busy}
         onConfirm={props.onConfirmReprompt}

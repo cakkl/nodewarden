@@ -6,7 +6,7 @@
  * 收件人固定为操作者自己的邮箱，不接受请求体传入地址（否则就是开放中继）。
  */
 import type { Env, User } from '../types';
-import { jsonResponse, errorResponse } from '../utils/response';
+import { jsonResponse, errorResponse, tooManyRequestsResponse } from '../utils/response';
 import { StorageService } from '../services/storage';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
 import { claimConfigValue } from '../services/storage-config-repo';
@@ -130,10 +130,18 @@ export async function handleAdminUpdateMailSettings(
   }
 }
 
+/** 测试发信的最小间隔（与 `scripts/` 里对外文案一致）。 */
+const ADMIN_MAIL_TEST_COOLDOWN_MS = 10_000;
+
 /** 同一个 10 秒窗口内只允许发一次测试邮件，避免被脚本刷额度。 */
 async function claimMailTestSlot(db: D1Database): Promise<boolean> {
-  const bucket = String(Math.floor(Date.now() / 10_000));
+  const bucket = String(Math.floor(Date.now() / ADMIN_MAIL_TEST_COOLDOWN_MS));
   return claimConfigValue(db, MAIL_TEST_THROTTLE_CONFIG_KEY, bucket);
+}
+
+/** 当前窗口还剩多少秒（用于 429 的 `Retry-After`）。 */
+function mailTestRetryAfterSeconds(): number {
+  return Math.ceil((ADMIN_MAIL_TEST_COOLDOWN_MS - (Date.now() % ADMIN_MAIL_TEST_COOLDOWN_MS)) / 1000);
 }
 
 /**
@@ -152,7 +160,7 @@ export async function handleAdminSendTestMail(
   if (!isAdmin(actorUser)) return errorResponse('Forbidden', 403);
 
   if (!(await claimMailTestSlot(env.DB))) {
-    return errorResponse('Sending test emails is limited to once every 10 seconds', 429);
+    return tooManyRequestsResponse('Sending test emails is limited to once every 10 seconds', mailTestRetryAfterSeconds());
   }
 
   const body = await readJsonBody(request);

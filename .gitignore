@@ -66,3 +66,6 @@ security-audits/
 .mcp.json
 opencode.jsonc
 .cursor/
+
+# Added by ggshield
+.cache_ggshield

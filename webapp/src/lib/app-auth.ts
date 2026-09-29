@@ -9,7 +9,6 @@ import {
   loginWithAccountPasskeyAssertion,
   loginWithPassword,
   refreshAccessToken,
-  recoverTwoFactor,
   registerAccount,
   unlockVaultKey,
 } from '@/lib/api/auth';
@@ -28,6 +27,13 @@ import {
   unlockOfflineVaultWithMasterKey,
 } from '@/lib/offline-auth';
 import { probeNodeWardenService } from '@/lib/network-status';
+import {
+  TWO_FACTOR_PROVIDER_AUTHENTICATOR,
+  TWO_FACTOR_PROVIDER_EMAIL,
+  TWO_FACTOR_PROVIDER_RECOVERY_CODE,
+  TWO_FACTOR_PROVIDER_WEBAUTHN,
+  TWO_FACTOR_PROVIDER_YUBIKEY,
+} from '@/lib/two-factor-providers';
 import { setWebsiteIconsEnabled } from '@/lib/website-icon-settings';
 import type { AccountPasskeyPrfOption, AppPhase, Profile, SessionState, TokenSuccess, WebBootstrapResponse } from '@/lib/types';
 
@@ -90,15 +96,12 @@ export interface CompletedLogin {
   freshUserVerificationToken?: string | null;
 }
 
-const TWO_FACTOR_PROVIDER_AUTHENTICATOR = 0;
-const TWO_FACTOR_PROVIDER_EMAIL = 1;
-const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
-const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
+/** 本前端能处理的两步登录方式（顺序仅供遍历，**不**决定选哪个）。 */
 const SUPPORTED_TWO_FACTOR_PROVIDERS = [
-  TWO_FACTOR_PROVIDER_WEBAUTHN,
-  TWO_FACTOR_PROVIDER_YUBIKEY,
-  TWO_FACTOR_PROVIDER_EMAIL,
   TWO_FACTOR_PROVIDER_AUTHENTICATOR,
+  TWO_FACTOR_PROVIDER_EMAIL,
+  TWO_FACTOR_PROVIDER_YUBIKEY,
+  TWO_FACTOR_PROVIDER_WEBAUTHN,
 ] as const;
 
 function readTokenUserVerificationToken(token: TokenSuccess): string | null {
@@ -150,9 +153,14 @@ function twoFactorProviderTypeFromValue(value: unknown): number | null {
   return SUPPORTED_TWO_FACTOR_PROVIDERS.includes(provider as any) ? provider : null;
 }
 
-function sortTwoFactorProviders(providerTypes: number[]): number[] {
-  const unique = new Set(providerTypes);
-  return SUPPORTED_TWO_FACTOR_PROVIDERS.filter((provider) => unique.has(provider));
+function normalizeTwoFactorProviders(providerTypes: number[]): number[] {
+  // ⚠️ 只去重 + 过滤，**绝不重排**：服务端把默认方式放首位，重排会静默抹平该偏好。
+  // 弹窗里「其他验证方式」的展示顺序在组件内单独决定。
+  const unique: number[] = [];
+  for (const provider of providerTypes) {
+    if (SUPPORTED_TWO_FACTOR_PROVIDERS.includes(provider as any) && !unique.includes(provider)) unique.push(provider);
+  }
+  return unique;
 }
 
 function readTwoFactorProviderTypes(providers: unknown): number[] {
@@ -169,7 +177,7 @@ function readTwoFactorProviderTypes(providers: unknown): number[] {
       if (providerType != null) providerTypes.push(providerType);
     }
   }
-  return sortTwoFactorProviders(providerTypes);
+  return normalizeTwoFactorProviders(providerTypes);
 }
 
 function readTwoFactorProviderDataMap(error: TwoFactorTokenError): Record<number, unknown> {
@@ -198,10 +206,14 @@ export type PasskeyLoginResult =
   | { kind: 'password'; pendingPasskeyPassword: PendingPasskeyPassword }
   | { kind: 'error'; message: string };
 
-export interface RecoverTwoFactorResult {
-  login: CompletedLogin | null;
-  newRecoveryCode: string | null;
-}
+export type RecoverTwoFactorResult =
+  | { kind: 'success'; login: CompletedLogin }
+  /**
+   * 恢复成功但登录还没完成：恢复码会停用**全部** 2FA，而 NDV 的规则是「有 2FA 就不拦」
+   * ⇒ 紧接着这次 password grant 正好落进新设备验证（需要邮箱验证码）。
+   */
+  | { kind: 'device-verification'; pendingDeviceVerification: PendingDeviceVerification }
+  | { kind: 'error'; message: string };
 
 function decodeJwtExp(accessToken: string | undefined): number | null {
   try {
@@ -704,27 +716,48 @@ export async function performNewDeviceOtpLogin(
   );
 }
 
+/**
+ * 用一次性恢复码停用两步登录并完成登录。
+ * 主密码材料由**调用方**传入：登录弹窗已握着登录第一步派生的哈希与主密钥 ⇒ 不必再输一次主密码。
+ */
 export async function performRecoverTwoFactorLogin(
   email: string,
-  password: string,
-  recoveryCode: string,
-  fallbackIterations: number
+  keyMaterial: { passwordHash: string; masterKey: Uint8Array; kdfIterations: number },
+  recoveryCode: string
 ): Promise<RecoverTwoFactorResult> {
   const normalizedEmail = email.trim().toLowerCase();
-  const derived = await deriveLoginHashLocally(normalizedEmail, password, fallbackIterations);
-  const recovered = await recoverTwoFactor(normalizedEmail, derived.hash, recoveryCode.trim());
-  const token = await loginWithPassword(normalizedEmail, derived.hash, { useRememberToken: false });
+  // 恢复码本身就是 2FA 提供程序（8）：服务端在同一请求里校验它、停用全部 2FA 并签发 token。
+  // ⛔ 不要改成「先 POST /recover-2fa，再补一次 password grant」：那次请求时账号已无 2FA，
+  // 而后置的新设备验证（NDV）**只在账号没有 2FA 时生效** ⇒ 拿不到 token，用户只看到「自动登录失败」。
+  const token = await loginWithPassword(normalizedEmail, keyMaterial.passwordHash, {
+    totpCode: recoveryCode.trim(),
+    twoFactorProvider: TWO_FACTOR_PROVIDER_RECOVERY_CODE,
+    useRememberToken: false,
+  });
 
   if ('access_token' in token && token.access_token) {
     return {
-      login: await completeLogin(token, normalizedEmail, derived.masterKey, derived.kdfIterations, derived.hash),
-      newRecoveryCode: recovered.newRecoveryCode || null,
+      kind: 'success',
+      login: await completeLogin(token, normalizedEmail, keyMaterial.masterKey, keyMaterial.kdfIterations, keyMaterial.passwordHash),
+    };
+  }
+
+  const tokenError = token as TwoFactorTokenError;
+  if (isNewDeviceVerificationRequired(tokenError)) {
+    return {
+      kind: 'device-verification',
+      pendingDeviceVerification: {
+        email: normalizedEmail,
+        passwordHash: keyMaterial.passwordHash,
+        masterKey: keyMaterial.masterKey,
+        kdfIterations: keyMaterial.kdfIterations,
+      },
     };
   }
 
   return {
-    login: null,
-    newRecoveryCode: recovered.newRecoveryCode || null,
+    kind: 'error',
+    message: translateServerError(tokenError.error_description || tokenError.error, t('txt_recover_2fa_failed')),
   };
 }
 

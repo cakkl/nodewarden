@@ -7,6 +7,7 @@ import { downloadBytesAsFile, readResponseBytesWithProgress } from '@/lib/downlo
 import NotFoundPage from '@/components/NotFoundPage';
 import StandalonePageFrame from '@/components/StandalonePageFrame';
 import { getDemoPublicSend, IS_DEMO_MODE } from '@/lib/demo';
+import { RESEND_COOLDOWN_SECONDS, resendLabel, useResendCountdown } from '@/hooks/useResendCountdown';
 import { t } from '@/lib/i18n';
 import { useDateTimeFormat } from '@/lib/datetime';
 
@@ -103,6 +104,8 @@ export default function PublicSendPage(props: PublicSendPageProps) {
   const [gate, setGate] = useState<'password' | 'email' | 'otp' | null>(null);
   /** 已经发过一轮码 —— 用来区分「刚发码」与「码不对」（服务端两者响应完全相同） */
   const [codeSent, setCodeSent] = useState(false);
+  /** 重发按钮的本地冷却：「已发码」与「被限流」响应无法区分，拿不到服务端剩余秒数。 */
+  const [resendIn, startResendCountdown] = useResendCountdown();
   const [notFound, setNotFound] = useState(IS_DEMO_MODE && !initialDemoSend);
   const [sendData, setSendData] = useState<PublicSendData | null>(initialDemoSend);
   const [busy, setBusy] = useState(false);
@@ -177,6 +180,8 @@ export default function PublicSendPage(props: PublicSendPageProps) {
         setGate('otp');
         if (codeSent) notify('error', t('txt_send_code_invalid'));
         setCodeSent(true);
+        // 没带码 → 本次是「申请发码」⇒ 起 60 秒冷却。响应拿不到剩余秒数（防枚举），只能用本地值。
+        if (!credentials.otp) startResendCountdown(RESEND_COOLDOWN_SECONDS);
       } else if (errorType === 'email_delivery_unavailable') {
         setGate(null);
         notify('error', t('txt_send_email_unavailable'));
@@ -348,10 +353,10 @@ export default function PublicSendPage(props: PublicSendPageProps) {
             <button
               type="button"
               className="btn btn-secondary full"
-              disabled={busy}
+              disabled={busy || resendIn > 0}
               onClick={() => void loadSend({ email })}
             >
-              {t('txt_email_verification_resend_code')}
+              {resendLabel(t('txt_email_verification_resend_code'), resendIn)}
             </button>
           </form>
         )}

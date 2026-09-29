@@ -16,6 +16,12 @@ interface ConfirmDialogProps {
   hideCancel?: boolean;
   hideConfirm?: boolean;
   closeButton?: boolean;
+  /**
+   * 是否允许「点空白区域 / 按 Esc」关掉（默认允许）。关键认证弹窗（输验证码 / 主密码）
+   * 必须传 `false`：一次误点就丢掉弹窗，用户得从头再来（还可能白烧一枚码）。
+   * 关掉后仍可用弹窗内的取消按钮或右上角 ✕ 退出。
+   */
+  dismissable?: boolean;
   confirmDisabled?: boolean;
   cancelDisabled?: boolean;
   onConfirm: () => void;
@@ -92,7 +98,7 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
   const titleId = `${dialogId}-title`;
   const messageId = `${dialogId}-message`;
   const hasMessage = !!props.message;
-  const canDismiss = !props.cancelDisabled && !closing;
+  const canDismiss = !props.cancelDisabled && !closing && props.dismissable !== false;
 
   useEffect(() => {
     if (props.open) {

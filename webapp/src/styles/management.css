@@ -784,6 +784,12 @@
   color: #c2410c;
 }
 
+/* 登录弹窗里切到恢复码时的红字警告：这一步会停用**全部**两步登录，必须显眼。 */
+.two-step-recovery-code-warning {
+  @apply mb-2 mt-0 text-sm font-semibold leading-6;
+  color: var(--danger);
+}
+
 .two-step-recovery-code-dialog-value {
   @apply my-5 text-center text-base font-extrabold tracking-[0.12em];
   color: #c2187a;

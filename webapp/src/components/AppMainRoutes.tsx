@@ -147,6 +147,9 @@ export interface AppMainRoutesProps {
   onBootstrapYubiKeyApiCredentials: (otp: string, masterPassword: string) => Promise<YubiKeyOtpSettings>;
   onDisableYubiKey: (masterPassword: string) => Promise<void>;
   onGetTwoFactorPasskeySettings: (masterPassword: string) => Promise<TwoFactorPasskeySettings>;
+  /** 登录时优先使用的两步登录提供程序（provider 数字；null = 未选定）。 */
+  defaultProvider: number | null;
+  onSetDefaultTwoFactorProvider: (providerType: number) => Promise<void>;
   onGetEmailTwoFactor: () => Promise<{ enabled: boolean; available: boolean; email: string }>;
   onSetEmailTwoFactor: (enabled: boolean, masterPassword: string) => Promise<void>;
   onCreateTwoFactorPasskey: (name: string, masterPassword: string) => Promise<TwoFactorPasskeySettings>;
@@ -159,7 +162,7 @@ export interface AppMainRoutesProps {
   onSendEmailVerificationCode: () => Promise<unknown>;
   onSubmitEmailVerificationCode: (code: string) => Promise<void>;
   onLoadMailSettings: () => Promise<MailSettings>;
-  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到你的邮箱」。 */
+  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   mailDeliveryAvailable?: boolean;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
@@ -344,6 +347,8 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 totpEnabled={props.totpEnabled}
                 yubikeyEnabled={props.yubikeyEnabled}
                 passkey2faEnabled={props.passkey2faEnabled}
+                defaultProvider={props.defaultProvider}
+                onSetDefaultTwoFactorProvider={props.onSetDefaultTwoFactorProvider}
                 themePreference={props.themePreference}
                 lockTimeoutMinutes={props.lockTimeoutMinutes}
                 sessionTimeoutAction={props.sessionTimeoutAction}

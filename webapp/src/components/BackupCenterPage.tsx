@@ -1103,6 +1103,7 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
         cancelText={t('txt_cancel')}
         confirmDisabled={backupPasswordSubmitting || !backupPasswordValue.trim()}
         cancelDisabled={backupPasswordSubmitting}
+        dismissable={false}
         onConfirm={() => void submitBackupPasswordPrompt()}
         onCancel={() => {
           if (backupPasswordSubmitting) return;
