@@ -1,0 +1,187 @@
+# GitGuardian 配置：只用于排除「刻意写死的假凭据」误报（测试夹具 + 界面演示数据）。
+#
+# 为什么用配置级白名单，而不是改测试取值：扫描单位是「push 范围内新增的行」，
+# 改掉取值只能阻止下一次，已报出的 incident 仍留在历史里。
+# 为什么按**取值**而不是按目录：白名单只匹配那一个字面值，测试目录里若真混进其它
+# 凭据（哪怕同一个文件），其它取值与其它规则仍会照常报出。
+# ⛔ 不要改成 `ignored_detectors: [Generic Password]`，也不要按 `scripts/**` 排除 ——
+#    那会连真实的弱口令误用一起放过。（同样思路见 `.gitleaks.toml`）
+#
+# 扩展方式：新报出的假凭据按 `- name: …` / `match: <字面值>` 追加到 ignored_matches。
+# 本文件覆盖仓库内**全部**刻意写死的假凭据；漏掉的按上面方式补。
+version: 2
+
+secret:
+  # 界面文案文件：键名（`txt_*password*`）与译文里带 password 等词，会被
+  # `Generic Password` 启发式整片误判（实测 45 条全落在这一处）。
+  # ⚠️ 这是**路径级**豁免，与下面的**取值级**白名单不同 —— 但风险可控：
+  #   CI 的 gitleaks 仍会按取值扫描同一批文件（`.gitleaks.toml`），
+  #   真把凭据写进语言包照样会被 gitleaks 抓到。
+  ignored_paths:
+    - 'webapp/src/lib/i18n/locales/*.ts'
+
+  ignored_matches:
+    # --- 测试夹具：自述式密钥 ------------------------------------------------
+    - name: 测试用 JWT / 通知密钥
+      match: test-jwt-secret-at-least-32-characters-long
+    - name: 测试用 JWT 密钥
+      match: test-jwt-secret-value-0123456789
+    - name: 测试用密钥
+      match: test-secret-at-least-thirty-two-characters
+    - name: 测试用密钥
+      match: test-secret-value-that-is-long-enough-32
+    - name: 测试用密钥
+      match: test-secret-key
+    - name: 测试用通知密钥
+      match: notification-security-test-secret-32-bytes
+
+    # --- 测试夹具：主密码哈希 / 校验值占位 -----------------------------------
+    - name: 测试用客户端主密码哈希
+      match: client-side-hash-of-master-password
+    - name: 测试用客户端主密码哈希
+      match: admin-client-side-hash
+    - name: 测试用客户端主密码哈希
+      match: client-hash
+    - name: 测试用客户端主密码哈希
+      match: new-client-side-hash
+    - name: 测试用客户端主密码哈希
+      match: legacy-client-hash
+    - name: 测试用错误哈希
+      match: wrong-hash
+    - name: 测试用错误密码哈希
+      match: wrong-password-hash
+    - name: 测试用错误密码
+      match: wrong-password
+    - name: 测试用主密码凭据
+      match: master-proof
+
+    # --- 测试夹具：口令强度 / 哈希用例-------------------------------------
+    - name: 口令强度用例的占位口令
+      match: Ab3!xYz12
+    - name: 口令强度用例的占位口令
+      match: Ab3!xYz123
+    - name: 口令强度用例的占位口令
+      match: abcdefghijklm
+    - name: 口令强度用例的空串哈希（SHA1）
+      match: DA39A3EE5E6B4B0D3255BFEF95601890AFD80709
+
+    # --- 测试夹具：Send 口令与访问令牌 ---------------------------------------
+    - name: Send 密码校验用例的占位口令
+      match: pw-1
+    - name: Send 编辑草稿用例遗留的占位口令
+      match: leftover
+    - name: Send 密码校验用例的占位口令
+      match: letmein
+    - name: Send 密码校验用例的错口令分支
+      match: nope
+    - name: Send 访问令牌用例的假令牌
+      match: tok-1
+    - name: Send 访问令牌用例的假令牌
+      match: tok-2
+    - name: Send 访问令牌用例的假令牌
+      match: tok-3
+    - name: Send 访问令牌用例的假令牌
+      match: tok-4
+
+    # --- 测试夹具：备份目的地 / SMTP / Yubico 占位凭据 -----------------------
+    - name: 备份目的地凭据轮换用例
+      match: old-secret
+    - name: 备份目的地凭据轮换用例
+      match: new-secret
+    - name: 备份目的地凭据轮换用例
+      match: right-secret
+    - name: 备份目的地凭据轮换用例
+      match: wrong-secret
+    - name: 备份目的地凭据轮换用例
+      match: old-key
+    - name: 备份目的地凭据轮换用例
+      match: new-key
+    - name: 备份鉴权用例的占位凭据
+      match: refresh-secret
+    - name: 备份鉴权用例的占位凭据
+      match: remember-secret
+    - name: 备份鉴权用例的占位凭据
+      match: download-secret
+    - name: 备份鉴权用例的占位凭据
+      match: challenge-secret
+    - name: SMTP 客户端用例的占位口令
+      match: super-secret-smtp-password
+    - name: 轮换检测用例的占位凭据
+      match: a-completely-different-secret-value
+    - name: Yubico 用例的 base64 占位凭据
+      match: c2VjcmV0
+
+    # --- 测试夹具：断言用的「标记」字符串 ------------------------------------
+    - name: 离线存储用例的假令牌标记
+      match: ACCESS-TOKEN-MARKER
+    - name: 离线存储用例的假令牌标记
+      match: REFRESH-TOKEN-MARKER
+    - name: 离线存储用例的假哈希标记
+      match: MASTER-PASSWORD-HASH-MARKER
+    - name: 身份端点用例的假令牌
+      match: not-a-real-token
+    - name: 身份端点用例的假令牌
+      match: not-a-real-remember-token
+
+    # --- 界面演示数据（webapp/src/lib/demo.ts）-------------------------------
+    - name: 演示密码库的示例口令
+      match: correct-horse-battery-staple
+    - name: 演示密码库的示例口令
+      match: demo-password
+    - name: 演示密码库的示例口令
+      match: old-demo-password
+    - name: 演示密码库的示例口令
+      match: demo-google-password-2026
+    - name: 演示密码库的示例口令
+      match: demo-google-old-password
+    - name: 演示密码库的示例口令
+      match: demo-cloudflare-password
+    - name: 演示密码库的示例口令
+      match: demo-amazon-password-2026
+    - name: 演示密码库的示例口令
+      match: demo-microsoft-password-2026
+    - name: 演示密码库的示例口令
+      match: demo-netflix-password-2026
+    - name: 演示密码库的示例口令
+      match: demo-paypal-password-2026
+    - name: 演示密码库的重复/复用示例
+      match: vpn-secret-2026
+    - name: 演示密码库的重复/复用示例
+      match: aws-secure-password
+    - name: 演示密码库的重复/复用示例
+      match: reused-password-2020
+    - name: 演示密码库的重复/复用示例
+      match: shared-credential
+    - name: 演示密码库的归档示例
+      match: archived-demo
+    - name: 演示密码库的示例令牌
+      match: demo-access-token
+    - name: 演示密码库的示例令牌
+      match: demo-refresh-token
+    - name: 演示密码库的示例密钥
+      match: demo-secret-key
+    - name: 演示密码库的示例 SSH 私钥主体
+      match: DEMO-PRIVATE-KEY
+
+    # --- `Generic Password` 在含 password 标识符的行上误判出来的**代码 token** --
+    # 实测触发形态：字段名 / 数字字面量 / 三元条件 / 日期（与真实凭据无关）。
+    - name: 导出字段枚举值
+      match: login_totp
+    - name: 导入解析的局部变量名
+      match: rawVal
+    - name: Send 口令迭代次数字面量
+      match: '100_000'
+    - name: 导入页的布尔变量名
+      match: exportIsZip
+    - name: 演示数据里的日期片段
+      match: '2026-05'
+    - name: 演示数据里的示例邮箱
+      match: demo@nodewarden.app
+    - name: 演示数据里的示例用户名
+      match: vpn-user
+
+    # --- 仅存在于历史里的上游占位值（当前工作区已无）-------------------------
+    - name: 旧版安装引导页的 JWT 密钥占位
+      match: Enter-your-JWT-key-here-at-least-32-characters
+    - name: 旧版校验用例的占位哈希
+      match: wrong-hash-value
