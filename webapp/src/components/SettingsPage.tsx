@@ -942,49 +942,49 @@ export default function SettingsPage(props: SettingsPageProps) {
                 </label>
               </section>
 
+              {/* 语言与时区同属「本地化偏好」⇒ 合为一个区块（分隔线只画在类别之间） */}
               <section className="settings-submodule">
-                <label className="field">
-                  <span>{t('txt_display_language')}</span>
-                  <select
-                    className="input"
-                    value={props.mailPreferences?.autoLocale ? AUTO_OPTION : selectedLocale}
-                    onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale | typeof AUTO_OPTION)}
-                  >
-                    <option value={AUTO_OPTION}>
-                      {t('txt_preferences_auto', { value: localeLabel(autoLocaleValue) })}
-                    </option>
-                    {AVAILABLE_LOCALES.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="field-help">{t('txt_display_language_help')}</div>
-                </label>
-              </section>
-
-              {props.onSaveMailPreferences && (
-                <section className="settings-submodule">
+                <div className="settings-vertical-fields">
                   <label className="field">
-                    <span>{t('txt_timezone')}</span>
+                    <span>{t('txt_display_language')}</span>
                     <select
                       className="input"
-                      value={props.mailPreferences?.autoTimezone || !props.mailPreferences?.timezone ? AUTO_OPTION : props.mailPreferences.timezone}
-                      onInput={(e) => void changeTimezone((e.currentTarget as HTMLSelectElement).value)}
+                      value={props.mailPreferences?.autoLocale ? AUTO_OPTION : selectedLocale}
+                      onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale | typeof AUTO_OPTION)}
                     >
                       <option value={AUTO_OPTION}>
-                        {t('txt_preferences_auto', { value: autoTimezoneValue })}
+                        {t('txt_preferences_auto', { value: localeLabel(autoLocaleValue) })}
                       </option>
-                      {timezoneOptions.map((zone) => (
-                        <option key={zone} value={zone}>
-                          {zone}
+                      {AVAILABLE_LOCALES.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
                         </option>
                       ))}
                     </select>
-                    <div className="field-help">{t('txt_timezone_help')}</div>
+                    <div className="field-help">{t('txt_display_language_help')}</div>
                   </label>
-                </section>
-              )}
+                  {props.onSaveMailPreferences && (
+                    <label className="field">
+                      <span>{t('txt_timezone')}</span>
+                      <select
+                        className="input"
+                        value={props.mailPreferences?.autoTimezone || !props.mailPreferences?.timezone ? AUTO_OPTION : props.mailPreferences.timezone}
+                        onInput={(e) => void changeTimezone((e.currentTarget as HTMLSelectElement).value)}
+                      >
+                        <option value={AUTO_OPTION}>
+                          {t('txt_preferences_auto', { value: autoTimezoneValue })}
+                        </option>
+                        {timezoneOptions.map((zone) => (
+                          <option key={zone} value={zone}>
+                            {zone}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="field-help">{t('txt_timezone_help')}</div>
+                    </label>
+                  )}
+                </div>
+              </section>
 
               <section className="settings-submodule">
                 <div className="session-timeout-fields">
