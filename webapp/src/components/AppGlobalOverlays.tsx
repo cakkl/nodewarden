@@ -132,6 +132,8 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
         confirmText={props.confirm?.confirmText}
         cancelText={props.confirm?.cancelText}
         hideCancel={props.confirm?.hideCancel}
+        // 要输主密码的确认框不能误关（其余普通确认框点空白关闭无损失）
+        dismissable={!requireMasterPassword}
         confirmDisabled={requireMasterPassword && !confirmPassword.trim()}
         onConfirm={() => {
           if (requireMasterPassword && !confirmPassword.trim()) return;
@@ -296,6 +298,7 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
           confirmText={t('txt_verify')}
           hideCancel
           closeButton
+          dismissable={false}
           showIcon={false}
           confirmDisabled={props.deviceVerification.submitting || !props.deviceVerification.code.trim()}
           cancelDisabled={props.deviceVerification.submitting}
@@ -333,6 +336,7 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
         hideCancel
         closeButton
         danger
+        dismissable={false}
         showIcon={false}
         confirmDisabled={props.disableTotpSubmitting}
         cancelDisabled={props.disableTotpSubmitting}

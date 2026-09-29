@@ -1544,6 +1544,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         hideConfirm
         hideCancel
         closeButton
+        dismissable={false}
         onConfirm={() => undefined}
         onCancel={closeMailPrompt}
         afterActions={
@@ -1581,6 +1582,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         cancelText={t('txt_cancel')}
         confirmDisabled={masterPasswordPromptSubmitting || !masterPasswordPromptValue.trim()}
         cancelDisabled={masterPasswordPromptSubmitting}
+        dismissable={false}
         onConfirm={() => void submitMasterPasswordPrompt()}
         onCancel={closeMasterPasswordPrompt}
       >
@@ -1601,6 +1603,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         message={t('txt_email_verification_description')}
         confirmText={t('txt_email_verification_submit')}
         confirmDisabled={emailVerificationBusy || verificationCode.length !== 6}
+        dismissable={false}
         onConfirm={() => void submitVerificationCode()}
         onCancel={closeVerificationDialog}
       >
@@ -1611,6 +1614,7 @@ export default function SettingsPage(props: SettingsPageProps) {
             <input
               className="input"
               inputMode="numeric"
+              autoComplete="one-time-code"
               maxLength={6}
               value={verificationCode}
               onInput={(e) => setVerificationCode((e.currentTarget as HTMLInputElement).value.replace(/\D/g, ''))}
@@ -1638,6 +1642,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         hideCancel
         hideConfirm
         closeButton
+        dismissable={false}
         onConfirm={() => {}}
         onCancel={closeTotpManageDialog}
       >
@@ -1733,6 +1738,7 @@ export default function SettingsPage(props: SettingsPageProps) {
         hideConfirm
         hideCancel
         closeButton
+        dismissable={false}
         onConfirm={() => {
           if (yubiKeySubmitting) return;
           if (yubiKeyYubicoConfigured) {
