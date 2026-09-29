@@ -1438,6 +1438,8 @@ const it: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "Accesso bloccato: dispositivo sconosciuto, codice inviato via email",
   "txt_log_action_auth_login_new_device_mail_failed": "Invio dell'email di verifica del dispositivo non riuscito",
   "txt_log_action_auth_login_new_device_verified": "Dispositivo sconosciuto verificato via email",
+  "txt_log_action_account_user_verification_otp_verified": "Identità verificata con codice via e-mail",
+  "txt_log_action_account_user_verification_otp_send_failed": "Invio del codice di verifica non riuscito",
   "txt_log_action_auth_login_success": "Accesso effettuato con successo",
   "txt_log_action_auth_passkey_login_failed": "Accesso con passkey fallito",
   "txt_log_action_auth_passkey_login_success": "Accesso con passkey effettuato con successo",

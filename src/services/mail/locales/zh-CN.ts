@@ -51,6 +51,14 @@ const zhCN: MailCopy = {
     noHint: '该账户没有保存主密码提示。',
     outro: '如果你没有发起这个操作，忽略本邮件即可。主密码本身绝不会通过邮件发送。',
   },
+  userVerification: {
+    subject: '你的 NodeWarden 验证码',
+    heading: '验证你的身份',
+    intro: '输入此验证码以确认你在 NodeWarden 账号上的这次操作。',
+    codeLabel: '验证码',
+    expiresLabel: '验证码有效期至',
+    outro: '如果这不是你发起的，忽略本邮件即可。',
+  },
   notifications: {
     subject: '安全提醒：{event}',
     heading: '安全提醒：{event}',

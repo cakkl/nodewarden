@@ -51,6 +51,14 @@ const fr: MailCopy = {
     noHint: 'Aucun indice de mot de passe principal n’est enregistré pour ce compte.',
     outro: 'Si vous n’êtes pas à l’origine de cette demande, ignorez ce message. Le mot de passe principal n’est jamais envoyé par courriel.',
   },
+  userVerification: {
+    subject: 'Votre code de vérification NodeWarden',
+    heading: 'Vérifiez votre identité',
+    intro: 'Saisissez ce code pour confirmer cette action sur votre compte NodeWarden.',
+    codeLabel: 'Code de vérification',
+    expiresLabel: "Ce code expire le",
+    outro: "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message.",
+  },
   notifications: {
     subject: 'Alerte de sécurité : {event}',
     heading: 'Alerte de sécurité : {event}',

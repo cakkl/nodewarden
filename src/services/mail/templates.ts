@@ -330,6 +330,43 @@ export function renderNewDeviceVerificationMail(
   };
 }
 
+/** User Verification 的邮箱码（`request-otp` / `verify-otp`）：敏感操作的二次确认，不是登录。 */
+export function renderUserVerificationMail(
+  copy: MailCopy,
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail {
+  const expiresAt = formatMailTime(input.expiresAt, context.timezone);
+  const expiryLine = `${copy.userVerification.expiresLabel} ${expiresAt}`;
+
+  return {
+    subject: copy.userVerification.subject,
+    html: renderMailLayout({
+      brand: copy.brand,
+      lang: context.locale,
+      heading: copy.userVerification.heading,
+      bodyHtml:
+        mailParagraph(copy.userVerification.intro) +
+        mailCodeBlock(copy.userVerification.codeLabel, input.code) +
+        mailParagraph(expiryLine, { muted: true }) +
+        mailParagraph(copy.userVerification.outro, { muted: true }),
+      footer: copy.footer,
+    }),
+    text: [
+      copy.userVerification.heading,
+      '',
+      copy.userVerification.intro,
+      '',
+      `${copy.userVerification.codeLabel}: ${input.code}`,
+      expiryLine,
+      '',
+      copy.userVerification.outro,
+      '',
+      copy.footer,
+    ].join('\n'),
+  };
+}
+
 /** 主密码提示邮件。**无提示时也发信**（防枚举，见 `MailCopy.passwordHint`）。 */export function renderPasswordHintMail(
   copy: MailCopy,
   input: { hint: string | null },

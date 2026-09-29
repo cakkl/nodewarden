@@ -1438,6 +1438,8 @@ const es: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "Inicio bloqueado: dispositivo desconocido, código enviado por correo",
   "txt_log_action_auth_login_new_device_mail_failed": "No se pudo enviar el correo de verificación del dispositivo",
   "txt_log_action_auth_login_new_device_verified": "Dispositivo desconocido verificado por correo",
+  "txt_log_action_account_user_verification_otp_verified": "Identidad verificada con un código por correo",
+  "txt_log_action_account_user_verification_otp_send_failed": "No se pudo enviar el código de verificación",
   "txt_log_action_auth_login_success": "Inicio de sesión correcto",
   "txt_log_action_auth_passkey_login_failed": "Error de inicio de sesión con passkey",
   "txt_log_action_auth_passkey_login_success": "Inicio de sesión con passkey correcto",

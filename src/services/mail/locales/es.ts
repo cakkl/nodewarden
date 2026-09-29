@@ -51,6 +51,14 @@ const es: MailCopy = {
     noHint: 'Esta cuenta no tiene guardada ninguna pista de contraseña maestra.',
     outro: 'Si no solicitaste esto, ignora este mensaje. La contraseña maestra nunca se envía por correo.',
   },
+  userVerification: {
+    subject: 'Tu código de verificación de NodeWarden',
+    heading: 'Verifica tu identidad',
+    intro: 'Introduce este código para confirmar esta acción en tu cuenta de NodeWarden.',
+    codeLabel: 'Código de verificación',
+    expiresLabel: 'Este código caduca el',
+    outro: 'Si no lo has solicitado, puedes ignorar este mensaje.',
+  },
   notifications: {
     subject: 'Aviso de seguridad: {event}',
     heading: 'Aviso de seguridad: {event}',

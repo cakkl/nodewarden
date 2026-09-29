@@ -92,6 +92,18 @@ export interface MailCopy {
    * 安全通知。**单模板 + 事件名映射**：`events` 只提供「发生了什么」，其余文案十种语言共用。
    * `subject` / `heading` 里的 `{event}` 由对应短句填充；正文不含保管库内容或条目数量。
    */
+  /**
+   * User Verification 的邮箱码（`/accounts/request-otp` + `/accounts/verify-otp`）：
+   * 敏感操作的二次确认。与 `twoFactor` 分开 —— 用户不是在登录。
+   */
+  userVerification: {
+    subject: string;
+    heading: string;
+    intro: string;
+    codeLabel: string;
+    expiresLabel: string;
+    outro: string;
+  };
   notifications: {
     subject: string;
     heading: string;
@@ -203,6 +215,14 @@ const en: MailCopy = {
     codeLabel: 'Verification code',
     expiresLabel: 'This code expires at',
     outro: 'If this was not you, change your master password immediately: someone else knows it.',
+  },
+  userVerification: {
+    subject: 'Your NodeWarden verification code',
+    heading: 'Verify your identity',
+    intro: 'Enter this code to confirm this action on your NodeWarden account.',
+    codeLabel: 'Verification code',
+    expiresLabel: 'This code expires at',
+    outro: 'If you did not request this, you can ignore this message.',
   },
   notifications: {
     subject: 'Security alert: {event}',

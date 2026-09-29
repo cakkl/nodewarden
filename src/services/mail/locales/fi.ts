@@ -51,6 +51,14 @@ const fi: MailCopy = {
     noHint: 'Tälle tilille ei ole tallennettu pääsalasanan vihjettä.',
     outro: 'Jos et pyytänyt tätä, jätä viesti huomiotta. Pääsalasanaa ei koskaan lähetetä sähköpostitse.',
   },
+  userVerification: {
+    subject: 'NodeWarden-vahvistuskoodisi',
+    heading: 'Vahvista henkilöllisyytesi',
+    intro: 'Syötä tämä koodi vahvistaaksesi tämän toiminnon NodeWarden-tililläsi.',
+    codeLabel: 'Vahvistuskoodi',
+    expiresLabel: 'Koodi vanhenee',
+    outro: 'Jos et pyytänyt tätä, voit jättää viestin huomiotta.',
+  },
   notifications: {
     subject: 'Tietoturvailmoitus: {event}',
     heading: 'Tietoturvailmoitus: {event}',

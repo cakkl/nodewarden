@@ -51,6 +51,14 @@ const sv: MailCopy = {
     noHint: 'Det finns ingen sparad ledtråd till huvudlösenordet för det här kontot.',
     outro: 'Om du inte begärde detta kan du ignorera meddelandet. Huvudlösenordet skickas aldrig via e-post.',
   },
+  userVerification: {
+    subject: 'Din verifieringskod för NodeWarden',
+    heading: 'Verifiera din identitet',
+    intro: 'Ange den här koden för att bekräfta denna åtgärd på ditt NodeWarden-konto.',
+    codeLabel: 'Verifieringskod',
+    expiresLabel: 'Koden upphör att gälla',
+    outro: 'Om du inte begärde detta kan du bortse från meddelandet.',
+  },
   notifications: {
     subject: 'Säkerhetsvarning: {event}',
     heading: 'Säkerhetsvarning: {event}',

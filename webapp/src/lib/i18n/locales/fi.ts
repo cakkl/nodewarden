@@ -1438,6 +1438,8 @@ const fi: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "Kirjautuminen estetty: tuntematon laite, koodi lähetetty sähköpostilla",
   "txt_log_action_auth_login_new_device_mail_failed": "Laitteen vahvistussähköpostia ei voitu lähettää",
   "txt_log_action_auth_login_new_device_verified": "Tuntematon laite vahvistettu sähköpostilla",
+  "txt_log_action_account_user_verification_otp_verified": "Henkilöllisyys vahvistettu sähköpostikoodilla",
+  "txt_log_action_account_user_verification_otp_send_failed": "Vahvistuskoodin lähetys epäonnistui",
   "txt_log_action_auth_login_success": "Kirjautuminen onnistui",
   "txt_log_action_auth_passkey_login_failed": "Pääsyavaimella kirjautuminen epäonnistui",
   "txt_log_action_auth_passkey_login_success": "Pääsyavaimella kirjautuminen onnistui",

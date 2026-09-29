@@ -1438,6 +1438,8 @@ const zhTW: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "登入被攔：陌生裝置，已寄出郵件驗證碼",
   "txt_log_action_auth_login_new_device_mail_failed": "新裝置驗證郵件寄送失敗",
   "txt_log_action_auth_login_new_device_verified": "陌生裝置已通過郵件驗證",
+  "txt_log_action_account_user_verification_otp_verified": "用郵箱驗證碼完成了身分驗證",
+  "txt_log_action_account_user_verification_otp_send_failed": "身分驗證碼傳送失敗",
   "txt_log_action_auth_login_success": "登入成功",
   "txt_log_action_auth_passkey_login_failed": "通行密鑰登入失敗",
   "txt_log_action_auth_passkey_login_success": "通行密鑰登入成功",

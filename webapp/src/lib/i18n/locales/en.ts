@@ -1438,6 +1438,8 @@ const en: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "Login blocked: unknown device, code sent by email",
   "txt_log_action_auth_login_new_device_mail_failed": "New device verification email could not be sent",
   "txt_log_action_auth_login_new_device_verified": "Unknown device verified by email",
+  "txt_log_action_account_user_verification_otp_verified": "Verified identity with an email code",
+  "txt_log_action_account_user_verification_otp_send_failed": "Failed to send the identity verification code",
   "txt_log_action_auth_login_success": "Login succeeded",
   "txt_log_action_auth_passkey_login_failed": "Passkey login failed",
   "txt_log_action_auth_passkey_login_success": "Passkey login succeeded",

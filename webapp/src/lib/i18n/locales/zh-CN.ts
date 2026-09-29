@@ -1438,6 +1438,8 @@ const zhCN: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "登录被拦：陌生设备，已发邮件验证码",
   "txt_log_action_auth_login_new_device_mail_failed": "新设备验证邮件发送失败",
   "txt_log_action_auth_login_new_device_verified": "陌生设备已通过邮件验证",
+  "txt_log_action_account_user_verification_otp_verified": "用邮箱验证码完成了身份验证",
+  "txt_log_action_account_user_verification_otp_send_failed": "身份验证码发送失败",
   "txt_log_action_auth_login_success": "登录成功",
   "txt_log_action_auth_passkey_login_failed": "通行密钥登录失败",
   "txt_log_action_auth_passkey_login_success": "通行密钥登录成功",

@@ -1438,6 +1438,8 @@ const ru: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "Вход заблокирован: неизвестное устройство, код отправлен по почте",
   "txt_log_action_auth_login_new_device_mail_failed": "Не удалось отправить письмо для подтверждения устройства",
   "txt_log_action_auth_login_new_device_verified": "Неизвестное устройство подтверждено по почте",
+  "txt_log_action_account_user_verification_otp_verified": "Личность подтверждена кодом из письма",
+  "txt_log_action_account_user_verification_otp_send_failed": "Не удалось отправить код подтверждения",
   "txt_log_action_auth_login_success": "Вход выполнен",
   "txt_log_action_auth_passkey_login_failed": "Ошибка входа по ключу доступа",
   "txt_log_action_auth_passkey_login_success": "Вход по ключу доступа выполнен",

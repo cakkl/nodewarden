@@ -26,6 +26,7 @@ import {
   handleGetApiKey,
   handleRotateApiKey,
 } from './handlers/accounts';
+import { handleRequestAccountOtp, handleVerifyAccountOtp } from './handlers/accounts-user-verification';
 import {
   handleGetEmailVerificationStatus,
   handleSendEmailVerificationCode,
@@ -147,18 +148,23 @@ export async function handleAuthenticatedRoute(
 
   const mailBackedAccountPaths = new Set([
     // 本站的邮箱验证是**自有流程**（6 位数字码），端点见下方分发；
-    // 这里只剩官方那套「邮件链接 / OTP」能力，均未实现。
+    // 这里只剩官方那套**邮件链接**能力（仅邀请注册 ⇒ 有意不做）。
     '/api/accounts/verify-email',
     '/accounts/verify-email',
     '/api/accounts/verify-email-token',
     '/accounts/verify-email-token',
-    '/api/accounts/request-otp',
-    '/accounts/request-otp',
-    '/api/accounts/verify-otp',
-    '/accounts/verify-otp',
   ]);
   if (mailBackedAccountPaths.has(path) && (method === 'POST' || method === 'PUT')) {
     return unsupportedResponse('Email link and email OTP flows are not implemented by this server.');
+  }
+
+  // User Verification（敏感操作的二次确认）：`request-otp` 的官方请求体是空的，`verify-otp` 的是 `{ OTP }`。
+  if ((path === '/api/accounts/request-otp' || path === '/accounts/request-otp') && method === 'POST') {
+    return handleRequestAccountOtp(request, env, userId);
+  }
+
+  if ((path === '/api/accounts/verify-otp' || path === '/accounts/verify-otp') && method === 'POST') {
+    return handleVerifyAccountOtp(request, env, userId);
   }
 
   // 邮件两步登录（2FA provider 1）的开关端点。发码端点 `/api/two-factor/send-email-login`

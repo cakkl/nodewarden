@@ -1438,6 +1438,8 @@ const de: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "Anmeldung blockiert: unbekanntes Gerät, Code per E-Mail gesendet",
   "txt_log_action_auth_login_new_device_mail_failed": "E-Mail zur Geräteverifizierung konnte nicht gesendet werden",
   "txt_log_action_auth_login_new_device_verified": "Unbekanntes Gerät per E-Mail verifiziert",
+  "txt_log_action_account_user_verification_otp_verified": "Identität mit E-Mail-Code bestätigt",
+  "txt_log_action_account_user_verification_otp_send_failed": "Bestätigungscode konnte nicht gesendet werden",
   "txt_log_action_auth_login_success": "Anmeldung erfolgreich",
   "txt_log_action_auth_passkey_login_failed": "Passkey-Anmeldung fehlgeschlagen",
   "txt_log_action_auth_passkey_login_success": "Passkey-Anmeldung erfolgreich",

@@ -51,6 +51,14 @@ const de: MailCopy = {
     noHint: 'Für dieses Konto ist kein Master-Passwort-Hinweis gespeichert.',
     outro: 'Wenn du das nicht angefordert hast, ignoriere diese Nachricht. Das Master-Passwort wird niemals per E-Mail versendet.',
   },
+  userVerification: {
+    subject: 'Ihr NodeWarden-Bestätigungscode',
+    heading: 'Identität bestätigen',
+    intro: 'Geben Sie diesen Code ein, um diese Aktion in Ihrem NodeWarden-Konto zu bestätigen.',
+    codeLabel: 'Bestätigungscode',
+    expiresLabel: 'Dieser Code läuft ab am',
+    outro: 'Wenn Sie das nicht angefordert haben, können Sie diese Nachricht ignorieren.',
+  },
   notifications: {
     subject: 'Sicherheitshinweis: {event}',
     heading: 'Sicherheitshinweis: {event}',

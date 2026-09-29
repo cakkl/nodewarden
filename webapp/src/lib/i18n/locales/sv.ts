@@ -1438,6 +1438,8 @@ const sv: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "Inloggning blockerad: okänd enhet, kod skickad via e-post",
   "txt_log_action_auth_login_new_device_mail_failed": "Kunde inte skicka e-post för enhetsverifiering",
   "txt_log_action_auth_login_new_device_verified": "Okänd enhet verifierad via e-post",
+  "txt_log_action_account_user_verification_otp_verified": "Identiteten verifierad med e-postkod",
+  "txt_log_action_account_user_verification_otp_send_failed": "Kunde inte skicka verifieringskoden",
   "txt_log_action_auth_login_success": "Inloggning lyckades",
   "txt_log_action_auth_passkey_login_failed": "Nyckelinloggning misslyckades",
   "txt_log_action_auth_passkey_login_success": "Nyckelinloggning lyckades",

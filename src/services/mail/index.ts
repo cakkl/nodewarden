@@ -13,7 +13,7 @@ import de from './locales/de';
 import fr from './locales/fr';
 import it from './locales/it';
 import sv from './locales/sv';
-import { renderTestMail, renderVerificationMail, renderTwoFactorMail, renderSendOtpMail, renderNewDeviceVerificationMail, renderPasswordHintMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
+import { renderTestMail, renderVerificationMail, renderTwoFactorMail, renderSendOtpMail, renderNewDeviceVerificationMail, renderUserVerificationMail, renderPasswordHintMail, renderNotificationMail, DEFAULT_MAIL_TIMEZONE, type MailRenderContext, type NotificationMailInput, type RenderedMail, type TestMailInput, type VerificationMailInput } from './templates';
 
 export type MailLocale = 'en' | 'zh-CN' | 'zh-TW' | 'ru' | 'es' | 'fi' | 'de' | 'fr' | 'it' | 'sv';
 
@@ -106,6 +106,15 @@ export function renderNewDeviceVerificationEmail(
 ): RenderedMail & { locale: MailLocale } {
   const { locale: resolved, copy } = resolveMailCopy(context.locale);
   return { ...renderNewDeviceVerificationMail(copy, input, { ...context, locale: resolved }), locale: resolved };
+}
+
+/** User Verification：敏感操作二次确认的邮箱码（`request-otp` / `verify-otp`）。 */
+export function renderUserVerificationEmail(
+  input: VerificationMailInput,
+  context: MailRenderContext = {}
+): RenderedMail & { locale: MailLocale } {
+  const { locale: resolved, copy } = resolveMailCopy(context.locale);
+  return { ...renderUserVerificationMail(copy, input, { ...context, locale: resolved }), locale: resolved };
 }
 
 /** 主密码提示邮件。`hint` 为 `null` 时发「未设置提示」的版本（避免枚举）。 */

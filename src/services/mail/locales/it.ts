@@ -51,6 +51,14 @@ const it: MailCopy = {
     noHint: 'Per questo account non è salvato alcun suggerimento per la password principale.',
     outro: 'Se non hai richiesto tu questa operazione, ignora questo messaggio. La password principale non viene mai inviata via email.',
   },
+  userVerification: {
+    subject: 'Il tuo codice di verifica NodeWarden',
+    heading: 'Verifica la tua identità',
+    intro: 'Inserisci questo codice per confermare questa azione sul tuo account NodeWarden.',
+    codeLabel: 'Codice di verifica',
+    expiresLabel: 'Questo codice scade il',
+    outro: 'Se non hai richiesto tu questa operazione, ignora questo messaggio.',
+  },
   notifications: {
     subject: 'Avviso di sicurezza: {event}',
     heading: 'Avviso di sicurezza: {event}',

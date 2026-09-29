@@ -51,6 +51,14 @@ const zhTW: MailCopy = {
     noHint: '該帳戶沒有儲存主密碼提示。',
     outro: '如果你沒有發起這個操作，忽略本郵件即可。主密碼本身絕不會透過郵件寄送。',
   },
+  userVerification: {
+    subject: '你的 NodeWarden 驗證碼',
+    heading: '驗證你的身分',
+    intro: '輸入此驗證碼以確認你在 NodeWarden 帳號上的這次操作。',
+    codeLabel: '驗證碼',
+    expiresLabel: '驗證碼有效期至',
+    outro: '如果這不是你發起的，忽略本郵件即可。',
+  },
   notifications: {
     subject: '安全提醒：{event}',
     heading: '安全提醒：{event}',

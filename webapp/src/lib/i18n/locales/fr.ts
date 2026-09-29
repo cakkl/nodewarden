@@ -1438,6 +1438,8 @@ const fr: Record<string, string> = {
   "txt_log_action_auth_login_new_device_challenged": "Connexion bloquée : appareil inconnu, code envoyé par e-mail",
   "txt_log_action_auth_login_new_device_mail_failed": "L'e-mail de vérification de l'appareil n'a pas pu être envoyé",
   "txt_log_action_auth_login_new_device_verified": "Appareil inconnu vérifié par e-mail",
+  "txt_log_action_account_user_verification_otp_verified": "Identité vérifiée par code e-mail",
+  "txt_log_action_account_user_verification_otp_send_failed": "Échec de l'envoi du code de vérification",
   "txt_log_action_auth_login_success": "Connexion réussie",
   "txt_log_action_auth_passkey_login_failed": "La connexion par clé d'accès a échoué",
   "txt_log_action_auth_passkey_login_success": "La connexion par clé d'accès a réussi",
