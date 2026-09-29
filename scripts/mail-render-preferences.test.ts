@@ -35,7 +35,7 @@ test('两列都有 ⇒ 用偏好语言/时区，且**不加**任何提示句', (
 test('只缺时区 ⇒ 中文提示句 + 时间按 UTC', () => {
   const mail = renderMail({ locale: 'zh-CN', timezone: null });
 
-  assert.match(mail.text, /你还没有设定时区/, '应追加「只缺时区」那一条');
+  assert.match(mail.text, /您还没有设定时区/, '应追加「只缺时区」那一条');
   assert.match(mail.text, /2026-09-22 15:45/, '未设定时区时按 UTC 渲染');
   assert.doesNotMatch(mail.text, /还没有设定语言/, '不应误报语言缺失');
 });

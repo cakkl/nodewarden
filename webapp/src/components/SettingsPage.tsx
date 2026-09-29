@@ -43,7 +43,7 @@ interface SettingsPageProps {
   onGetApiKey: (masterPassword: string) => Promise<string>;
   onRotateApiKey: (masterPassword: string) => Promise<string>;
   onLoadMailSettings: () => Promise<MailSettings>;
-  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到你的邮箱」。 */
+  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   mailDeliveryAvailable?: boolean;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;

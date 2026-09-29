@@ -159,7 +159,7 @@ export interface AppMainRoutesProps {
   onSendEmailVerificationCode: () => Promise<unknown>;
   onSubmitEmailVerificationCode: (code: string) => Promise<void>;
   onLoadMailSettings: () => Promise<MailSettings>;
-  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到你的邮箱」。 */
+  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   mailDeliveryAvailable?: boolean;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;

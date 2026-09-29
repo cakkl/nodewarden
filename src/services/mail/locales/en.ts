@@ -227,7 +227,7 @@ const en: MailCopy = {
   notifications: {
     subject: 'Security alert: {event}',
     heading: 'Security alert: {event}',
-    intro: 'A change was just made to your NodeWarden account. The details are below.',
+    intro: 'A change was made to your NodeWarden account. The details are below.',
     detailsTitle: 'Details',
     labels: { time: 'Time', ip: 'IP address', device: 'Device', type: 'Type', location: 'Location' },
     disclaimer:
