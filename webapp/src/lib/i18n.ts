@@ -271,6 +271,15 @@ export function translateServerError(message: string | null | undefined, fallbac
     'Parameter error': 'txt_server_error_parameter_error',
     'Please select a backup file': 'txt_backup_error_select_backup_file',
     'Please select a backup ZIP file': 'txt_backup_error_select_backup_zip_file',
+    // 发码类的三种限流原因（邮件 2FA / 邮箱验证 / 用户验证码共用同一套措辞）。
+    // 剩余秒数不走文案而是响应头 `Retry-After` ⇒ 界面把倒计时显示在按钮上。
+    'Please wait before requesting another code': 'txt_code_send_too_frequent',
+    'Please wait before requesting another verification code': 'txt_code_send_too_frequent',
+    'Too many codes were requested this hour': 'txt_code_hourly_limit_reached',
+    'Too many verification emails were requested this hour': 'txt_code_hourly_limit_reached',
+    'The daily code limit has been reached': 'txt_code_daily_limit_reached',
+    'The daily verification email limit has been reached': 'txt_code_daily_limit_reached',
+    'Sending test emails is limited to once every 10 seconds': 'txt_mail_test_too_frequent',
     'Refresh token is required': 'txt_server_error_refresh_token_required',
     'Remote backup ZIP checksum verification failed': 'txt_backup_error_remote_zip_checksum_failed',
     'Remote backup ZIP size verification failed': 'txt_backup_error_remote_zip_size_failed',

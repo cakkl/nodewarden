@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import ToastHost from '@/components/ToastHost';
+import { resendLabel } from '@/hooks/useResendCountdown';
 import { t } from '@/lib/i18n';
 import type { ToastMessage } from '@/lib/types';
 
@@ -28,6 +29,8 @@ interface DeviceVerificationDialogState {
   code: string;
   submitting: boolean;
   resending: boolean;
+  /** 重发倒计时剩余秒数；> 0 时按钮禁用并显示「(Ns)」。服务端对该接口的限流响应刻意与成功一致，只能本地计时。 */
+  resendIn?: number;
   onCodeChange: (value: string) => void;
   onConfirm: () => void;
   onResend: () => void;
@@ -57,6 +60,8 @@ interface AppGlobalOverlaysProps {
   /** 邮件 2FA：重新发送验证码。未提供时（或非邮件 provider）不显示该按钮。 */
   onResendEmailCode?: () => void;
   emailCodeResending?: boolean;
+  /** 重发倒计时剩余秒数；> 0 时按钮禁用并显示「(Ns)」。邮件 2FA 的 429 会带 `Retry-After`，可对齐真实剩余时间。 */
+  emailCodeResendIn?: number;
   /** 非空时弹出新设备验证的输码对话框；未提供则不渲染。 */
   deviceVerification?: DeviceVerificationDialogState | null;
   disableTotpOpen: boolean;
@@ -258,10 +263,10 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
           <button
             type="button"
             className="btn btn-secondary dialog-btn"
-            disabled={props.deviceVerification.submitting || props.deviceVerification.resending}
+            disabled={props.deviceVerification.submitting || props.deviceVerification.resending || (props.deviceVerification.resendIn ?? 0) > 0}
             onClick={props.deviceVerification.onResend}
           >
-            {t('txt_resend_code')}
+            {resendLabel(t('txt_resend_code'), props.deviceVerification.resendIn ?? 0)}
           </button>
         </ConfirmDialog>
       )}

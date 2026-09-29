@@ -12,7 +12,7 @@
  * 未验证不阻断登录/同步，只在界面上提示。
  */
 import type { Env, User } from '../types';
-import { jsonResponse, errorResponse } from '../utils/response';
+import { jsonResponse, errorResponse, tooManyRequestsResponse } from '../utils/response';
 import { StorageService } from '../services/storage';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
 import { getMailSettings, resolveMailConnection, isMailDeliveryAvailable, resolveMailRenderPreferences } from '../services/mail-settings';
@@ -125,7 +125,7 @@ export async function handleSendEmailVerificationCode(
   const quota = await checkSendQuota(env.DB, currentUser.id);
   if (!quota.allowed) {
     if (quota.reason === 'too-soon') {
-      return errorResponse('Please wait before requesting another verification code', 429);
+      return tooManyRequestsResponse('Please wait before requesting another verification code', quota.retryAfterSeconds);
     }
     if (quota.reason === 'hourly-limit') {
       return errorResponse('Too many verification emails were requested this hour', 429);

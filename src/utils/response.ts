@@ -146,18 +146,31 @@ export function jsonResponse(data: any, status: number = 200, headers: Record<st
 // （嵌套 `ErrorModel.Message` 只对 identity 端点有效）⇒ 缺了它客户端读到的就是空白。
 // `error`/`error_description` 留给本站 Web 前端。护栏：`scripts/error-response-shape.test.ts`。
 export function errorResponse(message: string, status: number = 400): Response {
-  return jsonResponse(
-    {
-      error: message,
-      error_description: message,
+  return jsonResponse(errorBody(message), status);
+}
+
+/** 错误响应体（两个助手共用，避免形状漂移）。 */
+function errorBody(message: string): Record<string, unknown> {
+  return {
+    error: message,
+    error_description: message,
+    Message: message,
+    ErrorModel: {
       Message: message,
-      ErrorModel: {
-        Message: message,
-        Object: 'error',
-      },
+      Object: 'error',
     },
-    status
-  );
+  };
+}
+
+/**
+ * 429 + `Retry-After`（秒）—— 「发码 / 发送类」端点回报还需等多久。
+ * 剩余秒数**只能**走响应头（错误文案禁止插值），客户端读它就能在按钮上倒计时；
+ * 响应体形状与 `errorResponse` 完全一致（共用 `errorBody`）。
+ */
+export function tooManyRequestsResponse(message: string, retryAfterSeconds: number): Response {
+  return jsonResponse(errorBody(message), 429, {
+    'Retry-After': String(Math.max(1, Math.ceil(retryAfterSeconds))),
+  });
 }
 
 export function unsupportedResponse(message: string = 'This feature is not supported by this server.'): Response {

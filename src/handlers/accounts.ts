@@ -4,7 +4,7 @@ import { AuthService } from '../services/auth';
 import { RateLimitService, getClientIdentifier } from '../services/ratelimit';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
 import { auditAndNotify } from '../services/security-notifications';
-import { jsonResponse, errorResponse } from '../utils/response';
+import { jsonResponse, errorResponse, tooManyRequestsResponse } from '../utils/response';
 import { generateUUID } from '../utils/uuid';
 import { LIMITS } from '../config/limits';
 import { isStoredApiKeyHash } from '../utils/api-key';
@@ -1814,7 +1814,7 @@ export async function handleSendEmailTwoFactorLogin(request: Request, env: Env):
   const quota = await checkSendQuota(env.DB, user.id);
   if (!quota.allowed) {
     if (quota.reason === 'too-soon') {
-      return errorResponse('Please wait before requesting another code', 429);
+      return tooManyRequestsResponse('Please wait before requesting another code', quota.retryAfterSeconds);
     }
     if (quota.reason === 'hourly-limit') {
       return errorResponse('Too many codes were requested this hour', 429);

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { MAIL_TEST_COOLDOWN_SECONDS, RESEND_COOLDOWN_SECONDS, resendLabel, useResendCountdown } from '@/hooks/useResendCountdown';
 import { Clipboard, KeyRound, Mail, RefreshCw, Send, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { calcTotpNow } from '@/lib/crypto';
@@ -201,7 +202,8 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [emailVerificationDialogOpen, setEmailVerificationDialogOpen] = useState(false);
   /** 「允许发送通知邮件」的保存中状态（值本身是受控的：直接取自 props.mailPreferences）。 */
   const [mailOptInBusy, setMailOptInBusy] = useState(false);
-  const [verificationResendIn, setVerificationResendIn] = useState(0);
+  // 与服务端的冷却窗口对齐，避免按钮点了必然失败（剩余秒数能拿到时优先用服务端值）。
+  const [verificationResendIn, startVerificationResend, resetVerificationResend] = useResendCountdown();
 
   // 用 ref 持有最新的加载函数：父组件传的是内联箭头函数，每帧都是新引用，
   // 直接放进依赖数组会让 effect 反复重跑，未完成的旧请求还会把刚更新的验证状态盖回去。
@@ -225,22 +227,16 @@ export default function SettingsPage(props: SettingsPageProps) {
     };
   }, [activeSection]);
 
-  // 与服务端的 RESEND_INTERVAL_MS 对齐，避免按钮点了必然失败
-  const RESEND_COOLDOWN_SECONDS = 60;
-
-  useEffect(() => {
-    if (verificationResendIn <= 0) return;
-    const timer = window.setTimeout(() => setVerificationResendIn((n) => n - 1), 1000);
-    return () => window.clearTimeout(timer);
-  }, [verificationResendIn]);
-
   const sendVerificationCode = async () => {
     if (!props.onSendEmailVerificationCode) return;
     setEmailVerificationBusy(true);
     try {
       await props.onSendEmailVerificationCode();
-      setVerificationResendIn(RESEND_COOLDOWN_SECONDS);
+      startVerificationResend(RESEND_COOLDOWN_SECONDS);
     } catch (error) {
+      // 限流：用服务端的 `Retry-After` 把倒计时对齐到真实剩余时间。
+      const retryAfter = (error as { retryAfterSeconds?: number } | null)?.retryAfterSeconds;
+      if (retryAfter) startVerificationResend(retryAfter);
       props.onNotify?.('error', error instanceof Error ? error.message : t('txt_email_verification_failed'));
     } finally {
       setEmailVerificationBusy(false);
@@ -271,7 +267,7 @@ export default function SettingsPage(props: SettingsPageProps) {
       await props.onSubmitEmailVerificationCode(code);
       setEmailVerification((prev) => (prev ? { ...prev, verified: true, pendingExpiresAt: null } : prev));
       setVerificationCode('');
-      setVerificationResendIn(0);
+      resetVerificationResend();
       setEmailVerificationDialogOpen(false);
       props.onNotify?.('success', t('txt_email_verification_verified_badge'));
     } catch (error) {
@@ -363,13 +359,20 @@ export default function SettingsPage(props: SettingsPageProps) {
   }
 
   /** 测试不需要主密码：只给操作者自己发一封信，不是敏感写操作。 */
+  /** 测试发信有 10 秒窗口，按钮上给倒计时，否则用户只能靠报错反推。 */
+  const [mailTestResendIn, startMailTestCountdown] = useResendCountdown();
+
   async function submitMailTest(): Promise<void> {
-    if (!mailCanTest) return;
+    if (!mailCanTest || mailTestResendIn > 0) return;
     setMailSubmitting(true);
     try {
       await props.onSendTestMail(mailInput);
+      startMailTestCountdown(MAIL_TEST_COOLDOWN_SECONDS);
       setMailTested(true);
     } catch (error) {
+      // 服务端限流时会把剩余秒数放在 `Retry-After` 上，用它对齐倒计时。
+      const retryAfter = (error as { retryAfterSeconds?: number } | null)?.retryAfterSeconds;
+      if (retryAfter) startMailTestCountdown(retryAfter);
       props.onNotify?.('error', describeMailFailure(error));
     } finally {
       setMailSubmitting(false);
@@ -1459,11 +1462,11 @@ export default function SettingsPage(props: SettingsPageProps) {
                     <button
                       type="button"
                       className="btn btn-secondary"
-                      disabled={!mailCanTest}
+                      disabled={!mailCanTest || mailTestResendIn > 0}
                       onClick={() => void submitMailTest()}
                     >
                       <Send size={14} className="btn-icon" />
-                      {t('txt_mail_send_test')}
+                      {resendLabel(t('txt_mail_send_test'), mailTestResendIn)}
                     </button>
                     {mailEnabled && (
                       <button
@@ -1570,9 +1573,7 @@ export default function SettingsPage(props: SettingsPageProps) {
               disabled={emailVerificationBusy || verificationResendIn > 0}
               onClick={() => void sendVerificationCode()}
             >
-              {verificationResendIn > 0
-                ? `${t('txt_email_verification_resend_code')} (${verificationResendIn}s)`
-                : t('txt_email_verification_resend_code')}
+              {resendLabel(t('txt_email_verification_resend_code'), verificationResendIn)}
             </button>
           </div>
         </div>

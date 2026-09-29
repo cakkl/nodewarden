@@ -92,15 +92,21 @@ function counterKey(userId: string): string {
   return `emailVerify__send__${userId}`;
 }
 
-/** 只读地检查是否还能发码，不消耗配额。 */
+/** 只读地检查是否还能发码，不消耗配额。`too-soon` 额外回报剩余秒数（供 429 的 `Retry-After`）。 */
 export async function checkSendQuota(
   db: D1Database,
   userId: string,
   now: Date = new Date()
-): Promise<{ allowed: true } | { allowed: false; reason: IssueCodeFailure }> {
+): Promise<
+  | { allowed: true }
+  | { allowed: false; reason: 'too-soon'; retryAfterSeconds: number }
+  | { allowed: false; reason: 'hourly-limit' | 'daily-limit' }
+> {
   const row = await db.prepare('SELECT value FROM config WHERE key = ?').bind(counterKey(userId)).first<{ value: string }>();
   const c = readCounters(row?.value, now);
-  if (c.last && now.getTime() - c.last < RESEND_INTERVAL_MS) return { allowed: false, reason: 'too-soon' };
+  if (c.last && now.getTime() - c.last < RESEND_INTERVAL_MS) {
+    return { allowed: false, reason: 'too-soon', retryAfterSeconds: Math.ceil((RESEND_INTERVAL_MS - (now.getTime() - c.last)) / 1000) };
+  }
   if (c.hourCount >= PER_HOUR_LIMIT) return { allowed: false, reason: 'hourly-limit' };
   if (c.dayCount >= PER_DAY_LIMIT) return { allowed: false, reason: 'daily-limit' };
   return { allowed: true };

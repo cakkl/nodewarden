@@ -20,7 +20,7 @@ import type {
 } from '../types';
 import type { AccountPasskeyAssertion, AccountPasskeyPrfKeySet } from '../account-passkeys';
 import { recordNodeWardenReachable, recordNodeWardenUnreachable } from '../network-status';
-import { parseErrorMessage, parseJson, type AuthedFetch, type SessionSetter } from './shared';
+import { createApiError, parseErrorMessage, parseJson, readRetryAfterSeconds, type AuthedFetch, type SessionSetter } from './shared';
 
 const SESSION_KEY = 'nodewarden.web.session.v4';
 const PROFILE_SNAPSHOT_KEY = 'nodewarden.web.profile-snapshot.v1';
@@ -993,8 +993,11 @@ function normalizeEmailVerification(raw: any): EmailVerificationStatus {
 /** 从失败响应里取服务端说明；取不到就用兜底文案。 */
 async function emailVerificationError(resp: Response): Promise<Error> {
   const body = await parseJson<any>(resp);
-  return new Error(
-    translateServerError(body?.error_description || body?.error, t('txt_email_verification_failed'))
+  // 限流时服务端会带 `Retry-After`，附到错误上，界面才能在按钮上显示真实剩余秒数。
+  return createApiError(
+    translateServerError(body?.error_description || body?.error, t('txt_email_verification_failed')),
+    resp.status,
+    readRetryAfterSeconds(resp)
   );
 }
 
@@ -1199,7 +1202,11 @@ export async function sendEmailTwoFactorLoginCode(email: string): Promise<void> 
   });
   if (!resp.ok) {
     const body = await parseJson<TokenError>(resp);
-    throw new Error(translateServerError(body?.error_description || body?.error, t('txt_email_code_send_failed')));
+    throw createApiError(
+      translateServerError(body?.error_description || body?.error, t('txt_email_code_send_failed')),
+      resp.status,
+      readRetryAfterSeconds(resp)
+    );
   }
 }
 

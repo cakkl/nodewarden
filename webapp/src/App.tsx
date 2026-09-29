@@ -73,6 +73,7 @@ import useAccountSecurityActions from '@/hooks/useAccountSecurityActions';
 import useAdminActions from '@/hooks/useAdminActions';
 import useAdminMailActions from '@/hooks/useAdminMailActions';
 import useBackupActions from '@/hooks/useBackupActions';
+import { RESEND_COOLDOWN_SECONDS, useResendCountdown } from '@/hooks/useResendCountdown';
 import useVaultSendActions from '@/hooks/useVaultSendActions';
 import { useToastManager } from '@/hooks/useToastManager';
 import { detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
@@ -230,6 +231,12 @@ export default function App() {
   // 防重入必须用 ref：`setEmailCodeResending(true)` 是异步的，同一 tick 内连续调用两次时
   // 第二次读到的仍是旧值 ⇒ 会真的发出两封信（进入挑战与切换 provider 可能同时触发）。
   const emailCodeSendingRef = useRef(false);
+  // 本轮挑战是否已为邮件方式发过码：默认不是邮件时切过来要补发一枚；已发过则不重发
+  // （重发会让用户刚收到的那枚立刻失效，还会撞 60 秒冷却）。
+  const emailCodeSentRef = useRef(false);
+  // 「重新发送」按钮上的倒计时。邮件 2FA 的剩余秒数优先取自 429 的 `Retry-After`；
+  // NDV 的响应刻意与「已发送」逐字一致（防探测）⇒ 拿不到剩余秒数，用本地固定冷却。
+  const [emailCodeResendIn, startEmailCodeCountdown] = useResendCountdown();
   // 只保留 setter：这里写入的值当前没有任何读取点（CodeQL js/unused-local-variable）。
   // 7 处 setPendingTotpMode 调用保持原样、行为不变；将来真要用这个状态时把首项命名回来即可。
   const [, setPendingTotpMode] = useState<'login' | 'unlock' | null>(null);
@@ -245,6 +252,7 @@ export default function App() {
   const [deviceOtpResending, setDeviceOtpResending] = useState(false);
   // 同 `emailCodeSendingRef`：state 写入是异步的，防重入只能用 ref。
   const deviceOtpSendingRef = useRef(false);
+  const [deviceOtpResendIn, startDeviceOtpCountdown] = useResendCountdown();
 
   const [disableTotpOpen, setDisableTotpOpen] = useState(false);
   const [disableTotpPassword, setDisableTotpPassword] = useState('');
@@ -645,16 +653,15 @@ export default function App() {
         setPendingTotpMode('login');
         setTotpCode('');
         setRememberDevice(true);
-        // 邮件 2FA：进入挑战时自动发一次码（否则用户面对一个空输入框、不知道要去哪拿码）。
-        if (result.pendingTotp.providerType === TWO_FACTOR_PROVIDER_EMAIL) {
-          void sendEmailTwoFactorCode(result.pendingTotp.email);
-        }
+        beginTotpChallenge(result.pendingTotp);
         return;
       }
       // 新设备验证：码已由服务端发出（与挑战同一个响应），这里只需切到输码界面。
       if (result.kind === 'device-verification') {
         setPendingDeviceVerification(result.pendingDeviceVerification);
         setDeviceOtpCode('');
+        // 服务端刚发过一封信 ⇒ 重发按钮先冷却 60 秒，否则首次点击会被静默限流、却提示「已发送」。
+        startDeviceOtpCountdown(RESEND_COOLDOWN_SECONDS);
         return;
       }
       pushToast('error', result.message || t('txt_login_failed'));
@@ -750,9 +757,17 @@ export default function App() {
       };
     });
     setTotpCode('');
-    // 切到邮件方式时同样要发码（用户主动选了它，不能让他等一个不会来的码）。
-    if (providerType === TWO_FACTOR_PROVIDER_EMAIL && pendingTotp) {
+    // 切到邮件：本轮还没发过码才补发一枚（默认不是邮件时用户手里没码）；已发过则不重发、不提示。
+    if (providerType === TWO_FACTOR_PROVIDER_EMAIL && pendingTotp && !emailCodeSentRef.current) {
       void sendEmailTwoFactorCode(pendingTotp.email);
+    }
+  }
+
+  /** 进入两步验证挑战：重置「本轮是否已发过码」，默认方式是邮件时立刻发一枚。 */
+  function beginTotpChallenge(pending: PendingTotp): void {
+    emailCodeSentRef.current = false;
+    if (pending.providerType === TWO_FACTOR_PROVIDER_EMAIL) {
+      void sendEmailTwoFactorCode(pending.email);
     }
   }
 
@@ -768,10 +783,18 @@ export default function App() {
     setEmailCodeResending(true);
     try {
       await sendEmailTwoFactorLoginCode(email);
+      // 发码成功即进入冷却：不依赖服务端返回的剩余秒数（成功响应不带它）。
+      startEmailCodeCountdown(RESEND_COOLDOWN_SECONDS);
       pushToast('success', t('txt_email_code_sent_to_your_address'));
     } catch (error) {
+      // 限流：用服务端的 `Retry-After` 把倒计时对齐到真实剩余时间，而不是固定 60 秒。
+      const retryAfter = error instanceof Error ? (error as Error & { retryAfterSeconds?: number }).retryAfterSeconds : undefined;
+      if (retryAfter) startEmailCodeCountdown(retryAfter);
       pushToast('error', error instanceof Error ? error.message : t('txt_email_code_send_failed'));
     } finally {
+      // 无论成与不成，本轮挑战都算「已经为邮件方式尝试过了」⇒ 后续切换不再自动重试，
+      // 免得每次切到邮件都弹一条报错（用户想要的补发可以自己点按钮）。
+      emailCodeSentRef.current = true;
       emailCodeSendingRef.current = false;
       setEmailCodeResending(false);
     }
@@ -829,6 +852,7 @@ export default function App() {
     setDeviceOtpResending(true);
     try {
       await resendNewDeviceOtp(pendingDeviceVerification.email, pendingDeviceVerification.passwordHash);
+      startDeviceOtpCountdown(RESEND_COOLDOWN_SECONDS);
       pushToast('success', t('txt_email_code_sent_to_your_address'));
     } catch (error) {
       pushToast('error', error instanceof Error ? error.message : t('txt_email_code_send_failed'));
@@ -858,9 +882,10 @@ export default function App() {
         return;
       }
       pushToast('error', t('txt_recovered_but_auto_login_failed_please_sign_in'));
-      navigate(ROUTES.login);
     } catch (error) {
       pushToast('error', error instanceof Error ? error.message : t('txt_recover_2fa_failed'));
+    } finally {
+      setTotpSubmitting(false);
     }
   }
 
@@ -998,12 +1023,15 @@ export default function App() {
         setPendingTotpMode('unlock');
         setTotpCode('');
         setRememberDevice(true);
+        // 与登录路径一致：邮件 2FA 要自动发一次码，否则用户面对空输入框、不知道去哪拿码。
+        beginTotpChallenge(result.pendingTotp);
         return;
       }
       // 解锁也走 password grant（设备行被清掉时会碰到），因此与登录分支同样处理。
       if (result.kind === 'device-verification') {
         setPendingDeviceVerification(result.pendingDeviceVerification);
         setDeviceOtpCode('');
+        startDeviceOtpCountdown(RESEND_COOLDOWN_SECONDS);
         return;
       }
       pushToast('error', result.message || t('txt_unlock_failed_master_password_is_incorrect'));
@@ -2531,11 +2559,13 @@ export default function App() {
             if (pendingTotp) void sendEmailTwoFactorCode(pendingTotp.email);
           }}
           emailCodeResending={emailCodeResending}
+          emailCodeResendIn={emailCodeResendIn}
           deviceVerification={pendingDeviceVerification ? {
             email: pendingDeviceVerification.email,
             code: deviceOtpCode,
             submitting: deviceOtpSubmitting,
             resending: deviceOtpResending,
+            resendIn: deviceOtpResendIn,
             onCodeChange: setDeviceOtpCode,
             onConfirm: () => void handleDeviceVerificationSubmit(),
             onResend: () => void handleResendDeviceOtpCode(),

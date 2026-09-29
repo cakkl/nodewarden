@@ -1,6 +1,6 @@
 import type { AdminInvite, AdminUser, AuditLogCategory, AuditLogEntry, AuditLogLevel, AuditLogListResult, AuditLogSettings, ListResponse, MailSettings, MailSettingsInput, MailTestResult } from '../types';
 import { t, translateServerError } from '../i18n';
-import { parseErrorMessage, parseJson, type AuthedFetch } from './shared';
+import { parseErrorMessage, parseJson, readRetryAfterSeconds, type AuthedFetch } from './shared';
 
 /**
  * 投递失败。保留服务端的结构化字段，让界面能按「哪个环节 + 什么状态码」
@@ -11,7 +11,9 @@ export class MailDeliveryError extends Error {
     message: string,
     readonly stage: string | null,
     readonly code: number | null,
-    readonly timedOut: boolean
+    readonly timedOut: boolean,
+    /** 服务端 429 的 `Retry-After` 秒数（仅测试发信限流时存在），供按钮倒计时使用。 */
+    readonly retryAfterSeconds?: number
   ) {
     super(message);
     this.name = 'MailDeliveryError';
@@ -217,7 +219,8 @@ export async function sendTestMail(
       translateServerError(detail, t('txt_mail_test_failed')),
       body?.smtpStage ? String(body.smtpStage) : null,
       body?.smtpCode === null || body?.smtpCode === undefined ? null : Number(body.smtpCode),
-      !!body?.timedOut
+      !!body?.timedOut,
+      readRetryAfterSeconds(resp)
     );
   }
   const body = (await parseJson<Record<string, unknown>>(resp)) || {};

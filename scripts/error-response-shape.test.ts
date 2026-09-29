@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { errorResponse, identityErrorResponse, unsupportedResponse } from '../src/utils/response';
+import { errorResponse, identityErrorResponse, tooManyRequestsResponse, unsupportedResponse } from '../src/utils/response';
 
 const MESSAGE = 'Something went wrong';
 
@@ -55,4 +55,23 @@ test('identity 错误：嵌套 ErrorModel 必须保留（客户端走嵌套分�
   const body = await bodyOf(identityErrorResponse(MESSAGE));
   assert.equal(readMessageAsClient(body, true), MESSAGE, 'identity 分支读嵌套 ErrorModel.Message');
   assert.equal((body.ErrorModel as Record<string, unknown>).Object, 'error');
+});
+
+// 429 是唯一「正文之外还有信息」的错误：`Retry-After` 决定按钮上倒计时的秒数。
+test('限流响应：形状与 errorResponse 一致，并带上 Retry-After（秒）', async () => {
+  const response = tooManyRequestsResponse(MESSAGE, 42);
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('Retry-After'), '42');
+
+  const body = await bodyOf(response);
+  assert.equal(readMessageAsClient(body, false), MESSAGE, '限流响应同样必须能被客户端读到文案');
+  assert.equal(body.error_description, MESSAGE);
+  assert.deepEqual(body.ErrorModel, { Message: MESSAGE, Object: 'error' });
+});
+
+test('限流响应：剩余秒数一律四舍五入为 ≥ 1 的整数（0 会让客户端认为已可重试）', async () => {
+  assert.equal(tooManyRequestsResponse(MESSAGE, 0).headers.get('Retry-After'), '1');
+  assert.equal(tooManyRequestsResponse(MESSAGE, 0.2).headers.get('Retry-After'), '1');
+  assert.equal(tooManyRequestsResponse(MESSAGE, 59.2).headers.get('Retry-After'), '60');
+  assert.equal(tooManyRequestsResponse(MESSAGE, -5).headers.get('Retry-After'), '1');
 });
