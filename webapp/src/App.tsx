@@ -154,6 +154,20 @@ const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
  */
 const NOTIFICATION_RECONNECT_STABLE_MS = 30_000;
 
+/**
+ * `profile` 查询的 key（`profile.id` 优先、回落邮箱，与 `vaultCacheKey` 同口径）。
+ * 抽成函数：解锁回填也要往同一个 key 写缓存，两处各写一遍必然漂。
+ */
+function profileCacheKey(
+  profileId: string | null | undefined,
+  email: string | null | undefined
+): readonly [string, string] {
+  return ['profile', String(profileId || email || '').trim()];
+}
+
+/** 已授权设备列表的 staleTime。 */
+const AUTHORIZED_DEVICES_STALE_MS = 30_000;
+
 type ThemePreference = 'system' | 'light' | 'dark';
 type LockTimeoutMinutes = 0 | 1 | 5 | 15 | 30;
 type SessionTimeoutAction = 'lock' | 'logout';
@@ -206,6 +220,11 @@ export default function App() {
   const [phase, setPhase] = useState<AppPhase>(initialBootstrap.phase);
   const [session, setSessionState] = useState<SessionState | null>(initialBootstrap.session);
   const [profile, setProfile] = useState<Profile | null>(initialProfileSnapshot);
+  /**
+   * 解锁回填（`login.profilePromise`）是否还在路上。落地前**不发** `profileQuery`，
+   * 否则两边请求同时飞出、同一份 profile 拉两次（实测相隔 6 ms、各 2,697 B）。
+   */
+  const [profileHydrationPending, setProfileHydrationPending] = useState(false);
   const [defaultKdfIterations, setDefaultKdfIterations] = useState(initialBootstrap.defaultKdfIterations);
   const [registrationInviteRequired, setRegistrationInviteRequired] = useState(initialBootstrap.registrationInviteRequired);
   const [jwtWarning, setJwtWarning] = useState<{ reason: JwtUnsafeReason; minLength: number } | null>(initialBootstrap.jwtWarning);
@@ -606,6 +625,7 @@ export default function App() {
     setProfile(login.profile);
     setUnlockPreparing(false);
     setLockedSessionRefreshError('');
+    setProfileHydrationPending(true);
     setPendingTotp(null);
     setPendingTotpMode(null);
     setPendingPasskeyPassword(null);
@@ -623,8 +643,13 @@ export default function App() {
         const hydratedProfile = await login.profilePromise;
         if (sessionRef.current?.accessToken !== login.session.accessToken) return;
         setProfile(hydratedProfile);
+        // 顺手写进缓存：不然 profileQuery 会把同一份 ~5 KB 再拉一遍。
+        queryClient.setQueryData(profileCacheKey(hydratedProfile.id, login.session.email), hydratedProfile);
       } catch {
-        // Keep the in-memory transient profile for the current session.
+        // 回填失败也放行，让 profileQuery 走常规路径（自带重试与错误提示）。
+      } finally {
+        // 必须放行：否则一次失败就把 profileQuery 永久关在门外了。
+        setProfileHydrationPending(false);
       }
     })();
   }
@@ -1303,9 +1328,9 @@ export default function App() {
     queryClient.setQueryData(sendsQueryKey, encryptedSendsFromSync);
   }, [queryClient, sendsQueryKey, encryptedSendsFromSync]);
   const profileQuery = useQuery({
-    queryKey: ['profile', vaultCacheKey || session?.email],
+    queryKey: profileCacheKey(profile?.id, session?.email),
     queryFn: () => getProfile(authedFetch),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken,
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && !profileHydrationPending,
     staleTime: 30_000,
   });
 
@@ -1384,9 +1409,8 @@ export default function App() {
     queryKey: ['authorized-devices', vaultCacheKey || session?.email],
     queryFn: () => getAuthorizedDevices(authedFetch),
     enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && vaultInitialDecryptDone,
-    staleTime: 30_000,
-  });
-  const domainRulesQueryKey = useMemo(() => ['domain-rules', vaultCacheKey || session?.email] as const, [vaultCacheKey, session?.email]);
+    staleTime: AUTHORIZED_DEVICES_STALE_MS,
+  });  const domainRulesQueryKey = useMemo(() => ['domain-rules', vaultCacheKey || session?.email] as const, [vaultCacheKey, session?.email]);
   const domainRulesQuery = useQuery({
     queryKey: domainRulesQueryKey,
     queryFn: () => getDomainRules(authedFetch),
@@ -1943,6 +1967,10 @@ export default function App() {
         }
       };
 
+      // 只有**重连**才需要重新对齐设备列表：首次连接紧跟在启动查询之后（实测相隔 262 ms），
+      // 那时查询还在飞行中，无条件刷就是白跑一次（600 B + 3 次 D1 往返）。
+      let connectedOnce = false;
+
       socket.addEventListener('open', () => {
         // 只「连上」不算成功：稳定存活够久之后才清零退避。
         clearStableTimer();
@@ -1950,7 +1978,10 @@ export default function App() {
           stableTimer = null;
           reconnectAttempts = 0;
         }, NOTIFICATION_RECONNECT_STABLE_MS);
-        void refreshAuthorizedDevicesRef.current();
+        if (connectedOnce) {
+          void refreshAuthorizedDevicesRef.current();
+        }
+        connectedOnce = true;
         try {
           socket?.send(`{"protocol":"json","version":1}${SIGNALR_RECORD_SEPARATOR}`);
         } catch {
