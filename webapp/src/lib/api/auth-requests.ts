@@ -1,5 +1,4 @@
 import { base64ToBytes, bytesToBase64, hkdfExpand, toBufferSource } from '@/lib/crypto';
-import { EFFLongWordList } from '@/lib/fingerprint-wordlist';
 import { t } from '@/lib/i18n';
 import type { AuthRequest, ListResponse, SessionState } from '@/lib/types';
 import type { AuthedFetch } from './shared';
@@ -97,14 +96,25 @@ export async function encryptSessionUserKeyForAuthRequest(session: SessionState,
   return `4.${bytesToBase64(encryptedBytes)}`;
 }
 
+/**
+ * 词表 60.7 KB 只有密码生成器与指纹短语用得到 ⇒ 按需加载；
+ * 与密码生成器共用 `eff-word-list`（原来仓库里存了两份逐字节相同的列表）。
+ */
+let effLongWordList: string[] | null = null;
+
+async function loadEffLongWordList(): Promise<string[]> {
+  effLongWordList ??= (await import('@/lib/eff-word-list')).EFFLongWordList;
+  return effLongWordList;
+}
+
 export async function getFingerprintPhrase(email: string, publicKey: Uint8Array): Promise<string> {
   const keyFingerprint = new Uint8Array(await crypto.subtle.digest('SHA-256', toBufferSource(publicKey)));
   const userFingerprint = await hkdfExpand(keyFingerprint, email.toLowerCase(), 32);
-  return hashPhrase(userFingerprint).join('-');
+  return hashPhrase(userFingerprint, await loadEffLongWordList()).join('-');
 }
 
-function hashPhrase(hash: Uint8Array, minimumEntropy = 64): string[] {
-  const entropyPerWord = Math.log(EFFLongWordList.length) / Math.log(2);
+function hashPhrase(hash: Uint8Array, wordList: string[], minimumEntropy = 64): string[] {
+  const entropyPerWord = Math.log(wordList.length) / Math.log(2);
   let numWords = Math.ceil(minimumEntropy / entropyPerWord);
   if (numWords * entropyPerWord > hash.length * 4) {
     throw new Error('Output entropy of hash function is too small');
@@ -116,11 +126,11 @@ function hashPhrase(hash: Uint8Array, minimumEntropy = 64): string[] {
   }
 
   const phrase: string[] = [];
-  const wordCount = BigInt(EFFLongWordList.length);
+  const wordCount = BigInt(wordList.length);
   while (numWords > 0) {
     const remainder = Number(hashNumber % wordCount);
     hashNumber /= wordCount;
-    phrase.push(EFFLongWordList[remainder]);
+    phrase.push(wordList[remainder]);
     numWords -= 1;
   }
   return phrase;

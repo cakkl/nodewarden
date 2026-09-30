@@ -351,6 +351,13 @@ export default defineConfig(({ mode }) => {
           codeSplitting: {
             groups: [
               {
+                // 词表 60.7 KB 只有密码生成器与指纹短语用得到。不单独分组会被下面的 shared 组
+                // 收走，而 shared 是首屏 modulepreload 的 ⇒ 首屏白等一次。
+                name: 'eff-word-list',
+                test: /[\\/]src[\\/]lib[\\/]eff-word-list\.ts$/,
+                priority: 30,
+              },
+              {
                 name: 'shared',
                 minShareCount: 2,
                 minSize: 50 * 1024,
