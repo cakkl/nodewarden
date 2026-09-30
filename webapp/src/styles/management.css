@@ -2390,6 +2390,9 @@
 
 .domain-rule-row-actions {
   @apply flex items-center self-center gap-2;
+  /* 显式落在**最后一列**：箭头是按文本是否溢出条件渲染的，自动放置会让无箭头的行少让一个 gap
+     ⇒ 与有箭头的行错开 10px。 */
+  grid-column: -1;
 }
 
 .domain-rule-row-actions .btn {
