@@ -20,9 +20,14 @@ function readSource(relativePath: string): string {
 
 /** 取出某条顶层规则的花括号内容；命中前先去掉 CSS 注释 —— 否则「注释掉的声明」也会被判为存在。 */
 function cssRuleBody(css: string, selector: string): string {
-  const match = css.match(new RegExp(`\\n${selector.replace(/[.\\-]/g, '\\$&')} \\{([^}]*)\\}`));
-  assert.ok(match, `找不到 ${selector}（改名了请同步本护栏）`);
-  return match[1].replace(/\/\*[\s\S]*?\*\//g, '');
+  // 手工定位（行首锚定 + 花括号切片），不用 `new RegExp(…)` 拼选择器：
+  // 既避开 Semgrep detect-non-literal-regexp，也省掉选择器里 `.` 的转义。
+  const start = css.indexOf(`\n${selector} {`);
+  assert.notEqual(start, -1, `找不到 ${selector}（改名了请同步本护栏）`);
+  const open = css.indexOf('{', start);
+  const close = css.indexOf('}', open);
+  assert.ok(close > open, `${selector} 的规则体没有闭合花括号`);
+  return css.slice(open + 1, close).replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
 test('域名规则行：动作列必须显式落在最后一列（否则有无箭头的行会错开一个 gap）', () => {
