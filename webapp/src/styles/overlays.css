@@ -194,20 +194,6 @@
   @apply mt-1;
 }
 
-.settings-twofactor-grid {
-  @apply grid gap-3;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.settings-subcard {
-  @apply rounded-xl bg-white p-3;
-  border: 1px solid var(--line);
-}
-
-.settings-subcard h3 {
-  @apply mb-2.5 mt-0;
-}
-
 .toast-stack {
   @apply fixed grid list-none gap-2.5 p-0;
   top: 16px;

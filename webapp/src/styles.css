@@ -12,7 +12,6 @@
 @import './styles/responsive.css';
 @import './styles/dark.css';
 
-
 @reference './tailwind.css';
 /* Unified product polish: refined, smooth, comfortable surfaces across desktop, mobile, and dark mode. */
 
@@ -107,8 +106,7 @@
 :root[data-theme='dark'] .auth-card,
 :root[data-theme='dark'] .dialog-card,
 :root[data-theme='dark'] .card,
-:root[data-theme='dark'] .list-panel,
-:root[data-theme='dark'] .settings-subcard,
+:root[data-theme='dark'] .list-panel
 :root[data-theme='dark'] .backup-operations-sidebar,
 :root[data-theme='dark'] .backup-destination-sidebar,
 :root[data-theme='dark'] .backup-detail-panel,
@@ -320,9 +318,7 @@ h4 {
 
 .side-link,
 .side-group-trigger,
-.side-sub-link,
-.nav-layout-trigger,
-.nav-layout-option {
+.side-sub-link {
   border-radius: var(--radius-md);
   box-shadow: none;
 }
@@ -345,9 +341,7 @@ h4 {
 
 .side-link:hover,
 .side-group-trigger:hover,
-.side-sub-link:hover,
-.nav-layout-trigger:hover,
-.nav-layout-trigger.active {
+.side-sub-link:hover {
   background: var(--panel-soft);
   border-color: var(--line);
   color: var(--text);
@@ -363,15 +357,12 @@ h4 {
 .sort-menu-item.active,
 .backup-destination-item.active,
 .backup-interval-preset.active,
-.mobile-settings-link.active,
-.nav-layout-option.active {
+.mobile-settings-link.active {
   background: color-mix(in srgb, var(--primary) 10%, var(--panel));
   border-color: color-mix(in srgb, var(--primary) 34%, var(--line));
   color: var(--primary-strong);
   box-shadow: none;
 }
-
-.nav-layout-menu,
 .sort-menu,
 .create-menu {
   border-radius: var(--radius-lg);
@@ -408,8 +399,7 @@ h4 {
 .auth-card,
 .dialog-card,
 .card,
-.list-panel,
-.settings-subcard,
+.list-panel
 .backup-operations-sidebar,
 .backup-destination-sidebar,
 .backup-detail-panel,
@@ -620,7 +610,6 @@ h4 {
   transform: translateY(0) scale(0.98);
 }
 
-
 .sidebar-block {
   margin-bottom: 8px;
   padding: 12px;
@@ -656,11 +645,6 @@ h4 {
 
 .list-head {
   margin-bottom: 5px;
-}
-
-.list-count {
-  color: var(--muted);
-  font-weight: 700;
 }
 
 .list-panel,
@@ -793,15 +777,7 @@ h4 {
   margin-bottom: 12px;
 }
 
-.sensitive-actions-module {
-  padding: 0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-
-.sensitive-action,
-.recovery-code-card,
+.sensitive-action
 .api-key-warning-panel,
 .api-key-credentials-panel,
 .backup-recommendation-dav-item,
@@ -812,8 +788,6 @@ h4 {
   border-color: var(--line);
   background: var(--panel);
 }
-
-.status-ok,
 .device-status-pill.online {
   /* #8 修正：原为 color: var(--success)，浅色下在 11% 淡绿底上仅约 3.3–3.8:1（下文非大字号）。
      改为与 shell.css:58 既有模式一致的混色，浅/暗两主题均达标。 */
@@ -904,8 +878,7 @@ textarea {
 .backup-destination-item,
 .backup-browser-entry,
 .sort-menu-item,
-.create-menu-item,
-.nav-layout-option {
+.create-menu-item {
   font-size: var(--font-sm);
   font-weight: 600;
   letter-spacing: 0;
@@ -916,13 +889,11 @@ textarea {
 .side-sub-link.active,
 .tree-btn.active,
 .mobile-tab.active,
-.mobile-settings-link.active,
-.nav-layout-option.active {
+.mobile-settings-link.active {
   font-weight: 700;
 }
 
-.sidebar-title,
-.list-count,
+.sidebar-title
 .field > span,
 .table th,
 .dialog-warning-kicker,
@@ -994,8 +965,7 @@ textarea {
 :root[data-theme='dark'] .auth-card,
 :root[data-theme='dark'] .dialog-card,
 :root[data-theme='dark'] .card,
-:root[data-theme='dark'] .list-panel,
-:root[data-theme='dark'] .settings-subcard,
+:root[data-theme='dark'] .list-panel
 :root[data-theme='dark'] .backup-operations-sidebar,
 :root[data-theme='dark'] .backup-destination-sidebar,
 :root[data-theme='dark'] .backup-detail-panel,
@@ -1010,8 +980,7 @@ textarea {
 :root[data-theme='dark'] .input,
 :root[data-theme='dark'] .search-input,
 :root[data-theme='dark'] .create-menu,
-:root[data-theme='dark'] .sort-menu,
-:root[data-theme='dark'] .nav-layout-menu {
+:root[data-theme='dark'] .sort-menu {
   background: var(--panel);
   border-color: var(--line);
   color: var(--text);
@@ -1155,8 +1124,7 @@ textarea {
 
   .mobile-detail-sheet .card,
   .detail-col .card,
-  .import-export-panel,
-  .settings-subcard {
+  .import-export-panel {
     border-radius: var(--radius-md);
   }
 
@@ -1167,8 +1135,7 @@ textarea {
 
   .detail-actions .actions .btn,
   .detail-delete-btn,
-  .import-export-panel .actions .btn,
-  .settings-subcard .actions .btn,
+  .import-export-panel .actions .btn
   .section-head .actions .btn {
     min-height: 42px;
   }
@@ -1229,10 +1196,6 @@ textarea {
   .backup-destination-sidebar,
   .backup-detail-panel {
     padding: 12px;
-  }
-
-  .sensitive-actions-module {
-    padding: 0;
   }
 
   .card {
