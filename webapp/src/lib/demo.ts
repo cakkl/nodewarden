@@ -1499,6 +1499,48 @@ export function createDemoMainRoutesProps(base: AppMainRoutesProps, notify: Noti
     adminError: '',
     totpEnabled: true,
     passkey2faEnabled: false,
+    // 设置页的邮箱验证状态与邮件配置来自 App 的**启动查询**（demo 下不执行）⇒ 用演示数据补上，
+    // 否则依赖它们的元素（状态徽标、通知开关、停用按钮）根本不会出现。
+    emailVerification: {
+      available: true,
+      verified: true,
+      email: DEMO_PROFILE.email,
+      pendingExpiresAt: null,
+    },
+    mailSettings: {
+      enabled: true,
+      host: 'smtp.example.com',
+      port: 587,
+      encryption: 'starttls',
+      username: 'noreply@example.com',
+      fromAddress: 'noreply@example.com',
+      fromName: 'NodeWarden Demo',
+      passwordConfigured: true,
+      configured: true,
+    },
+    // 随之变可点的写操作走 demo 的「只读」约定：提示一句，而不是让请求打到不存在的后端
+    onSaveMailPreferences: async () => {
+      await readonly();
+      return { locale: null, autoLocale: true, timezone: null, autoTimezone: true, mailOptIn: false };
+    },
+    onSendTestMail: async (input) => {
+      await readonly();
+      return { recipient: input.fromAddress, authMethod: 'plain', encryption: 'starttls', response: 'Demo' };
+    },
+    onSaveMailSettings: async (input) => {
+      await readonly();
+      return {
+        enabled: input.enabled,
+        host: input.host,
+        port: input.port,
+        encryption: 'starttls',
+        username: input.username,
+        fromAddress: input.fromAddress,
+        fromName: input.fromName,
+        passwordConfigured: true,
+        configured: true,
+      };
+    },
     authorizedDevices: state.authorizedDevices,
     authorizedDevicesLoading: false,
     authorizedDevicesError: '',

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { MAIL_TEST_COOLDOWN_SECONDS, RESEND_COOLDOWN_SECONDS, resendLabel, useResendCountdown } from '@/hooks/useResendCountdown';
 import { Clipboard, KeyRound, Mail, RefreshCw, Send, ShieldCheck, ShieldOff, Trash2 } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
@@ -52,7 +52,6 @@ interface SettingsPageProps {
   onGetRecoveryCode: (masterPassword: string) => Promise<string>;
   onGetApiKey: (masterPassword: string) => Promise<string>;
   onRotateApiKey: (masterPassword: string) => Promise<string>;
-  onLoadMailSettings: () => Promise<MailSettings>;
   /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   mailDeliveryAvailable?: boolean;
   /** 服务端**确定**发不出信（未知不算）⇒ 邮箱两步登录整行不渲染 */
@@ -66,11 +65,20 @@ interface SettingsPageProps {
   onLoadEmailVerification?: () => Promise<EmailVerificationStatus>;
   onSendEmailVerificationCode?: () => Promise<unknown>;
   onSubmitEmailVerificationCode?: (code: string) => Promise<void>;
+  /** 邮箱验证状态：App 的启动查询提供（`null` = 还没拿到）⇒ 首帧即正确。 */
+  emailVerification?: EmailVerificationStatus | null;
+  /** 邮件发送配置（管理员）：同上；`null` 时不渲染状态徽标。 */
+  mailSettings?: MailSettings | null;
+  onRefreshEmailVerification?: () => Promise<void>;
+  /** 保存 / 启用 / 停用后回写查询缓存，免得下次进分区读到旧值。 */
+  onMailSettingsSaved?: (settings: MailSettings) => void;
   onListAccountPasskeys: () => Promise<AccountPasskeyCredential[]>;
   onCreateAccountPasskey: (name: string, masterPassword: string, directUnlock: boolean) => Promise<AccountPasskeyCredential | null>;
   onEnableAccountPasskeyDirectUnlock: (id: string, masterPassword: string) => Promise<void>;
   onDeleteAccountPasskey: (id: string, masterPassword: string) => Promise<void>;
   onRefreshTwoFactorStatus: () => Promise<void>;
+  /** 重新拉 `/api/config`：邮件那一行是否渲染、以及「能发信」的说明文案都取决于它。 */
+  onRefreshServerConfig: () => Promise<void>;
   onLockTimeoutChange: (minutes: 0 | 1 | 5 | 15 | 30) => void;
   onSessionTimeoutActionChange: (action: 'lock' | 'logout') => void;
   onNotify?: (type: 'success' | 'error' | 'warning', text: string) => void;
@@ -208,7 +216,8 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [selectedLocale, setSelectedLocale] = useState<Locale>(() => getLocale());
   const [activeSection, setActiveSection] = useState<SettingsSection>('preferences');
 
-  const [emailVerification, setEmailVerification] = useState<EmailVerificationStatus | null>(null);  const [verificationCode, setVerificationCode] = useState('');
+  const [emailVerification, setEmailVerification] = useState<EmailVerificationStatus | null>(null);
+  const [verificationCode, setVerificationCode] = useState('');
   const [emailVerificationBusy, setEmailVerificationBusy] = useState(false);
   const [emailVerificationDialogOpen, setEmailVerificationDialogOpen] = useState(false);
   /** 「允许发送通知邮件」的保存中状态（值本身是受控的：直接取自 props.mailPreferences）。 */
@@ -216,27 +225,11 @@ export default function SettingsPage(props: SettingsPageProps) {
   // 与服务端的冷却窗口对齐，避免按钮点了必然失败（剩余秒数能拿到时优先用服务端值）。
   const [verificationResendIn, startVerificationResend, resetVerificationResend] = useResendCountdown();
 
-  // 用 ref 持有最新的加载函数：父组件传的是内联箭头函数，每帧都是新引用，
-  // 直接放进依赖数组会让 effect 反复重跑，未完成的旧请求还会把刚更新的验证状态盖回去。
-  const loadEmailVerificationRef = useRef(props.onLoadEmailVerification);
-  loadEmailVerificationRef.current = props.onLoadEmailVerification;
+  // 启动查询的结果同步进来：徽标 / 验证按钮 / 通知开关**首帧即正确**。
+  // ⚠️ 别再改回「进区才拉」—— 那会让这三处在加载完成后才冒出来，并带布局跳动。
   useEffect(() => {
-    if (activeSection !== 'account') return;
-    const load = loadEmailVerificationRef.current;
-    if (!load) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const status = await load();
-        if (!cancelled) setEmailVerification(status);
-      } catch (error) {
-        if (!cancelled) props.onNotify?.('error', error instanceof Error ? error.message : t('txt_email_verification_failed'));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection]);
+    if (props.emailVerification) setEmailVerification(props.emailVerification);
+  }, [props.emailVerification]);
 
   const sendVerificationCode = async () => {
     if (!props.onSendEmailVerificationCode) return;
@@ -276,7 +269,9 @@ export default function SettingsPage(props: SettingsPageProps) {
     setEmailVerificationBusy(true);
     try {
       await props.onSubmitEmailVerificationCode(code);
+      // 先本地置位（立即反馈），再让启动查询跟上 —— 两个徽标、通知开关与两步登录区的可用性都看它。
       setEmailVerification((prev) => (prev ? { ...prev, verified: true, pendingExpiresAt: null } : prev));
+      void props.onRefreshEmailVerification?.();
       setVerificationCode('');
       resetVerificationResend();
       setEmailVerificationDialogOpen(false);
@@ -429,6 +424,7 @@ export default function SettingsPage(props: SettingsPageProps) {
       const payload = mailPromptAction === 'disable' ? { ...mailInput, enabled: false } : mailInput;
       const saved = await props.onSaveMailSettings(payload, mailMasterPassword);
       applyMailSettings(saved);
+      props.onMailSettingsSaved?.(saved);
       closeMailPrompt();
     } catch (error) {
       props.onNotify?.('error', describeMailFailure(error));
@@ -442,21 +438,11 @@ export default function SettingsPage(props: SettingsPageProps) {
     clearLegacyTotpSetupSecrets();
   }, []);
 
+  // 启动查询就绪后把服务端配置灌进表单：徽标与「停用」按钮**首帧即正确**。
+  // 数据只在显式刷新或保存回写时变化（全局 `refetchOnWindowFocus: false`）⇒ 不会覆盖用户正在输入的内容。
   useEffect(() => {
-    if (activeSection !== 'mail' || !isAdmin) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const settings = await props.onLoadMailSettings();
-        if (!cancelled) applyMailSettings(settings);
-      } catch (error) {
-        if (!cancelled) props.onNotify?.('error', describeMailFailure(error));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSection, isAdmin]);
+    if (props.mailSettings) applyMailSettings(props.mailSettings);
+  }, [props.mailSettings]);
 
   useEffect(() => {
     if (!props.totpEnabled) {
@@ -860,11 +846,19 @@ export default function SettingsPage(props: SettingsPageProps) {
     }
   }
 
+  /**
+   * 「刷新状态」：三份一起刷 —— 提供程序与默认方式、邮件两步登录（它走另一个端点）、
+   * 以及 `/api/config` 的发信能力（后者决定邮件那一行是否渲染）。只刷提供程序会让邮件行停在旧值。
+   */
   async function refreshTwoFactorStatus(): Promise<void> {
     if (twoFactorStatusRefreshing) return;
     setTwoFactorStatusRefreshing(true);
     try {
-      await props.onRefreshTwoFactorStatus();
+      await Promise.all([
+        props.onRefreshTwoFactorStatus(),
+        refreshEmailTwoFactor(),
+        props.onRefreshServerConfig(),
+      ]);
     } catch (error) {
       props.onNotify?.('error', error instanceof Error ? error.message : t('txt_load_failed'));
     } finally {
@@ -1411,7 +1405,8 @@ export default function SettingsPage(props: SettingsPageProps) {
               <section className="settings-submodule">
                 <div className="settings-module-head">
                   <h3>{t('txt_mail_config')}</h3>
-                  {mailConfigured ? (
+                  {/* 未加载 ≠ 未配置：拿不到服务端配置时不渲染徽标 */}
+                  {mailSettings === null ? null : mailConfigured ? (
                     <span className="two-step-enabled-badge">{t('txt_mail_configured')}</span>
                   ) : (
                     <span className="two-step-enabled-badge is-danger">{t('txt_mail_not_configured')}</span>
@@ -1525,7 +1520,7 @@ export default function SettingsPage(props: SettingsPageProps) {
                       <Send size={14} className="btn-icon" />
                       {resendLabel(t('txt_mail_send_test'), mailTestResendIn)}
                     </button>
-                    {mailEnabled && (
+                    {mailSettings !== null && mailEnabled && (
                       <button
                         type="button"
                         className="btn btn-danger push-right"
