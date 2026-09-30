@@ -1125,6 +1125,7 @@ const sv: Record<string, string> = {
   "txt_send_code_invalid": "Koden är felaktig eller har upphört att gälla.",
   "txt_send_email_unavailable": "Servern kan inte skicka e-post just nu, så den här Send kan inte öppnas.",
   "txt_send_emails_invalid": "En eller flera e-postadresser är inte giltiga.",
+  "txt_send_emails_required": "Minst en e-postadress krävs",
   "txt_send_emails_requires_mail": "E-postutskick är inte konfigurerat på den här servern, så en Send som är begränsad till specifika e-postadresser kan inte sparas.",
   "txt_send_emails_too_many": "För många e-postadresser (högst 20).",
   "txt_send_password_invalid": "Lösenordet är inte korrekt.",

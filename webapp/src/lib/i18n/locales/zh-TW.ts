@@ -1125,6 +1125,7 @@ const zhTW: Record<string, string> = {
   "txt_send_code_invalid": "驗證碼不正確或已過期。",
   "txt_send_email_unavailable": "伺服器目前無法寄送郵件，因此無法開啟該 Send。",
   "txt_send_emails_invalid": "電子郵件清單中有不合法的地址。",
+  "txt_send_emails_required": "至少填寫一個電子郵件地址",
   "txt_send_emails_requires_mail": "伺服器未設定郵件寄送，無法儲存僅限指定電子郵件開啟的 Send。",
   "txt_send_emails_too_many": "電子郵件地址過多（上限 20 個）。",
   "txt_send_password_invalid": "密碼不正確。",

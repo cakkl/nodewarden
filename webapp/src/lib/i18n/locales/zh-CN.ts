@@ -1125,6 +1125,7 @@ const zhCN: Record<string, string> = {
   "txt_send_code_invalid": "验证码不正确或已过期。",
   "txt_send_email_unavailable": "服务器当前无法发送邮件，因此无法打开该 Send。",
   "txt_send_emails_invalid": "邮箱列表中有不合法的地址。",
+  "txt_send_emails_required": "至少填写一个邮箱地址",
   "txt_send_emails_requires_mail": "服务器未配置邮件发送，无法保存仅限指定邮箱打开的 Send。",
   "txt_send_emails_too_many": "邮箱地址过多（上限 20 个）。",
   "txt_send_password_invalid": "密码不正确。",

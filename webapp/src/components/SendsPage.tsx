@@ -19,8 +19,8 @@ interface SendsPageProps {
   sendUploadPercent: number | null;
   mobileSidebarToggleKey: number;
   onNotify: (type: 'success' | 'error', text: string) => void;
-  /** 服务端是否配了发信：没配时「指定邮箱」保存会被拒，先给提示 */
-  mailDeliveryAvailable?: boolean;
+  /** 服务端**确定**没配发信（未知不算）：此时「指定邮箱」保存会被拒，先给提示 */
+  mailDeliveryUnavailable?: boolean;
 }
 
 type SendTypeFilter = 'all' | 'text' | 'file';
@@ -200,6 +200,11 @@ export default function SendsPage(props: SendsPageProps) {
     }
     if (draft.type === 'file' && isCreating && !draft.file) {
       props.onNotify('error', t('txt_please_select_a_file'));
+      return;
+    }
+    // 名单为空时请求里就是 `authType: NONE` ⇒ 服务端会静默存成「任何人持链接即可」（服务端看不到用户选了啥）
+    if (draft.accessMode === 'emails' && !draft.emails.split(',').some((entry) => entry.trim())) {
+      props.onNotify('error', t('txt_send_emails_required'));
       return;
     }
     setBusy(true);
@@ -579,7 +584,7 @@ export default function SendsPage(props: SendsPageProps) {
                     placeholder="name@example.com, other@example.com"
                     onInput={(e) => setDraft({ ...draft, emails: (e.currentTarget as HTMLInputElement).value })}
                   />
-                  {props.mailDeliveryAvailable === false && (
+                  {props.mailDeliveryUnavailable && (
                     <div className="field-help">{t('txt_send_emails_requires_mail')}</div>
                   )}
                 </label>

@@ -1313,6 +1313,8 @@ export default function App() {
     staleTime: 5 * 60_000,
   });
   const mailDeliveryAvailable = serverConfigQuery.data?.mailDeliveryAvailable === true;
+  // Send 页的「未配发信」提示：只在服务端**确定**说了「没配」时才显示（未知 ⇒ 不显示，避免误报）
+  const mailDeliveryUnavailable = serverConfigQuery.data?.mailDeliveryAvailable === false;
   useEffect(() => {
     if (!profileQuery.data) return;
     setProfile(profileQuery.data);
@@ -2322,6 +2324,7 @@ export default function App() {
     onSaveMailSettings: adminMailActions.saveMailSettings,
     onSendTestMail: adminMailActions.sendTestMail,
     mailDeliveryAvailable,
+    mailDeliveryUnavailable,
     mailPreferences,
     onSaveMailPreferences: async (update: MailPreferencesUpdate) => {
       const next = await savePreferences(authedFetch, update);

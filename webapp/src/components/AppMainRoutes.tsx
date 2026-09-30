@@ -164,6 +164,8 @@ export interface AppMainRoutesProps {
   onLoadMailSettings: () => Promise<MailSettings>;
   /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   mailDeliveryAvailable?: boolean;
+  /** 服务端**确定**没配发信 ⇒ Send 页提前提示「指定邮箱」保存会被拒（未知时不提示）。 */
+  mailDeliveryUnavailable?: boolean;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
   /** 用户级「语言 / 时区」偏好 */
@@ -286,7 +288,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
             uploadingSendFileName={props.uploadingSendFileName}
             sendUploadPercent={props.sendUploadPercent}
             mobileSidebarToggleKey={props.mobileSidebarToggleKey}
-            mailDeliveryAvailable={props.mailDeliveryAvailable}
+            mailDeliveryUnavailable={props.mailDeliveryUnavailable}
             onNotify={props.onNotify}
           />
         </Suspense>
