@@ -193,3 +193,52 @@ test('设置页：发不出信时整行不渲染邮箱 2FA（不显示任何占�
     '邮件行必须整体包在条件里（只藏按钮不算藏条目）'
   );
 });
+
+// 「刷新状态」按钮在提供程序模块的标题行 → 用户会期待它把邮件那一行也刷新。
+// 邮件两步登录的状态走的是另一个端点（`get-email`），而邮件行是否渲染又是 `/api/config` 说了算，
+// 只刷 `two-factor` 会让其中两者停在旧值（例如在另一个标签页开了邮件 2FA）。
+test('设置页：「刷新状态」同时刷新提供程序、邮件两步登录与发信能力', () => {
+  const source = readSource('webapp/src/components/SettingsPage.tsx');
+  const start = source.indexOf('async function refreshTwoFactorStatus(');
+  assert.notEqual(start, -1, '找不到刷新处理函数（改名了请同步本护栏）');
+  const body = source.slice(start, source.indexOf('\n  }', start));
+  assert.match(body, /props\.onRefreshTwoFactorStatus\(\)/, '缺少提供程序 / 默认方式刷新');
+  assert.match(body, /refreshEmailTwoFactor\(\)/, '缺少邮件两步登录状态刷新（它走的是另一个端点）');
+  assert.match(body, /props\.onRefreshServerConfig\(\)/, '缺少 /api/config 刷新（它决定邮件行是否渲染）');
+  assert.match(source, /onClick=\{\(\) => void refreshTwoFactorStatus\(\)\}/, '按钮必须仍然调用该处理函数');
+});
+
+// 设置页首帧必须就是对的：这两份状态由 App 的启动查询提供，不能再「进区才拉」——
+// 那会让徽标 / 开关 / 按钮在加载完成后突然冒出来（并带布局跳动）。
+test('设置页状态来自启动查询，且不再在进入分区时拉取', () => {
+  const app = readSource('webapp/src/App.tsx');
+  assert.match(
+    app,
+    /const emailVerificationQuery = useQuery\(\{[\s\S]{0,400}?vaultInitialDecryptDone,/,
+    'App 必须在应用就绪时就拉邮箱验证状态'
+  );
+  assert.match(
+    app,
+    /const mailSettingsQuery = useQuery\(\{[\s\S]{0,400}?isAdmin && vaultInitialDecryptDone,/,
+    '邮件配置查询必须只对管理员启用（那是管理员端点）'
+  );
+  assert.match(app, /emailVerification: emailVerificationQuery\.data \?\? null/, '查询结果要传给设置页');
+  assert.match(app, /mailSettings: mailSettingsQuery\.data \?\? null/, '查询结果要传给设置页');
+
+  const settings = readSource('webapp/src/components/SettingsPage.tsx');
+  assert.doesNotMatch(settings, /activeSection !== 'account'/, '邮箱验证状态不能再挂在「进账户区」上');
+  assert.doesNotMatch(settings, /activeSection !== 'mail'/, '邮件配置不能再挂在「进邮件区」上');
+  assert.match(settings, /if \(props\.emailVerification\) setEmailVerification\(props\.emailVerification\)/, '启动查询结果要同步进本地状态');
+  assert.match(settings, /if \(props\.mailSettings\) applyMailSettings\(props\.mailSettings\)/, '启动查询结果要灌进邮件表单');
+});
+
+// 「还没拿到」不等于「未配置」：初值当终态会先闪一个红色「未配置」。
+test('未加载不渲染状态徽标：邮件徽标必须是三态', () => {
+  const settings = readSource('webapp/src/components/SettingsPage.tsx');
+  assert.match(
+    settings,
+    /mailSettings === null \? null : mailConfigured \?/,
+    '未加载时不能渲染成「未配置」（那是误导）'
+  );
+  assert.match(settings, /mailSettings !== null && mailEnabled &&/, '「停用」按钮同理：拿到配置前不渲染');
+});

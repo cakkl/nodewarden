@@ -161,7 +161,12 @@ export interface AppMainRoutesProps {
   onLoadEmailVerification: () => Promise<EmailVerificationStatus>;
   onSendEmailVerificationCode: () => Promise<unknown>;
   onSubmitEmailVerificationCode: (code: string) => Promise<void>;
-  onLoadMailSettings: () => Promise<MailSettings>;
+  /** 邮箱验证状态与邮件配置：启动查询提供（首帧即正确）；`null` = 还没拿到。 */
+  emailVerification?: EmailVerificationStatus | null;
+  mailSettings?: MailSettings | null;
+  onRefreshEmailVerification: () => Promise<void>;
+  /** 保存 / 启用 / 停用邮件设置后回写查询缓存。 */
+  onMailSettingsSaved: (settings: MailSettings) => void;
   /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   mailDeliveryAvailable?: boolean;
   /** 服务端**确定**没配发信 ⇒ Send 页提前提示「指定邮箱」保存会被拒（未知时不提示）。 */
@@ -176,6 +181,8 @@ export interface AppMainRoutesProps {
   onEnableAccountPasskeyDirectUnlock: (id: string, masterPassword: string) => Promise<void>;
   onDeleteAccountPasskey: (id: string, masterPassword: string) => Promise<void>;
   onRefreshTwoFactorStatus: () => Promise<void>;
+  /** 重新拉 `/api/config`（「刷新状态」会一并调用）。 */
+  onRefreshServerConfig: () => Promise<void>;
   pendingAuthRequests: AuthRequest[];
   pendingAuthRequestsLoading: boolean;
   pendingAuthRequestsRefreshing: boolean;
@@ -379,7 +386,10 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onLoadEmailVerification={props.onLoadEmailVerification}
                 onSendEmailVerificationCode={props.onSendEmailVerificationCode}
                 onSubmitEmailVerificationCode={props.onSubmitEmailVerificationCode}
-                onLoadMailSettings={props.onLoadMailSettings}
+                emailVerification={props.emailVerification}
+                mailSettings={props.mailSettings}
+                onRefreshEmailVerification={props.onRefreshEmailVerification}
+                onMailSettingsSaved={props.onMailSettingsSaved}
                 mailDeliveryAvailable={props.mailDeliveryAvailable}
                 mailDeliveryUnavailable={props.mailDeliveryUnavailable}
                 onSaveMailSettings={props.onSaveMailSettings}
@@ -391,6 +401,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onEnableAccountPasskeyDirectUnlock={props.onEnableAccountPasskeyDirectUnlock}
                 onDeleteAccountPasskey={props.onDeleteAccountPasskey}
                 onRefreshTwoFactorStatus={props.onRefreshTwoFactorStatus}
+                onRefreshServerConfig={props.onRefreshServerConfig}
                 onLockTimeoutChange={props.onLockTimeoutChange}
                 onSessionTimeoutActionChange={props.onSessionTimeoutActionChange}
                 onNotify={props.onNotify}
