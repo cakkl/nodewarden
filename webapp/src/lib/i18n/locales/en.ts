@@ -1125,6 +1125,7 @@ const en: Record<string, string> = {
   "txt_send_code_invalid": "The code is incorrect or has expired.",
   "txt_send_email_unavailable": "This server cannot send emails right now, so this send cannot be opened.",
   "txt_send_emails_invalid": "One or more email addresses are not valid.",
+  "txt_send_emails_mail_off_warning": "Email delivery is disabled on this server, so recipients cannot receive a verification code and this send cannot currently be opened.",
   "txt_send_emails_required": "At least one email address is required",
   "txt_send_emails_requires_mail": "Email delivery is not configured on this server, so a send limited to specific email addresses cannot be saved.",
   "txt_send_emails_too_many": "Too many email addresses (maximum 20).",

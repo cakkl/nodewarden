@@ -1125,6 +1125,7 @@ const es: Record<string, string> = {
   "txt_send_code_invalid": "El código es incorrecto o ha caducado.",
   "txt_send_email_unavailable": "Este servidor no puede enviar correos ahora mismo, así que este Send no se puede abrir.",
   "txt_send_emails_invalid": "Una o varias direcciones de correo no son válidas.",
+  "txt_send_emails_mail_off_warning": "El envío de correos está desactivado en este servidor, los destinatarios no recibirán el código de verificación, por lo que este Send no se puede abrir por ahora.",
   "txt_send_emails_required": "Se requiere al menos una dirección de correo",
   "txt_send_emails_requires_mail": "Este servidor no tiene configurado el envío de correos, así que un Send limitado a direcciones de correo específicas no se puede guardar.",
   "txt_send_emails_too_many": "Demasiadas direcciones de correo (máximo 20).",

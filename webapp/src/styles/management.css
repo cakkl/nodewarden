@@ -1931,6 +1931,24 @@
   @apply inline-flex items-center gap-2;
 }
 
+/* 详情列：限特定邮箱的 Send + 服务端发不出信 ⇒ 收件人拿不到码，醒目提示一下。
+   ⚠️ 必须写 `.card.send-mail-warning`（两个类）：后面还有几条「.card 与一长串类并列」的规则
+   也设了 border-color/background，同权重（一个类）时按先后由它们胜出 ⇒ 单类选择器会被压成默认面板色。 */
+.card.send-mail-warning {
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, var(--panel));
+}
+
+.card.send-mail-warning h4 {
+  @apply mb-2;
+  color: var(--danger);
+}
+
+.card.send-mail-warning p {
+  @apply m-0 leading-[1.55];
+  color: var(--text);
+}
+
 .local-error {
   @apply mt-2.5 flex flex-wrap items-center gap-2 font-semibold;
   color: #b42318;

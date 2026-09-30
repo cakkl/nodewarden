@@ -1125,6 +1125,7 @@ const fi: Record<string, string> = {
   "txt_send_code_invalid": "Koodi on virheellinen tai vanhentunut.",
   "txt_send_email_unavailable": "Palvelin ei voi lähettää sähköpostia juuri nyt, joten tätä Sendiä ei voi avata.",
   "txt_send_emails_invalid": "Yksi tai useampi sähköpostiosoite ei ole kelvollinen.",
+  "txt_send_emails_mail_off_warning": "Sähköpostin lähetys on poistettu käytöstä tällä palvelimella, joten vastaanottajat eivät saa vahvistuskoodia eikä tätä Sendiä voi avata tällä hetkellä.",
   "txt_send_emails_required": "Vähintään yksi sähköpostiosoite vaaditaan",
   "txt_send_emails_requires_mail": "Sähköpostin lähetystä ei ole määritetty tällä palvelimella, joten tiettyihin sähköpostiosoitteisiin rajoitettua Sendiä ei voi tallentaa.",
   "txt_send_emails_too_many": "Liian monta sähköpostiosoitetta (enintään 20).",

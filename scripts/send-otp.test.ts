@@ -534,6 +534,21 @@ test('前端拦下「指定邮箱 + 空名单」，且不把「未知配置」�
   assert.match(saveDraft, /accessMode === 'emails'/, '空名单校验没看访问方式，会误拦其它模式');
   assert.match(
     sendsPage,
+    /!\(isCreating && props\.mailDeliveryUnavailable\)/,
+    '新建时必须隐藏「指定邮箱」（选了必然换 503）；编辑时保留 —— 那是清掉既有邮箱 Send 的唯一入口'
+  );
+  assert.match(
+    sendsPage,
+    /props\.mailDeliveryUnavailable && !!selectedSend\.emails && \(/,
+    '详情里必须对「限特定邮箱的 Send 打不开」给出警告'
+  );
+  assert.match(
+    sendsPage,
+    /disabled=\{busy\} onClick=\{\(\) => void saveDraft\(\)\}/,
+    '保存按钮保持可点：由服务端 503 + 本地化 toast 说明原因，而不是静静禁用'
+  );
+  assert.match(
+    sendsPage,
     /props\.mailDeliveryUnavailable &&/,
     '「未配发信」提示改回了会在「未知」时显示的条件（应只在服务端明说没配时显示）'
   );

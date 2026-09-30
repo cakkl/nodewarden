@@ -1125,6 +1125,7 @@ const fr: Record<string, string> = {
   "txt_send_code_invalid": "Le code est incorrect ou a expiré.",
   "txt_send_email_unavailable": "Ce serveur ne peut pas envoyer d’e-mails pour le moment, cet envoi ne peut donc pas être ouvert.",
   "txt_send_emails_invalid": "Une ou plusieurs adresses e-mail ne sont pas valides.",
+  "txt_send_emails_mail_off_warning": "L’envoi de courriels est désactivé sur ce serveur, les destinataires ne recevront pas de code de vérification et cet envoi ne peut donc pas être ouvert pour le moment.",
   "txt_send_emails_required": "Au moins une adresse e-mail est requise",
   "txt_send_emails_requires_mail": "L’envoi d’e-mails n’est pas configuré sur ce serveur, un envoi limité à des adresses e-mail spécifiques ne peut donc pas être enregistré.",
   "txt_send_emails_too_many": "Trop d’adresses e-mail (20 au maximum).",
