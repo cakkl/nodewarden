@@ -286,6 +286,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
             uploadingSendFileName={props.uploadingSendFileName}
             sendUploadPercent={props.sendUploadPercent}
             mobileSidebarToggleKey={props.mobileSidebarToggleKey}
+            mailDeliveryAvailable={props.mailDeliveryAvailable}
             onNotify={props.onNotify}
           />
         </Suspense>

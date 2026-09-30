@@ -3,9 +3,13 @@
  * 盯的是三类**静默**失效（都不报错，只能靠断言钉住）：① **枚举**：名单外与「已发码」的响应必须逐字相同
  * ② **滥发**：不该发信时真的没有出站连接 ③ **一次性与作废**：用后即废 / 错 5 次作废 / 名单改动后作废。
  *
+ * 末尾一条是**前端**侧的源码护栏：保存失败的文案必须本地化（服务端只发英文）。
+ *
  * 运行方式：npm run test:send-otp
  */
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 
 import { handleToken } from '../src/handlers/identity';
@@ -29,6 +33,7 @@ const LISTED_EMAIL = 'listed@example.test';
 const UNLISTED_EMAIL = 'stranger@example.test';
 const CLIENT_IP = '203.0.113.9';
 const SEND_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 /** 免加盐路径用的 32 字节哈希（直接 base64url 比较，不必跑 PBKDF2） */
 const PASSWORD_HASH_B64 = base64UrlEncode(new Uint8Array(32).fill(7));
 
@@ -482,5 +487,32 @@ test('更新：改名单后旧码立即作废', async () => {
   } finally {
     resetSmtpScript();
     h.handle.close();
+  }
+});
+
+// 保存侧的失败文案必须**本地化**：服务端只发英文原文（官方客户端照原样显示，我们改不了），
+// 自家 Web Vault 得自己映射 —— 曾经漏掉，用户看到的是整句英文。
+test('前端把保存 Send 的三类失败本地化，且「上限」数字跟着 SEND_EMAIL_LIST_MAX', () => {
+  const sendApi = readFileSync(path.join(REPO_ROOT, 'webapp/src/lib/api/send.ts'), 'utf8');
+  const uses = (sendApi.match(/localizeSendSaveError\(/g) || []).length;
+  assert.ok(uses >= 4, `只用了 ${uses} 处 localizeSendSaveError（1 处定义 + 创建 / 文件 / 更新三处调用）`);
+  for (const key of ['txt_send_emails_requires_mail', 'txt_send_emails_invalid', 'txt_send_emails_too_many']) {
+    assert.ok(sendApi.includes(`t('${key}')`), `send.ts 没接 ${key} —— 该失败会把服务端英文原文漏给用户`);
+  }
+  // 匹配依据是服务端字面量（见上面那条超限断言）：改一边就得改另一边
+  assert.ok(sendApi.includes('Too many email addresses'), '超限匹配串与服务端字面量不一致');
+  assert.ok(sendApi.includes("'Invalid emails'"), '非法邮箱匹配串与服务端字面量不一致');
+
+  const localeDir = path.join(REPO_ROOT, 'webapp/src/lib/i18n/locales');
+  const locales = readdirSync(localeDir).filter((name) => name.endsWith('.ts'));
+  assert.ok(locales.length >= 10, `语言包只找到 ${locales.length} 个，疑似路径变了`);
+  for (const name of locales) {
+    const source = readFileSync(path.join(localeDir, name), 'utf8');
+    const line = source.split('\n').find((text) => text.includes('"txt_send_emails_too_many"'));
+    assert.ok(line, `${name} 缺 txt_send_emails_too_many`);
+    assert.ok(
+      line.includes(String(SEND_EMAIL_LIST_MAX)),
+      `${name} 的「上限」文案没跟上 SEND_EMAIL_LIST_MAX（服务端是字面量，改上限要同步改文案）`
+    );
   }
 });

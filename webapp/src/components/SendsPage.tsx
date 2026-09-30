@@ -19,6 +19,8 @@ interface SendsPageProps {
   sendUploadPercent: number | null;
   mobileSidebarToggleKey: number;
   onNotify: (type: 'success' | 'error', text: string) => void;
+  /** 服务端是否配了发信：没配时「指定邮箱」保存会被拒，先给提示 */
+  mailDeliveryAvailable?: boolean;
 }
 
 type SendTypeFilter = 'all' | 'text' | 'file';
@@ -577,6 +579,9 @@ export default function SendsPage(props: SendsPageProps) {
                     placeholder="name@example.com, other@example.com"
                     onInput={(e) => setDraft({ ...draft, emails: (e.currentTarget as HTMLInputElement).value })}
                   />
+                  {props.mailDeliveryAvailable === false && (
+                    <div className="field-help">{t('txt_send_emails_requires_mail')}</div>
+                  )}
                 </label>
               )}
               <label className="field field-span-2">
