@@ -664,8 +664,8 @@ export default function SettingsPage(props: SettingsPageProps) {
       auto ? { locale: effective, localeAuto: true } : { locale: effective, localeAuto: false }
     );
     if (effective !== getLocale()) {
+      // 热切换：`setLocale` 会通知订阅者重渲染 ⇒ 不整页重载，也就不需要重新解锁密码库。
       await setLocale(effective);
-      window.location.reload();
     }
   }
 

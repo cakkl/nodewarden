@@ -14,8 +14,10 @@ import test from 'node:test';
 
 import { createDefaultBackupRuntimeState } from '../../shared/backup-schema';
 import { getDestinationRuntimeSummary } from '../../webapp/src/lib/backup-center';
+import { setLocale } from '../../webapp/src/lib/i18n';
 
-/** 默认语言包是英文（`webapp/src/lib/i18n.ts` 在模块加载时初始化），故断言用英文文案 */
+// 断言用英文文案：文案表初始为空，环境探测在 Node 下还可能给出别的语言 ⇒ 显式切到英文。
+await setLocale('en');
 test('从未运行过：不产生「上次失败」', () => {
   const summary = getDestinationRuntimeSummary(createDefaultBackupRuntimeState());
 

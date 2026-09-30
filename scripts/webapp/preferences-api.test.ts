@@ -8,7 +8,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { detectPreferences, savePreferences } from '../../webapp/src/lib/api/preferences';
+import { setLocale } from '../../webapp/src/lib/i18n';
 import type { AuthedFetch } from '../../webapp/src/lib/api/shared';
+
+// 断言用英文文案：文案表初始为空，环境探测在 Node 下还可能给出别的语言 ⇒ 显式切到英文。
+await setLocale('en');
 
 interface CapturedCall {
   url: string;

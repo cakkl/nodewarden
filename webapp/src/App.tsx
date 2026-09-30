@@ -73,6 +73,7 @@ import useAdminActions from '@/hooks/useAdminActions';
 import useAdminMailActions from '@/hooks/useAdminMailActions';
 import useBackupActions from '@/hooks/useBackupActions';
 import { RESEND_COOLDOWN_SECONDS, useResendCountdown } from '@/hooks/useResendCountdown';
+import useI18nRevision from '@/hooks/useI18nRevision';
 import useVaultSendActions from '@/hooks/useVaultSendActions';
 import { useToastManager } from '@/hooks/useToastManager';
 import { detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
@@ -187,6 +188,9 @@ function readSessionTimeoutAction(): SessionTimeoutAction {
 }
 
 export default function App() {
+  // 语言热切换：`t()` 读的是模块级文案表，根组件订阅一次即可带动整棵树重渲染
+  // （`memo` 组件不跟着更新，用到 `t()` 的要自己订阅）。
+  useI18nRevision();
   const initialBootstrap = useMemo(
     () => (IS_DEMO_MODE ? createDemoInitialBootstrapState() : readInitialAppBootstrapState()),
     []
@@ -1353,7 +1357,8 @@ export default function App() {
   useEffect(() => {
     const serverLocale = mailPreferences?.locale;
     if (!serverLocale || serverLocale === getLocale()) return;
-    void setLocale(serverLocale as Locale).then(() => window.location.reload());
+    // 热切换即可（`setLocale` 会通知订阅者重渲染）；整页重载会要求重新解锁密码库。
+    void setLocale(serverLocale as Locale);
   }, [mailPreferences?.locale]);
 
   const isAdmin = isAdminProfile(profile);

@@ -22,7 +22,6 @@ export type Locale =
   | 'it'
   | 'sv';
 
-import enMessages from './i18n/locales/en';
 const LOCALE_STORAGE_KEY = 'nodewarden.locale';
 
 type MessageTable = Record<string, string>;
@@ -41,8 +40,39 @@ export const AVAILABLE_LOCALES: readonly { value: Locale; label: string }[] = [
 ];
 
 let locale: Locale = resolveInitialLocale();
-let activeMessages: MessageTable = enMessages;
-const loadedMessages = new Map<Locale, MessageTable>([['en', enMessages]]);
+// 初始为空：文案表由 `initI18n()` 填入（英文也按需加载，见 `localeLoaders`）。
+// ⚠️ 因此**不得在模块作用域调 `t()`** —— 那时只会拿到 `txt_*` 键。
+let activeMessages: MessageTable = {};
+const loadedMessages = new Map<Locale, MessageTable>();
+
+type I18nListener = () => void;
+
+const i18nListeners = new Set<I18nListener>();
+/** `useSyncExternalStore` 的快照：语言 / 文案表每变一次自增 */
+let i18nRevision = 0;
+
+/**
+ * 订阅「当前语言或文案表变化」。
+ *
+ * `t()` 是渲染期直接读模块级 `activeMessages` 的纯函数（文案没进 context），
+ * 所以热切换语言必须由**订阅者重渲染整棵树** —— 根组件订阅一次即可。
+ * ⚠️ `memo` 包裹的组件不会跟着更新，用到 `t()` 的要自己订阅（如 `CipherListItem`）。
+ */
+export function subscribeI18n(listener: I18nListener): () => void {
+  i18nListeners.add(listener);
+  return () => {
+    i18nListeners.delete(listener);
+  };
+}
+
+export function getI18nRevision(): number {
+  return i18nRevision;
+}
+
+function notifyI18nChanged(): void {
+  i18nRevision += 1;
+  for (const listener of i18nListeners) listener();
+}
 
 function isLocale(value: unknown): value is Locale {
   return AVAILABLE_LOCALES.some((item) => item.value === value);
@@ -103,7 +133,9 @@ export function detectPreferredLocales(): Locale[] {
 }
 
 const localeLoaders: Record<Locale, () => Promise<{ default: MessageTable }>> = {
-  en: () => Promise.resolve({ default: enMessages }),
+  // 英文也走动态：它是兜底表，只有英文用户 / 加载失败时才需要。
+  // 静态打包进来会让首屏白下 24.4 KB gzip。
+  en: () => import('./i18n/locales/en'),
   'zh-CN': () => import('./i18n/locales/zh-CN'),
   'zh-TW': () => import('./i18n/locales/zh-TW'),
   ru: () => import('./i18n/locales/ru'),
@@ -136,8 +168,13 @@ export async function preloadLocaleMessages(next: Locale): Promise<void> {
   await loadLocaleMessages(next);
 }
 
+/** 兜底文案表（英文）。连它也加载不到就只能显示 `txt_*` 键 —— 那时整包都没下来，界面本就不可用。 */
 async function loadFallbackMessages(): Promise<MessageTable> {
-  return enMessages;
+  try {
+    return await loadLocaleMessages('en');
+  } catch {
+    return {};
+  }
 }
 
 export type I18nParams = Record<string, string | number | null | undefined>;
@@ -151,6 +188,8 @@ export async function initI18n(): Promise<void> {
     activeMessages = await loadFallbackMessages();
   } finally {
     syncDocumentLanguage();
+    // 文案表可能刚被换上（含兜底到英文），通知订阅者重渲染。
+    notifyI18nChanged();
   }
 }
 
@@ -365,4 +404,6 @@ export async function setLocale(next: Locale): Promise<void> {
   } catch {
     // ignore storage errors
   }
+  // 通知订阅者重渲染 —— 调用方不需要再整页重载（后者会连带要求重新解锁）。
+  notifyI18nChanged();
 }

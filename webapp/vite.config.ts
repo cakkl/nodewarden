@@ -246,9 +246,10 @@ function pwaServiceWorkerPlugin(isDemo: boolean): Plugin {
         if (output.type !== 'chunk' && output.type !== 'asset') continue;
         if (fileName === 'sw.js' || fileName === 'robots.txt') continue;
         if (fileName.endsWith('.map')) continue;
-        // 语言包不进预缓存：页面只取当前语言，预缓存 9 份会让首访后台白下 ~900 KB。
-        // 用到的那些由页面的正常请求写进 runtime 缓存（cacheFirst），离线能力不受影响。
-        if (/^assets\/i18n-[^/]+\.js$/.test(fileName)) continue;
+        // 非英文语言包不进预缓存：页面只取当前语言，预缓存 9 份会让首访后台白下 ~900 KB。
+        // 用到的那些由页面的正常请求写进 runtime 缓存（cacheFirst）。
+        // ⚠️ 英文例外：它是加载失败时的兜底表，必须离线可用。
+        if (/^assets\/i18n-(?!en-)[^/]+\.js$/.test(fileName)) continue;
         buildUrls.add(`/${fileName}`);
       }
 
@@ -367,7 +368,9 @@ export default defineConfig(({ mode }) => {
                 name(id) {
                   const normalized = id.replace(/\\/g, '/');
                   const localeMatch = normalized.match(/\/src\/lib\/i18n\/locales\/(.+)\.ts$/);
-                  return localeMatch && localeMatch[1] !== 'en' ? `i18n-${localeMatch[1]}` : null;
+                  // 每种语言（**含英文**）单独成 chunk：英文现在是按需加载的兜底表，
+                  // 不单独分组的话会被 shared 组收走，而 shared 是首屏 modulepreload 的。
+                  return localeMatch ? `i18n-${localeMatch[1]}` : null;
                 },
                 test: /[\\/]src[\\/]lib[\\/]i18n[\\/]locales[\\/]/,
                 priority: 20,

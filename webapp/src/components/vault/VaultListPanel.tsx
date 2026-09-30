@@ -28,6 +28,7 @@ import {
 import LoadingState from '@/components/LoadingState';
 import type { Cipher, Folder } from '@/lib/types';
 import { t } from '@/lib/i18n';
+import useI18nRevision from '@/hooks/useI18nRevision';
 import {
   CreateTypeIcon,
   getCreateTypeOptions,
@@ -117,6 +118,8 @@ interface MobileFilterOption {
 }
 
 const CipherListItem = memo(function CipherListItem(props: CipherListItemProps) {
+  // `memo` 组件不跟着根组件的重渲染一起更新，但它用了 `t()` ⇒ 自己订阅语言变化。
+  useI18nRevision();
   const duplicateGroupHue = props.duplicateGroupIndex === null ? null : (props.duplicateGroupIndex * 137.508) % 360;
   return (
     <div

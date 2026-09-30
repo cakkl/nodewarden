@@ -4,8 +4,8 @@
 // 话，而不是报错）；`translateServerError` 映射不到时会**回退成原始英文串**，非英文用户会突然看到
 // 一句英文。这类问题很难在 UI 走查里发现（除非恰好用非英文界面复现那条错误）。
 //
-// 注意：`webapp/src/lib/i18n.ts` 在模块加载时就把 `activeMessages` 初始化为英文语言包，且 locale
-// 探测包在 try/catch 里，因此**在 Node 里可直接使用，无需 DOM 桩、无需 initI18n()**。
+// 注意：文案表初始为空（英文语言包现在是按需 chunk），而环境探测在 Node 下可能给出任意语言
+// ⇒ 这里**显式**切到英文，别依赖探测结果。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';
@@ -15,6 +15,8 @@ import test from 'node:test';
 
 import { AVAILABLE_LOCALES, getLocale, setLocale, t, translateServerError } from '../../webapp/src/lib/i18n';
 import { REMOTE_REQUEST_ACTIONS, buildRemoteTimeoutMessage } from '../../shared/backup-timeout-message';
+
+await setLocale('en');
 
 // ---------------------------------------------------------------- 插值
 

@@ -64,11 +64,15 @@ test('只覆盖 200 响应：错误响应原样返回', () => {
 
 // ---------------------------------------------------------------- Service Worker
 
-test('语言包不进 SW 预缓存：首访后台不再白下 ~900 KB', () => {
+test('语言包不进 SW 预缓存（英文除外）：首访后台不再白下 ~900 KB', () => {
   const config = readSource('webapp/vite.config.ts');
   assert.ok(
-    config.includes(String.raw`/^assets\/i18n-[^/]+\.js$/`),
-    '预缓存清单必须显式跳过 i18n-* —— 删掉它会让首访重新下载 9 个语言包'
+    config.includes(String.raw`/^assets\/i18n-(?!en-)[^/]+\.js$/`),
+    '预缓存清单必须显式跳过**非英文**语言包（9 个 ≈ 900 KB）'
+  );
+  assert.ok(
+    !config.includes(String.raw`/^assets\/i18n-[^/]+\.js$/`),
+    '不能连英文一起跳过：en 是加载失败时的兜底表，必须离线可用'
   );
 });
 
