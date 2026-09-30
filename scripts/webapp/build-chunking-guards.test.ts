@@ -1,6 +1,7 @@
-// 词表分包的护栏：破了不报错，只会在首屏静默多下载 60.7 KB。
-// 最容易踩的坑是「只把静态 import 改成动态」—— 词表会被 `shared` 组收走，而 `shared` 是首屏 modulepreload 的，
-// 于是主包瘦多少、shared 就胖多少（净收益 0）⇒ 必须单独分组且优先级更高。
+// 分包护栏：破了不报错，只会静默多下载。
+// ⚠️ 最容易踩的坑是「只把静态 import 改成动态」—— 被移出的模块若命中 `shared` 组
+//（≥2 个模块引用 + ≥50 KB）就会回到首屏（`shared` 是 modulepreload 的），净收益 0。
+// ⇒ 词表要单独分组且优先级更高；jsQR 要保证全仓只有一处引入点。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';
@@ -12,6 +13,22 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 
 function readSource(relativePath: string): string {
   return readFileSync(path.join(REPO_ROOT, relativePath), 'utf8');
+}
+
+/** 在 `webapp/src` 下挑出满足条件的源码文件，返回相对仓库根的路径（已排序）。 */
+function listSourceFiles(predicate: (source: string) => boolean, extensions = /\.(ts|tsx)$/): string[] {
+  const found: string[] = [];
+  const walk = (current: string) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (extensions.test(entry.name) && predicate(readFileSync(full, 'utf8'))) {
+        found.push(path.relative(REPO_ROOT, full));
+      }
+    }
+  };
+  walk(path.join(REPO_ROOT, 'webapp/src'));
+  return found.sort();
 }
 
 // 组内 `name` 在前、`priority` 在后 ⇒ 「name 之后的第一个 priority」就是它自己的。
@@ -49,16 +66,40 @@ test('词表在源码里只有一份', () => {
     '曾有一份与 eff-word-list.ts 逐字节相同的副本，两份都会各自进包'
   );
 
-  const declared: string[] = [];
-  const walk = (dir: string) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.ts') && readFileSync(full, 'utf8').includes('export const EFFLongWordList')) {
-        declared.push(path.relative(REPO_ROOT, full));
-      }
-    }
-  };
-  walk(path.join(REPO_ROOT, 'webapp/src/lib'));
-  assert.deepEqual(declared, ['webapp/src/lib/eff-word-list.ts']);
+  assert.deepEqual(
+    listSourceFiles((source) => source.includes('export const EFFLongWordList')),
+    ['webapp/src/lib/eff-word-list.ts']
+  );
+});
+
+// jsQR（min 后 129 KB）只作原生 BarcodeDetector 失效时的兜底，却曾静态引入 ⇒
+// 绑进库页 chunk（解锁后的默认落地页），每个用户每次解锁都多下 46 KB gzip。
+const JSQR_MODULE = 'jsqr';
+
+function listImporters(pattern: string): string[] {
+  return listSourceFiles((source) => new RegExp(pattern).test(source));
+}
+
+test('jsQR 只能按需加载', () => {
+  const editor = readSource('webapp/src/components/vault/VaultEditor.tsx');
+  assert.doesNotMatch(
+    editor,
+    /import\s+jsQR\s+from\s*['"]jsqr['"]/,
+    '静态 import 会把 jsQR 绑进库页 chunk（库页是解锁后的默认落地页）⇒ 每个用户必下'
+  );
+  assert.match(editor, /import\((['"])jsqr\1\)/, 'jsQR 必须走动态 import');
+  assert.match(editor, /await loadJsQr\(\)/, '解码必须经由惰性加载器，别在解码函数里直接 import');
+});
+
+test('jsQR 全仓只有一处引入点，且是动态的', () => {
+  assert.deepEqual(
+    listImporters(`from\\s*['"]${JSQR_MODULE}['"]|require\\(['"]${JSQR_MODULE}['"]\\)`),
+    [],
+    '不允许任何静态引入'
+  );
+  assert.deepEqual(
+    listImporters(`import\\(['"]${JSQR_MODULE}['"]\\)`),
+    ['webapp/src/components/vault/VaultEditor.tsx'],
+    '一旦有第二处引入，jsQR（>50 KB）会被 shared 组收走 —— 而 shared 是首屏 modulepreload 的'
+  );
 });

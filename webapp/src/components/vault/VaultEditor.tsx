@@ -1,7 +1,6 @@
 import type { RefObject } from 'preact';
 import { createPortal } from 'preact/compat';
 import { ArrowDown, ArrowUp, CheckCheck, Download, Paperclip, Plus, QrCode, RefreshCw, Star, StarOff, Trash2, Upload, X } from 'lucide-preact';
-import jsQR from 'jsqr';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { useDialogLifecycle } from '@/components/ConfirmDialog';
 import { normalizeTotpInput } from '@/lib/crypto';
@@ -20,6 +19,17 @@ import {
   normalizeCardBrand,
   toBooleanFieldValue,
 } from '@/components/vault/vault-page-helpers';
+
+/**
+ * jsQR（min 后 127.5 KB）只作原生 `BarcodeDetector` 不可用 / 解码失败时的兜底 ⇒ 用到才下载。
+ * 静态引入会绑进库页 chunk，而库页是解锁后的默认落地页，等于每个用户必下。
+ */
+let jsQrLoader: Promise<typeof import('jsqr').default> | null = null;
+
+function loadJsQr(): Promise<typeof import('jsqr').default> {
+  jsQrLoader ??= import('jsqr').then((module) => module.default);
+  return jsQrLoader;
+}
 
 interface VaultEditorProps {
   draft: VaultDraft;
@@ -181,7 +191,7 @@ export default function VaultEditor(props: VaultEditorProps) {
     return new window.BarcodeDetector({ formats: ['qr_code'] });
   };
 
-  const decodeTotpQrCanvas = (source: ImageBitmap | HTMLVideoElement): string => {
+  const decodeTotpQrCanvas = async (source: ImageBitmap | HTMLVideoElement): Promise<string> => {
     const width = 'videoWidth' in source ? source.videoWidth : source.width;
     const height = 'videoHeight' in source ? source.videoHeight : source.height;
     if (!width || !height) return '';
@@ -197,6 +207,7 @@ export default function VaultEditor(props: VaultEditorProps) {
     context.fillRect(0, 0, width, height);
     context.drawImage(source, 0, 0, width, height);
     const imageData = context.getImageData(0, 0, width, height);
+    const jsQR = await loadJsQr();
     return String(jsQR(imageData.data, width, height)?.data || '').trim();
   };
 
@@ -211,7 +222,7 @@ export default function VaultEditor(props: VaultEditorProps) {
         // Fall back to jsQR when the native detector is present but not usable.
       }
     }
-    const value = decodeTotpQrCanvas(source);
+    const value = await decodeTotpQrCanvas(source);
     return value ? applyTotpQrValue(value) : false;
   };
 
@@ -280,7 +291,7 @@ export default function VaultEditor(props: VaultEditorProps) {
           const now = performance.now();
           if (now - lastCanvasScan >= 250) {
             lastCanvasScan = now;
-            value = decodeTotpQrCanvas(video);
+            value = await decodeTotpQrCanvas(video);
           }
         }
         if (value && applyTotpQrValue(value)) return;
