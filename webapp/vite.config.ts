@@ -290,11 +290,9 @@ export default defineConfig(({ mode }) => {
   return {
     root: rootDir,
     plugins: [
-      // prefresh 关掉：@prefresh/babel-plugin 0.5.3 在 Vite 8 上会无限递归
-      //（`getFirstParent` 爆栈，dev server 每个文件都报 Maximum call stack size exceeded）。
-      // 它只影响开发时的组件热替换（退化为整页刷新），构建与运行时不参与。
-      // 上游修好后（preset-vite 的 peer 已声明支持 Vite 8，但内部 prefresh 还没跟上）删掉这个选项。
-      preact({ prefreshEnabled: false }),
+      // prefresh 曾因 `@prefresh/babel-plugin` 0.5.3 在 Babel 8 下无限递归（`getFirstParent` 爆栈）而关闭；
+      // 0.5.4 修好后恢复默认开启 —— 版本由 package.json 的 overrides 锁定。
+      preact({}),
       searchIndexPolicyPlugin(isDemo),
       pwaServiceWorkerPlugin(isDemo),
       // demo 没有后端，但仍会被探针请求 /api/** ⇒ 给一个最小应答，避免控制台噪音

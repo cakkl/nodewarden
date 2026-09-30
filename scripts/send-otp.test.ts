@@ -3,9 +3,14 @@
  * 盯的是三类**静默**失效（都不报错，只能靠断言钉住）：① **枚举**：名单外与「已发码」的响应必须逐字相同
  * ② **滥发**：不该发信时真的没有出站连接 ③ **一次性与作废**：用后即废 / 错 5 次作废 / 名单改动后作废。
  *
+ * 末尾两条是**前端**侧的源码护栏：保存失败的文案必须本地化（服务端只发英文），
+ * 「指定邮箱 + 空名单」必须被拦下（否则静默存成「任何人」），以及「没问到配置」不等于「没配发信」。
+ *
  * 运行方式：npm run test:send-otp
  */
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 
 import { handleToken } from '../src/handlers/identity';
@@ -29,6 +34,7 @@ const LISTED_EMAIL = 'listed@example.test';
 const UNLISTED_EMAIL = 'stranger@example.test';
 const CLIENT_IP = '203.0.113.9';
 const SEND_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 /** 免加盐路径用的 32 字节哈希（直接 base64url 比较，不必跑 PBKDF2） */
 const PASSWORD_HASH_B64 = base64UrlEncode(new Uint8Array(32).fill(7));
 
@@ -483,4 +489,76 @@ test('更新：改名单后旧码立即作废', async () => {
     resetSmtpScript();
     h.handle.close();
   }
+});
+
+// 保存侧的失败文案必须**本地化**：服务端只发英文原文（官方客户端照原样显示，我们改不了），
+// 自家 Web Vault 得自己映射 —— 曾经漏掉，用户看到的是整句英文。
+test('前端把保存 Send 的三类失败本地化，且「上限」数字跟着 SEND_EMAIL_LIST_MAX', () => {
+  const sendApi = readFileSync(path.join(REPO_ROOT, 'webapp/src/lib/api/send.ts'), 'utf8');
+  const uses = (sendApi.match(/localizeSendSaveError\(/g) || []).length;
+  assert.ok(uses >= 4, `只用了 ${uses} 处 localizeSendSaveError（1 处定义 + 创建 / 文件 / 更新三处调用）`);
+  for (const key of ['txt_send_emails_requires_mail', 'txt_send_emails_invalid', 'txt_send_emails_too_many']) {
+    assert.ok(sendApi.includes(`t('${key}')`), `send.ts 没接 ${key} —— 该失败会把服务端英文原文漏给用户`);
+  }
+  // 匹配依据是服务端字面量（见上面那条超限断言）：改一边就得改另一边
+  assert.ok(sendApi.includes('Too many email addresses'), '超限匹配串与服务端字面量不一致');
+  assert.ok(sendApi.includes("'Invalid emails'"), '非法邮箱匹配串与服务端字面量不一致');
+
+  const localeDir = path.join(REPO_ROOT, 'webapp/src/lib/i18n/locales');
+  const locales = readdirSync(localeDir).filter((name) => name.endsWith('.ts'));
+  assert.ok(locales.length >= 10, `语言包只找到 ${locales.length} 个，疑似路径变了`);
+  for (const name of locales) {
+    const source = readFileSync(path.join(localeDir, name), 'utf8');
+    const line = source.split('\n').find((text) => text.includes('"txt_send_emails_too_many"'));
+    assert.ok(line, `${name} 缺 txt_send_emails_too_many`);
+    assert.ok(
+      line.includes(String(SEND_EMAIL_LIST_MAX)),
+      `${name} 的「上限」文案没跟上 SEND_EMAIL_LIST_MAX（服务端是字面量，改上限要同步改文案）`
+    );
+  }
+});
+
+// 两处都只能靠源码护栏钉住：① 「指定邮箱 + 空名单」会在服务端变成「任何人」（界面上看不出来）
+// ② `/api/config` 没问到与「没配发信」是两回事，压成 false 会让提示与事实相反。
+test('前端拦下「指定邮箱 + 空名单」，且不把「未知配置」当成「未配发信」', () => {
+  const sendsPage = readFileSync(path.join(REPO_ROOT, 'webapp/src/components/SendsPage.tsx'), 'utf8');
+  const saveDraft = sendsPage.slice(
+    sendsPage.indexOf('async function saveDraft'),
+    sendsPage.indexOf('async function removeSend')
+  );
+  assert.ok(saveDraft, '未能从 SendsPage.tsx 抽出 saveDraft —— 函数名变了，本护栏要跟着改');
+  assert.ok(
+    saveDraft.includes("t('txt_send_emails_required')"),
+    'saveDraft 没校验空名单 —— 选「指定邮箱」却不填名单会被静默存成「任何人持链接即可」'
+  );
+  assert.match(saveDraft, /accessMode === 'emails'/, '空名单校验没看访问方式，会误拦其它模式');
+  assert.match(
+    sendsPage,
+    /!\(isCreating && props\.mailDeliveryUnavailable\)/,
+    '新建时必须隐藏「指定邮箱」（选了必然换 503）；编辑时保留 —— 那是清掉既有邮箱 Send 的唯一入口'
+  );
+  assert.match(
+    sendsPage,
+    /props\.mailDeliveryUnavailable && !!selectedSend\.emails && \(/,
+    '详情里必须对「限特定邮箱的 Send 打不开」给出警告'
+  );
+  assert.match(
+    sendsPage,
+    /disabled=\{busy\} onClick=\{\(\) => void saveDraft\(\)\}/,
+    '保存按钮保持可点：由服务端 503 + 本地化 toast 说明原因，而不是静静禁用'
+  );
+  assert.match(
+    sendsPage,
+    /props\.mailDeliveryUnavailable &&/,
+    '「未配发信」提示改回了会在「未知」时显示的条件（应只在服务端明说没配时显示）'
+  );
+
+  const authApi = readFileSync(path.join(REPO_ROOT, 'webapp/src/lib/api/auth.ts'), 'utf8');
+  const getConfig = authApi.slice(authApi.indexOf('export async function getServerConfig'));
+  assert.ok(getConfig, '未能抽出 getServerConfig —— 写法变了，本护栏要跟着改');
+  assert.match(
+    getConfig.slice(0, 500),
+    /mailDeliveryAvailable: null/,
+    'getServerConfig 失败时把「未知」报成了 false ⇒ 界面分不清「没问到」与「没配」'
+  );
 });

@@ -82,6 +82,18 @@ async function readSendAccessError(resp: Response, fallback: string): Promise<Se
   return error;
 }
 
+/**
+ * 保存 Send 的失败文案本地化：服务端只发英文原文（官方客户端照原样显示，改不了），自家界面得自己映射。
+ * 三个匹配项来自 `src/handlers/sends-private.ts`（503 = 没配发信，该路径唯一来源；400 = 名单超限 / 邮箱不合法），
+ * 字面量耦合由 `scripts/send-otp.test.ts` 钉住。
+ */
+function localizeSendSaveError(status: number, message: string): string {
+  if (status === 503) return t('txt_send_emails_requires_mail');
+  if (status === 400 && message.startsWith('Too many email addresses')) return t('txt_send_emails_too_many');
+  if (status === 400 && message === 'Invalid emails') return t('txt_send_emails_invalid');
+  return message;
+}
+
 /** 认证方式（与服务端 `SendAuthType` 对齐） */
 const SEND_AUTH_EMAIL = 0;
 const SEND_AUTH_PASSWORD = 1;
@@ -195,7 +207,10 @@ export async function createSend(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!resp.ok) throw new Error(await parseErrorMessage(resp, 'Create send failed'));
+    if (!resp.ok) {
+      const message = await parseErrorMessage(resp, 'Create send failed');
+      throw createApiError(localizeSendSaveError(resp.status, message), resp.status);
+    }
     const body = await parseJson<Send>(resp);
     if (!body?.id) throw new Error('Create send failed');
     return body;
@@ -229,7 +244,10 @@ export async function createSend(
       expirationDate: expirationIso,
     }),
   });
-  if (!fileResp.ok) throw new Error(await parseErrorMessage(fileResp, 'Create file send failed'));
+  if (!fileResp.ok) {
+    const message = await parseErrorMessage(fileResp, 'Create file send failed');
+    throw createApiError(localizeSendSaveError(fileResp.status, message), fileResp.status);
+  }
 
   const uploadInfo = await parseJson<{ url?: string; sendResponse?: Send; fileUploadType?: number }>(fileResp);
   const uploadUrl = uploadInfo?.url;
@@ -303,7 +321,10 @@ export async function updateSend(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!resp.ok) throw new Error(await parseErrorMessage(resp, 'Update send failed'));
+  if (!resp.ok) {
+    const message = await parseErrorMessage(resp, 'Update send failed');
+    throw createApiError(localizeSendSaveError(resp.status, message), resp.status);
+  }
   const body = await parseJson<Send>(resp);
   if (!body?.id) throw new Error('Update send failed');
   return body;

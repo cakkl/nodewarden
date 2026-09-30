@@ -304,7 +304,7 @@ async function twoFactorRequiredResponse(
   // 只改顺序 —— 少了任何一项都会让某些客户端报错或漏掉一种登录方式。
   const orderedProviders = orderTwoFactorProvidersForChallenge(
     providers,
-    user ? await resolveDefaultTwoFactorProvider(storage, user) : null
+    user ? await resolveDefaultTwoFactorProvider(storage, user, await isMailDeliveryAvailableSoft(env)) : null
   );
   const providers2: Record<string, Record<string, unknown> | null> = {};
   for (const provider of orderedProviders) {
@@ -515,7 +515,10 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     const effectiveTotpSecret = resolveTotpSecret(user.totpSecret);
     const effectiveYubiKeyPublicIds = userYubiKeyPublicIds(user);
     const effectiveWebAuthnCredentials = await storage.getAccountPasskeyCredentialsByUserId(user.id, 'twoFactor');
-    const emailTwoFactorEnabled = user.twoFactorEmailEnabled === true && user.emailVerified === true;
+    const emailTwoFactorEnabled = user.twoFactorEmailEnabled === true
+      && user.emailVerified === true
+      // 邮件发不出去时不再要求它：码永远到不了，继续要求等于把用户锁在登录页（设置页也停不掉）。
+      && await isMailDeliveryAvailableSoft(env);
     if (effectiveTotpSecret || effectiveYubiKeyPublicIds.length > 0 || effectiveWebAuthnCredentials.length > 0 || emailTwoFactorEnabled) {
       const normalizedTwoFactorProvider = String(twoFactorProvider ?? '').trim();
       const normalizedTwoFactorToken = String(twoFactorToken ?? '').trim();

@@ -55,6 +55,8 @@ interface SettingsPageProps {
   onLoadMailSettings: () => Promise<MailSettings>;
   /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   mailDeliveryAvailable?: boolean;
+  /** 服务端**确定**发不出信（未知不算）⇒ 邮箱两步登录整行不渲染 */
+  mailDeliveryUnavailable?: boolean;
   onSaveMailSettings: (input: MailSettingsInput, masterPassword: string) => Promise<MailSettings>;
   onSendTestMail: (input: MailSettingsInput) => Promise<MailTestResult>;
   /** 用户级「语言 / 时区」偏好；未提供时偏好页不显示时区块。 */
@@ -1292,30 +1294,33 @@ export default function SettingsPage(props: SettingsPageProps) {
                 </div>
                 <div className="two-step-provider-list">
                   {/* 邮件两步登录。启用前置：邮箱已验证 **且** 服务端能发信 ——
-                      少了任何一条都会让用户陷入「开了但收不到码」的死局，所以这里直接禁用。 */}
-                  <div className="two-step-provider-row">
-                    <div className="two-step-provider-icon">
-                      <Mail size={28} />
-                    </div>
-                    <div className="two-step-provider-copy">
-                      <div className="two-step-provider-title">
-                        <strong>{t('txt_email_two_step_login')}</strong>
-                        {emailTwoFactorEnabled && <span className="two-step-enabled-badge">{t('txt_enabled')}</span>}
+                      少了任何一条都会让用户陷入「开了但收不到码」的死局，所以这里直接禁用；
+                      服务端发不出信时整行隐藏（此时登录也不再要求它，不会把人锁住）。 */}
+                  {!props.mailDeliveryUnavailable && (
+                    <div className="two-step-provider-row">
+                      <div className="two-step-provider-icon">
+                        <Mail size={28} />
                       </div>
-                      <span>{t('txt_email_two_step_login_help')}</span>
+                      <div className="two-step-provider-copy">
+                        <div className="two-step-provider-title">
+                          <strong>{t('txt_email_two_step_login')}</strong>
+                          {emailTwoFactorEnabled && <span className="two-step-enabled-badge">{t('txt_enabled')}</span>}
+                        </div>
+                        <span>{t('txt_email_two_step_login_help')}</span>
+                      </div>
+                      <div className="actions">
+                        {defaultProviderButton(TWO_FACTOR_PROVIDER_EMAIL, emailTwoFactorEnabled)}
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          disabled={!emailTwoFactorAvailable}
+                          onClick={() => openMasterPasswordPrompt(emailTwoFactorEnabled ? 'disableEmailTwoFactor' : 'enableEmailTwoFactor')}
+                        >
+                          {emailTwoFactorEnabled ? t('txt_disable') : t('txt_enable')}
+                        </button>
+                      </div>
                     </div>
-                    <div className="actions">
-                      {defaultProviderButton(TWO_FACTOR_PROVIDER_EMAIL, emailTwoFactorEnabled)}
-                      <button
-                        type="button"
-                        className="btn btn-secondary"
-                        disabled={!emailTwoFactorAvailable}
-                        onClick={() => openMasterPasswordPrompt(emailTwoFactorEnabled ? 'disableEmailTwoFactor' : 'enableEmailTwoFactor')}
-                      >
-                        {emailTwoFactorEnabled ? t('txt_disable') : t('txt_enable')}
-                      </button>
-                    </div>
-                  </div>
+                  )}
 
                   <div className="two-step-provider-row">
                     <div className="two-step-provider-icon">

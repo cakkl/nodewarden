@@ -182,3 +182,14 @@ test('恢复码提示：只提示去设置里查看，不在 toast 里显示新�
     assert.doesNotMatch(match[1], /\{/, `${locale}: 提示文案里不能带占位符 —— 那会变回「直接显示恢复码」`);
   }
 });
+
+// 服务端发不出信时，邮箱 2FA 既开不了也发不出码（登录也不再要求它）⇒ 整行不渲染。
+test('设置页：发不出信时整行不渲染邮箱 2FA（不显示任何占位说明）', () => {
+  const source = readSource('webapp/src/components/SettingsPage.tsx');
+  assert.match(source, /\{!props\.mailDeliveryUnavailable && \(/, '邮箱行必须受「发不出信」控制');
+  assert.match(
+    source,
+    /<div className="two-step-provider-row">\s*<div className="two-step-provider-icon">\s*<Mail size=\{28\} \/>/,
+    '邮件行必须整体包在条件里（只藏按钮不算藏条目）'
+  );
+});

@@ -145,9 +145,45 @@ test('两级限流都触发时，报**最长**的等待时间（不是先撞上�
   const response = await handleGetPasswordHint(hintRequest(USER_EMAIL, ip), env);
   assert.equal(response.status, 429);
 
+  // 「报最长」= 报小时窗口的剩余时间（小时窗口总不早于分钟窗口结束）。
+  // ⚠️ 不要写成 `> 60`：一小时的最后 60 秒里两个窗口同时到期，最长也只有 ≤ 60 秒 ——
+  // 那样写每小时会红一分钟（实测就是这么发现的）。
   const retryAfter = Number(response.headers.get('Retry-After'));
-  assert.ok(retryAfter > 60, `应报小时级窗口的等待时间（> 60 秒），实际 ${retryAfter}`);
+  const hourRemaining = hourStart + 3600 - Math.floor(Date.now() / 1000);
+  assert.ok(
+    retryAfter >= hourRemaining - 1,
+    `应报小时级窗口的等待时间（≥ ${hourRemaining - 1} 秒），实际 ${retryAfter}`
+  );
 
   const body = (await response.json()) as Record<string, unknown>;
   assert.match(String(body.error_description), new RegExp(`in ${retryAfter} seconds`), '正文与 Retry-After 必须一致');
+});
+
+test('两个窗口同一时刻到期时（一小时的最后 60 秒），报的仍是最长值', async () => {
+  const { handle, env } = await setup();
+  const ip = '203.0.113.201';
+
+  // 把时钟钉在「距下一个整点 19 秒」：分钟窗口与小时窗口的到期时刻此时**重合**，
+  // 所以"最长"也只有 19 秒 —— 这正是旧断言（`> 60`）每小时必红一分钟的时段。
+  const realNow = Date.now;
+  const hourEndMs = (Math.floor(realNow() / 3_600_000) + 1) * 3_600_000;
+  const fakeMs = hourEndMs - 19_000;
+  Date.now = () => fakeMs;
+  try {
+    const nowSec = Math.floor(fakeMs / 1000);
+    const minuteStart = nowSec - (nowSec % 60);
+    const hourStart = nowSec - (nowSec % 3600);
+    const insert = handle.connection.prepare(
+      'INSERT OR REPLACE INTO rate_limit_buckets(bucket_key, count, expires_at, updated_at) VALUES(?, ?, ?, ?)'
+    );
+    insert.run(`ip4:${ip}:password-hint:${minuteStart}`, 99, (minuteStart + 60) * 1000, fakeMs);
+    insert.run(`ip4:${ip}:password-hint-hour:${hourStart}`, 99, (hourStart + 3600) * 1000, fakeMs);
+
+    const response = await handleGetPasswordHint(hintRequest(USER_EMAIL, ip), env);
+    assert.equal(response.status, 429);
+    assert.equal(response.headers.get('Retry-After'), '19', '两个窗口同时到期时报的就是这 19 秒');
+  } finally {
+    Date.now = realNow;
+    handle.close();
+  }
 });

@@ -15,7 +15,12 @@ import { buildProfileResponse } from '../utils/profile-response';
 import { isYubiKeyEnabled, isYubiKeyPublicId, requestYubicoApiCredentials, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
 import { clearChallengeCode, issueChallengeCode, checkSendQuota } from '../services/email-2fa';
 import { emailAvailabilityForUser } from '../services/email-availability';
-import { isMailDeliveryAvailableSoft, resolveMailConnection, resolveMailRenderPreferences } from '../services/mail-settings';
+import {
+  isMailDeliveryAvailable,
+  isMailDeliveryAvailableSoft,
+  resolveMailConnection,
+  resolveMailRenderPreferences,
+} from '../services/mail-settings';
 import { clearNewDeviceOtpsForUser, isNewDeviceVerificationEnabled } from '../services/new-device-otp';
 import { renderTwoFactorEmail, renderPasswordHintEmail } from '../services/mail';
 import { waitUntil } from 'cloudflare:workers';
@@ -492,6 +497,9 @@ export async function handleGetPasswordHint(request: Request, env: Env): Promise
 
   // 配了 SMTP 时**一律走邮箱**：四种情况（已验证 / 未验证 / 不存在 / 被禁用）响应**完全一致**，
   // 否则「响应不同」即可枚举账号。未验证邮箱不发信 —— 那个地址不能保证真是用户的。
+  //
+  // ⚠️ 发不出信时（未配 SMTP / 管理员关掉发送能力 / 密钥读不出）**保持明文**：忘记主密码的人若拿不到
+  // 提示就再无自助路径，明文是这里唯一还能用的兜底（与「关掉邮件 = 更安全」的直觉相反，但可自助优先）。
   if (await isMailDeliveryAvailableSoft(env)) {
     if (user && user.status === 'active' && user.emailVerified === true) {
       // 发信排在响应之后：waitUntil 只延长生命周期，不拖慢本次响应。
@@ -990,8 +998,8 @@ export async function handleGetTwoFactorProviders(request: Request, env: Env, us
     ContinuationToken: null,
     Object: 'list',
     // 本站扩展：默认提供程序（设置页用它给「默认」按钮打勾）。
-    // 存的值若已不可用，这里就返回第一个仍启用的项 ⇒ 界面永远显示真正生效的那个。
-    DefaultProvider: await resolveDefaultTwoFactorProvider(storage, user),
+    // 存的值若已不可用（或邮件发不出去），这里就返回第一个仍启用的项 ⇒ 界面永远显示真正生效的那个。
+    DefaultProvider: await resolveDefaultTwoFactorProvider(storage, user, await isMailDeliveryAvailableSoft(env)),
   });
 }
 
@@ -1707,7 +1715,7 @@ export async function handleGetTwoFactorEmail(request: Request, env: Env, userId
       Enabled: user.twoFactorEmailEnabled === true,
       Email: user.email,
     },
-    // 客户端据此决定是否允许开启；未验证邮箱 / 未配 SMTP 时为 false。
+    // 客户端据此决定是否允许开启；未验证邮箱 / 未配 SMTP / 管理员关掉发送能力时为 false。
     Available: availability.ok,
   });
 }
@@ -1813,7 +1821,7 @@ export async function handlePutTwoFactorDefaultProvider(request: Request, env: E
   if (!Number.isInteger(providerType)) {
     return errorResponse('providerType is required', 400);
   }
-  const configured = await listConfiguredTwoFactorProviders(storage, user);
+  const configured = await listConfiguredTwoFactorProviders(storage, user, await isMailDeliveryAvailableSoft(env));
   if (!configured.includes(providerType)) {
     return errorResponse('That two-step login provider is not enabled', 400);
   }
@@ -1865,6 +1873,12 @@ export async function handleSendEmailTwoFactorLogin(request: Request, env: Env):
       return errorResponse('Too many codes were requested this hour', 429);
     }
     return errorResponse('The daily code limit has been reached', 429);
+  }
+
+  // ⚠️ 必须用**含 `enabled`** 的判定：`resolveMailConnection` 只看配置完整性，
+  // 管理员关掉发送能力后它仍返回 ok ⇒ 会绕过开关真的把信发出去。
+  if (!(await isMailDeliveryAvailable(env.DB, env))) {
+    return errorResponse('Email delivery is not configured on this server', 503);
   }
 
   const connection = await resolveMailConnection(env.DB, env);

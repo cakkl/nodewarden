@@ -509,12 +509,15 @@ export async function registerAccount(args: {
   }
 }
 
-/** 读服务端配置。目前只用到 `mailDeliveryAvailable`（决定主密码提示的说明文案）。 */
-export async function getServerConfig(): Promise<{ mailDeliveryAvailable: boolean }> {
+/**
+ * 读服务端配置（目前只用于主密码提示的说明文案）。
+ * ⚠️ 失败返回 `null`（**未知**）而不是 `false` —— 压成 false 会让界面把网络抖动当成没配 SMTP。
+ */
+export async function getServerConfig(): Promise<{ mailDeliveryAvailable: boolean | null }> {
   const resp = await fetch('/api/config', { cache: 'no-store' });
-  if (!resp.ok) return { mailDeliveryAvailable: false };
+  if (!resp.ok) return { mailDeliveryAvailable: null };
   const body = (await parseJson<{ mailDeliveryAvailable?: boolean }>(resp)) || {};
-  return { mailDeliveryAvailable: body.mailDeliveryAvailable === true };
+  return { mailDeliveryAvailable: typeof body.mailDeliveryAvailable === 'boolean' ? body.mailDeliveryAvailable : null };
 }
 
 /**

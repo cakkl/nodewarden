@@ -31,8 +31,16 @@ import {
   handleSendEmailTwoFactorLogin,
 } from '../src/handlers/accounts';
 import { getUserById, saveUserPreferences, setEmailVerified } from '../src/services/storage-user-repo';
+import { saveMailSettings } from '../src/services/mail-settings';
+import { AuthService } from '../src/services/auth';
+import { handleToken } from '../src/handlers/identity';
 import type { Env } from '../src/types';
-import { TEST_JWT_SECRET, createSchemaDatabase, insertUser } from './lib/test-harness';
+import {
+  getSmtpConnectCalls,
+  resetSmtpScript,
+  setSmtpScript,
+} from './lib/cloudflare-sockets-stub.mjs';
+import { TEST_JWT_SECRET, createSchemaDatabase, insertUser, resetProcessScopedStatics } from './lib/test-harness';
 
 const USER_ID = '2f1c2f60-2b54-4d3e-9c11-6a2f7b8d0e02';
 const USER_EMAIL = 'twofactor@example.test';
@@ -279,4 +287,97 @@ test('源码护栏：挑战响应必须给邮件 provider 提供 { Email }（否
 
   const branch = source.slice(index, index + 200);
   assert.match(branch, /Email:/, '邮件 provider 的 providers2 必须含 Email 字段（客户端据此渲染邮箱地址）');
+});
+
+// ─────────── 邮件被管理员关闭（`settings.enabled = false`）⇒ 邮箱 2FA 整体下线 ───────────
+// 关闭后邮件码根本发不出来：继续要求它等于把「只有邮箱 2FA」的账号锁在登录页。
+
+const CLIENT_HASH = 'client-side-hash-of-master-password';
+const LOGIN_CLIENT_IP = '203.0.113.31';
+
+function mailSettingsInput(enabled: boolean) {
+  return {
+    enabled,
+    host: 'smtp.test',
+    port: 587,
+    encryption: 'starttls' as const,
+    username: '',
+    fromAddress: 'noreply@example.test',
+    fromName: 'NodeWarden',
+  };
+}
+
+/** 只启用邮箱 2FA 的账号 + 可控的邮件开关（配置写全，只动 `enabled`）。 */
+async function setupEmailTwoFactorAccount(mailEnabled: boolean) {
+  const handle = await createSchemaDatabase();
+  const env = {
+    DB: handle.db,
+    JWT_SECRET: TEST_JWT_SECRET,
+    NOTIFICATIONS_HUB: {
+      idFromName: (name: string) => ({ toString: () => name }),
+      get: () => ({ fetch: async () => new Response('{}', { status: 200 }) }),
+    },
+  } as unknown as Env;
+  await saveMailSettings(env.DB, env, mailSettingsInput(mailEnabled));
+  const masterPasswordHash = await new AuthService(env).hashPasswordServer(CLIENT_HASH, USER_EMAIL);
+  insertUser(handle.connection, USER_ID, { email: USER_EMAIL, masterPasswordHash });
+  await saveUserPreferences(handle.db, USER_ID, { twoFactorEmailEnabled: true });
+  await setEmailVerified(handle.db, USER_ID, true);
+  return { handle, env };
+}
+
+function passwordLoginRequest(): Request {
+  return new Request('https://vault.example.test/identity/connect/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'CF-Connecting-IP': LOGIN_CLIENT_IP },
+    body: new URLSearchParams({
+      grant_type: 'password',
+      username: USER_EMAIL,
+      password: CLIENT_HASH,
+      scope: 'api offline_access',
+      deviceIdentifier: 'aaaaaaaa-2222-4222-8222-aaaaaaaaaaaa',
+      deviceName: 'Test Browser',
+      deviceType: '14',
+    }).toString(),
+  });
+}
+
+test('登录：邮件开着时仍强制邮箱 2FA（挑战里只有 provider 1）', async () => {
+  const h = await setupEmailTwoFactorAccount(true);
+  try {
+    const response = await handleToken(passwordLoginRequest(), h.env);
+    assert.equal(response.status, 400, '开着邮件时两步登录不可省');
+    const body = (await response.json()) as Record<string, any>;
+    assert.deepEqual(body.TwoFactorProviders, ['1']);
+  } finally {
+    resetProcessScopedStatics();
+    h.handle.close();
+  }
+});
+
+test('登录：管理员关掉邮件发送后，只启用邮箱 2FA 的账号直接登录（不再要求一个发不出来的因素）', async () => {
+  const h = await setupEmailTwoFactorAccount(false);
+  try {
+    const response = await handleToken(passwordLoginRequest(), h.env);
+    assert.equal(response.status, 200, '邮箱 2FA 已不可完成 ⇒ 不能继续要求它，否则用户被锁在门外');
+    const body = (await response.json()) as Record<string, any>;
+    assert.ok(body.access_token, '应当直接签发 token');
+  } finally {
+    resetProcessScopedStatics();
+    h.handle.close();
+  }
+});
+
+test('登录发码端点：管理员关掉邮件发送后返回 503，且不发起任何 SMTP 连接', async () => {
+  const h = await setupEmailTwoFactorAccount(false);
+  setSmtpScript();
+  try {
+    const response = await handleSendEmailTwoFactorLogin(sendEmailLoginRequest({ email: USER_EMAIL }), h.env);
+    assert.equal(response.status, 503, '必须用含 `enabled` 的判定，否则会绕过开关把信发出去');
+    assert.equal(getSmtpConnectCalls().length, 0, '发不出信时不该建立 SMTP 连接');
+  } finally {
+    resetSmtpScript();
+    resetProcessScopedStatics();
+    h.handle.close();
+  }
 });

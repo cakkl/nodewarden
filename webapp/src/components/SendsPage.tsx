@@ -19,6 +19,8 @@ interface SendsPageProps {
   sendUploadPercent: number | null;
   mobileSidebarToggleKey: number;
   onNotify: (type: 'success' | 'error', text: string) => void;
+  /** 服务端**确定**没配发信（未知不算）：此时「指定邮箱」保存会被拒，先给提示 */
+  mailDeliveryUnavailable?: boolean;
 }
 
 type SendTypeFilter = 'all' | 'text' | 'file';
@@ -198,6 +200,11 @@ export default function SendsPage(props: SendsPageProps) {
     }
     if (draft.type === 'file' && isCreating && !draft.file) {
       props.onNotify('error', t('txt_please_select_a_file'));
+      return;
+    }
+    // 名单为空时请求里就是 `authType: NONE` ⇒ 服务端会静默存成「任何人持链接即可」（服务端看不到用户选了啥）
+    if (draft.accessMode === 'emails' && !draft.emails.split(',').some((entry) => entry.trim())) {
+      props.onNotify('error', t('txt_send_emails_required'));
       return;
     }
     setBusy(true);
@@ -536,14 +543,18 @@ export default function SendsPage(props: SendsPageProps) {
                     />
                     {t('txt_send_access_password')}
                   </label>
-                  <label>
-                    <input
-                      type="radio"
-                      checked={draft.accessMode === 'emails'}
-                      onInput={() => setDraft({ ...draft, accessMode: 'emails' })}
-                    />
-                    {t('txt_send_access_emails')}
-                  </label>
+                  {/* 新建时服务端发不出信 ⇒「指定邮箱」直接不出现（选了也必然 503）；
+                      编辑既有 Send 时保留 —— 那是把它改成其它访问方式的唯一入口。 */}
+                  {!(isCreating && props.mailDeliveryUnavailable) && (
+                    <label>
+                      <input
+                        type="radio"
+                        checked={draft.accessMode === 'emails'}
+                        onInput={() => setDraft({ ...draft, accessMode: 'emails' })}
+                      />
+                      {t('txt_send_access_emails')}
+                    </label>
+                  )}
                 </div>
               </label>
               {draft.accessMode === 'password' && (
@@ -577,6 +588,9 @@ export default function SendsPage(props: SendsPageProps) {
                     placeholder="name@example.com, other@example.com"
                     onInput={(e) => setDraft({ ...draft, emails: (e.currentTarget as HTMLInputElement).value })}
                   />
+                  {props.mailDeliveryUnavailable && (
+                    <div className="field-help">{t('txt_send_emails_requires_mail')}</div>
+                  )}
                 </label>
               )}
               <label className="field field-span-2">
@@ -592,6 +606,7 @@ export default function SendsPage(props: SendsPageProps) {
               </label>
               </div>
               <div className="detail-actions">
+              {/* 保存按钮保持可点：发不出信时服务端 503 + 本地化 toast 说明原因，禁用了反而看不见原因。 */}
               <button type="button" className="btn btn-primary small" disabled={busy} onClick={() => void saveDraft()}>
                 <Save size={14} className="btn-icon" /> {t('txt_save')}
               </button>
@@ -620,6 +635,14 @@ export default function SendsPage(props: SendsPageProps) {
               <h3 className="detail-title">{selectedSend.decName || t('txt_no_name')}</h3>
               <div className="detail-sub">{Number(selectedSend.type) === 1 ? t('txt_file_send') : t('txt_text_send')}</div>
             </div>
+
+            {/* 服务器发不出信 ⇒ 收件人无法收到验证码，限特定邮箱的 Send 暂时无法打开 */}
+            {props.mailDeliveryUnavailable && !!selectedSend.emails && (
+              <div className="card send-mail-warning">
+                <h4>{t('txt_warning')}</h4>
+                <p>{t('txt_send_emails_mail_off_warning')}</p>
+              </div>
+            )}
 
             <div className="card stagger-item stagger-delay-2">
               <h4>{t('txt_send_details')}</h4>
