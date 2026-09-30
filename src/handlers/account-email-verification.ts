@@ -11,7 +11,7 @@
  * 验证成功后 `users.email_verified` 置 1，之后才允许接收安全通知邮件。
  * 未验证不阻断登录/同步，只在界面上提示。
  */
-import type { Env, User } from '../types';
+import type { EmailVerificationState, Env, User } from '../types';
 import { jsonResponse, errorResponse, tooManyRequestsResponse } from '../utils/response';
 import { StorageService } from '../services/storage';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
@@ -72,26 +72,40 @@ async function readPendingExpiry(db: D1Database, user: User): Promise<string | n
 }
 
 // GET /api/accounts/email-verification
+/**
+ * 邮箱验证状态（设置页首帧要用）。
+ *
+ * `mailAvailable` 由调用方传入：`/api/accounts/profile` 里已经算过它 ⇒ 共用同一次查询；
+ * 传 Promise 则可与下面的 token 查询并行。
+ */
+export async function buildEmailVerificationState(
+  user: User,
+  mailAvailable: boolean | Promise<boolean>,
+  db: D1Database
+): Promise<EmailVerificationState> {
+  const [available, pendingExpiresAt] = await Promise.all([
+    mailAvailable,
+    readPendingExpiry(db, user),
+  ]);
+  return {
+    object: 'emailVerification',
+    available,
+    verified: user.emailVerified === true,
+    email: user.email,
+    pendingExpiresAt,
+    codeTtlSeconds: Math.floor(CODE_TTL_MS / 1000),
+    maxAttempts: MAX_CODE_ATTEMPTS,
+  };
+}
+
 export async function handleGetEmailVerificationStatus(
   request: Request,
   env: Env,
   currentUser: User
 ): Promise<Response> {
   void request;
-  const [available, pendingExpiresAt] = await Promise.all([
-    isMailDeliveryAvailable(env.DB, env),
-    readPendingExpiry(env.DB, currentUser),
-  ]);
   return jsonResponse(
-    {
-      object: 'emailVerification',
-      available,
-      verified: currentUser.emailVerified === true,
-      email: currentUser.email,
-      pendingExpiresAt,
-      codeTtlSeconds: Math.floor(CODE_TTL_MS / 1000),
-      maxAttempts: MAX_CODE_ATTEMPTS,
-    },
+    await buildEmailVerificationState(currentUser, isMailDeliveryAvailable(env.DB, env), env.DB),
     200,
     // 验证状态是随时会变的事实，任何缓存都可能让客户端停在旧值上。
     { 'Cache-Control': 'no-store' }

@@ -523,7 +523,7 @@ export async function handleAuthenticatedRoute(
   }
 
   if (path === '/api/settings/domains' || path === '/settings/domains') {
-    if (method === 'GET') return handleGetDomains(env, userId);
+    if (method === 'GET') return handleGetDomains(request, env, userId);
     if (method === 'PUT' || method === 'POST') return handleUpdateDomains(request, env, userId);
     return null;
   }

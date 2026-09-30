@@ -34,11 +34,13 @@ import {
 } from './handlers/notifications';
 import { handlePublicUploadSendFile } from './handlers/sends';
 import { isSafeWebsiteIconContentType } from './utils/content-type';
+import { conditionalJsonResponse } from './utils/conditional-request';
 import { jsonResponse, unsupportedResponse } from './utils/response';
+import { isMailDeliveryAvailableSoft } from './services/mail-settings';
 import { StorageService } from './services/storage';
 import type { Env } from './types';
 import { getConfiguredWebAuthnAllowedOrigins, isSameOriginWriteRequest } from './utils/origins';
-import { buildConfigResponse } from './config-response';
+import { buildConfigResponse, configEtag } from './config-response';
 
 type PublicRateLimiter = (category?: string, maxRequests?: number) => Promise<Response | null>;
 type JwtUnsafeReason = 'missing' | 'too_short' | null;
@@ -479,7 +481,13 @@ export async function handlePublicRoute(
     const blocked = await enforcePublicRateLimit('public-read', LIMITS.rateLimit.publicReadRequestsPerMinute);
     if (blocked) return blocked;
     const origin = new URL(request.url).origin;
-    return jsonResponse(await buildConfigResponse(origin, env), 200, { 'Cache-Control': 'no-store' });
+    // mail 状态要走 D1，先取一次：ETag 与 body 共用同一个值（见 config-response.ts）。
+    const mailDeliveryAvailable = await isMailDeliveryAvailableSoft(env);
+    return conditionalJsonResponse(
+      request,
+      configEtag(origin, mailDeliveryAvailable),
+      () => buildConfigResponse(origin, env, mailDeliveryAvailable)
+    );
   }
 
   if (path === '/api/version' && method === 'GET') {

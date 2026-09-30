@@ -21,6 +21,13 @@ export interface Profile {
   role: 'admin' | 'user';
   /** 邮箱是否已验证。服务端保证「不能发信时恒报 true」⇒ 只能用它判断是否需要提醒验证。 */
   emailVerified?: boolean;
+  /** 设置页首帧要用的邮箱验证状态（随 profile 一起来，不再单独请求）。 */
+  emailVerification?: {
+    available: boolean;
+    verified: boolean;
+    email: string;
+    pendingExpiresAt: string | null;
+  } | null;
   [k: string]: unknown;
 }
 

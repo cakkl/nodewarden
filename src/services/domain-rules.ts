@@ -220,3 +220,25 @@ export function buildDomainsResponse(
     object: 'domains',
   };
 }
+
+let globalDomainsTableVersion: Promise<string> | null = null;
+
+/** 全局等价域名表的版本（内容哈希；进程内只算一次） */
+function getGlobalDomainsTableVersion(): Promise<string> {
+  globalDomainsTableVersion ??= (async () => {
+    const digest = await crypto.subtle.digest(
+      'SHA-256',
+      new TextEncoder().encode(JSON.stringify([bitwardenGlobalDomainsRaw, customGlobalDomainsRaw]))
+    );
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('')
+      .slice(0, 16);
+  })();
+  return globalDomainsTableVersion;
+}
+
+/** `/api/settings/domains` 的版本标：用户设置的 `updated_at` + 全局表版本 —— 两者任一变化 ETag 就变。 */
+export async function buildDomainsEtag(updatedAt: string | null): Promise<string> {
+  return `W/"domains-${updatedAt ?? 'unset'}-${await getGlobalDomainsTableVersion()}"`;
+}

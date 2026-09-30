@@ -208,21 +208,21 @@ test('设置页：「刷新状态」同时刷新提供程序、邮件两步登�
   assert.match(source, /onClick=\{\(\) => void refreshTwoFactorStatus\(\)\}/, '按钮必须仍然调用该处理函数');
 });
 
-// 设置页首帧必须就是对的：这两份状态由 App 的启动查询提供，不能再「进区才拉」——
+// 设置页首帧必须就是对的：这两份状态都来自 App 的**启动查询**，不能再「进区才拉」——
 // 那会让徽标 / 开关 / 按钮在加载完成后突然冒出来（并带布局跳动）。
+// （邮箱验证状态是随 profile 一起来的，不再是独立请求。）
 test('设置页状态来自启动查询，且不再在进入分区时拉取', () => {
   const app = readSource('webapp/src/App.tsx');
   assert.match(
     app,
-    /const emailVerificationQuery = useQuery\(\{[\s\S]{0,400}?vaultInitialDecryptDone,/,
-    'App 必须在应用就绪时就拉邮箱验证状态'
+    /emailVerification: profileQuery\.data\?\.emailVerification \?\? null/,
+    '邮箱验证状态要随启动时的 profile 查询一起来（退回「进分区才拉」照样会闪）'
   );
   assert.match(
     app,
     /const mailSettingsQuery = useQuery\(\{[\s\S]{0,400}?isAdmin && vaultInitialDecryptDone,/,
     '邮件配置查询必须只对管理员启用（那是管理员端点）'
   );
-  assert.match(app, /emailVerification: emailVerificationQuery\.data \?\? null/, '查询结果要传给设置页');
   assert.match(app, /mailSettings: mailSettingsQuery\.data \?\? null/, '查询结果要传给设置页');
 
   const settings = readSource('webapp/src/components/SettingsPage.tsx');

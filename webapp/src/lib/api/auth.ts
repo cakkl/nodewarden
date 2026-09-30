@@ -514,7 +514,8 @@ export async function registerAccount(args: {
  * ⚠️ 失败返回 `null`（**未知**）而不是 `false` —— 压成 false 会让界面把网络抖动当成没配 SMTP。
  */
 export async function getServerConfig(): Promise<{ mailDeliveryAvailable: boolean | null }> {
-  const resp = await fetch('/api/config', { cache: 'no-store' });
+  // 不加 `cache: 'no-store'`：服务端给了 ETag + `private, no-cache`，让浏览器走条件请求（命中 304 就不重传 body）。
+  const resp = await fetch('/api/config');
   if (!resp.ok) return { mailDeliveryAvailable: null };
   const body = (await parseJson<{ mailDeliveryAvailable?: boolean }>(resp)) || {};
   return { mailDeliveryAvailable: typeof body.mailDeliveryAvailable === 'boolean' ? body.mailDeliveryAvailable : null };

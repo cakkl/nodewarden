@@ -10,11 +10,17 @@ function buildIconServiceCsp(origin: string): string {
   return `img-src 'self' data: ${origin}`;
 }
 
-export async function buildConfigResponse(origin: string, env?: Env) {
+/** `/api/config` 的版本标。`mailDeliveryAvailable` 是这份响应里唯一随管理设置变的字段。 */
+export function configEtag(origin: string, mailDeliveryAvailable: boolean): string {
+  return `W/"config-${origin}-${LIMITS.compatibility.bitwardenServerVersion}-${mailDeliveryAvailable ? 1 : 0}"`;
+}
+
+/** `mailDeliveryAvailable` 可以由调用方预先算好（它要走 D1）—— 避免同一个请求里查两遍 */
+export async function buildConfigResponse(origin: string, env?: Env, mailDeliveryAvailableOverride?: boolean) {
   const fillAssistBase = `${origin}/fill-assist/`;
   // 前端据此决定「主密码提示」的说明文案（能发信 ⇒ 会发到邮箱，否则 ⇒ 在登录页显示）。
   // 非敏感信息：客户端本就能从其它字段推断部署形态。
-  const mailDeliveryAvailable = await isMailDeliveryAvailableSoft(env);
+  const mailDeliveryAvailable = mailDeliveryAvailableOverride ?? await isMailDeliveryAvailableSoft(env);
   return {
     version: LIMITS.compatibility.bitwardenServerVersion,
     gitHash: 'nodewarden',

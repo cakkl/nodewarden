@@ -12,6 +12,7 @@ import { findMatchingTotpCounter, isTotpEnabled, isValidTotpSecret } from '../ut
 import { createRecoveryCode, recoveryCodeEquals } from '../utils/recovery-code';
 import { buildAccountKeys } from '../utils/user-decryption';
 import { buildProfileResponse } from '../utils/profile-response';
+import { buildEmailVerificationState } from './account-email-verification';
 import { isYubiKeyEnabled, isYubiKeyPublicId, requestYubicoApiCredentials, verifyYubicoOtp, yubiKeyPublicIdFromOtp } from '../utils/yubico-otp';
 import { clearChallengeCode, issueChallengeCode, checkSendQuota } from '../services/email-2fa';
 import { emailAvailabilityForUser } from '../services/email-availability';
@@ -546,13 +547,28 @@ async function sendPasswordHintMail(
   }
 }
 
+/**
+ * profile 响应 + 设置页首帧要用的邮箱验证状态。
+ *
+ * 并进 profile 是为了省掉一次独立请求（`/api/accounts/email-verification`）—— 那一步也要算 mail
+ * 可用性，与 profile 里这次重复 ⇒ 合并后少一次请求与一次 Worker 调用，mail 可用性只查一次。
+ */
+async function profileWithEmailVerification(user: User, env: Env): Promise<Response> {
+  const mailAvailable = isMailDeliveryAvailableSoft(env);
+  const [profile, emailVerification] = await Promise.all([
+    buildProfileResponse(user, env, { mailAvailable }),
+    buildEmailVerificationState(user, mailAvailable, env.DB),
+  ]);
+  return jsonResponse({ ...profile, emailVerification });
+}
+
 // GET /api/accounts/profile
 export async function handleGetProfile(request: Request, env: Env, userId: string): Promise<Response> {
   void request;
   const storage = new StorageService(env.DB);
   const user = await storage.getUserById(userId);
   if (!user) return errorResponse('User not found', 404);
-  return jsonResponse(await buildProfileResponse(user, env));
+  return profileWithEmailVerification(user, env);
 }
 
 // PUT /api/accounts/profile
@@ -596,7 +612,7 @@ export async function handleUpdateProfile(request: Request, env: Env, userId: st
     },
   });
 
-  return jsonResponse(await buildProfileResponse(user, env));
+  return profileWithEmailVerification(user, env);
 }
 
 // 新设备验证（NDV）的设置响应。

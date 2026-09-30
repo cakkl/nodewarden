@@ -2154,14 +2154,9 @@ export default function App() {
     queryClient,
   });
 
-  // 设置页首帧要用到的两份状态：与其它启动查询同一门控，**应用就绪时就拉**。
+  // 设置页首帧要用到的状态：与其它启动查询同一门控，**应用就绪时就拉**。
   // 否则要等进到那个分区才请求 ⇒ 首帧缺元素 / 显示成「未配置」，并带布局跳动。
-  const emailVerificationQuery = useQuery({
-    queryKey: ['email-verification', vaultCacheKey || session?.email],
-    queryFn: () => getEmailVerificationStatus(authedFetch),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && vaultInitialDecryptDone,
-    staleTime: 30_000,
-  });
+  // （邮箱验证状态已并进 profile ⇒ 不再是独立请求。）
   const mailSettingsQuery = useQuery({
     queryKey: ['admin-mail-settings', vaultCacheKey || session?.email],
     queryFn: () => adminMailActions.loadMailSettings(),
@@ -2345,10 +2340,11 @@ export default function App() {
     onGetApiKey: accountSecurityActions.getApiKey,
     onRotateApiKey: accountSecurityActions.rotateApiKey,
     // 设置页的邮箱验证状态 / 邮件配置由启动查询提供：首帧即正确，进分区不再拉取
-    emailVerification: emailVerificationQuery.data ?? null,
+    emailVerification: profileQuery.data?.emailVerification ?? null,
     mailSettings: mailSettingsQuery.data ?? null,
     onRefreshEmailVerification: async () => {
-      await emailVerificationQuery.refetch();
+      // 重拉 profile（它的响应里带着邮箱验证状态），不再为它单开一个请求。
+      await profileQuery.refetch();
     },
     onMailSettingsSaved: (settings: MailSettings) => {
       queryClient.setQueryData(['admin-mail-settings', vaultCacheKey || session?.email], settings);
