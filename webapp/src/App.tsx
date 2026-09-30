@@ -1387,16 +1387,21 @@ export default function App() {
   }, [mailPreferences?.locale]);
 
   const isAdmin = isAdminProfile(profile);
+  /**
+   * 管理员数据只在对应页面才拉：消费方都是懒加载的页面组件，启动时（用户还在密码库）
+   * 提前拉只是白跑请求 + D1 查询。切到该页时查询自动启用，页面内的 staleTime 兼顾来回切不重拉。
+   */
+  const onAdminRoute = location === ROUTES.admin;
   const usersQuery = useQuery({
     queryKey: ['admin-users', vaultCacheKey],
     queryFn: () => listAdminUsers(authedFetch),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone,
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone && onAdminRoute,
     staleTime: 30_000,
   });
   const invitesQuery = useQuery({
     queryKey: ['admin-invites', vaultCacheKey],
     queryFn: () => listAdminInvites(authedFetch),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone,
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone && onAdminRoute,
     staleTime: 30_000,
   });
   const twoFactorStatusQuery = useQuery({
@@ -1520,7 +1525,8 @@ export default function App() {
   useQuery({
     queryKey: ['admin-backup-settings', vaultCacheKey],
     queryFn: () => backupActions.loadSettings(),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone,
+    // 只是给备份页预热缓存（消费方是 `onLoadBackupSettings` 的 `ensureQueryData`）⇒ 进备份页再拉。
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone && location.startsWith(ROUTES.backup),
     staleTime: 30_000,
   });
 
@@ -2196,8 +2202,8 @@ export default function App() {
   const mailSettingsQuery = useQuery({
     queryKey: ['admin-mail-settings', vaultCacheKey || session?.email],
     queryFn: () => adminMailActions.loadMailSettings(),
-    // 邮件设置是管理员端点：非管理员既看不到那个分区，也不该发这个请求
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone,
+    // 邮件设置是管理员端点（非管理员看不到那分区也不该请求），且只被设置页消费 ⇒ 进 `/settings*` 再拉。
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone && location.startsWith(ROUTES.settings),
     staleTime: 30_000,
   });
 

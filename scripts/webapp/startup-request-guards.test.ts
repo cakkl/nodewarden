@@ -69,6 +69,33 @@ test('SignalR 只在重连时刷新设备列表', () => {
   assert.doesNotMatch(openHandler, /queryClient\.getQueryCache\(\)/, '别用时间戳判过期：首次查询其实还在飞行中');
 });
 
+test('管理员数据只在对应页面才拉，不在启动时白跑', () => {
+  const app = readSource('webapp/src/App.tsx');
+  // 都只被懒加载的页面组件消费 ⇒ 启动时（用户还在密码库）拉它们纯属浪费：
+  // 每个请求都是一次 Worker 调用 + 若干 D1 往返。实测启动期因此少 4 个请求。
+  const gated = [
+    ['admin-users', 'onAdminRoute'],
+    ['admin-invites', 'onAdminRoute'],
+    ['admin-backup-settings', 'location.startsWith(ROUTES.backup)'],
+    ['admin-mail-settings', 'location.startsWith(ROUTES.settings)'],
+  ];
+  for (const [key, gate] of gated) {
+    const block = slice(app, `queryKey: ['${key}',`, 400);
+    const enabled = block.match(/enabled:[^\n]*/);
+    assert.ok(enabled, `${key} 应有 enabled 条件`);
+    assert.ok(
+      enabled[0].includes(gate),
+      `${key} 要按「${gate}」门控 —— 否则每次启动都会替管理员多打一个请求`
+    );
+  }
+  assert.match(app, /const onAdminRoute = location === ROUTES\.admin;/, '要有明确的管理页判定');
+
+  // ⚠️ 静默修复**不能**门控：它修的是历史加密格式的备份设置，
+  // 若用户长期不进备份页就永远不修，而定时备份照跑。
+  const repair = slice(app, 'repairAttemptRef.current = session.accessToken;', 200);
+  assert.match(repair, /silentlyRepairBackupSettingsIfNeeded/, '登录后仍要执行一次备份设置修复');
+});
+
 test('服务可达性心跳是 5 分钟兜底，且后台标签不探', () => {
   const badge = readSource('webapp/src/components/NetworkStatusBadge.tsx');
   const intervalMatch = badge.match(/STATUS_CHECK_INTERVAL_MS = (\d+)\s*\*\s*60_000;/);

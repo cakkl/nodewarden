@@ -223,8 +223,11 @@ export function buildDomainsResponse(
 
 let globalDomainsTableVersion: Promise<string> | null = null;
 
-/** 全局等价域名表的版本（内容哈希；进程内只算一次） */
-function getGlobalDomainsTableVersion(): Promise<string> {
+/**
+ * 全局等价域名表的版本（内容哈希；进程内只算一次）。
+ * 导出是因为 `sync` 的 ETag 也要带上它 —— 部署换了全局表时用户的库修订号并不会变。
+ */
+export function getGlobalDomainsTableVersion(): Promise<string> {
   globalDomainsTableVersion ??= (async () => {
     const digest = await crypto.subtle.digest(
       'SHA-256',

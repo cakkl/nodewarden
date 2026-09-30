@@ -18,7 +18,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { handleCreateCipher } from '../src/handlers/ciphers';
-import { handleSync } from '../src/handlers/sync';
+import { handleSync, buildSyncEtag } from '../src/handlers/sync';
 import type { Env, SyncResponse } from '../src/types';
 import { createD1SqliteDatabase } from './lib/d1-sqlite';
 
@@ -317,3 +317,117 @@ test('name 不是合法 EncString 的脏行被丢弃，但其余条目照常返�
 
   h.handle.close();
 });
+
+// ---------------------------------------------------------------- 条件请求（ETag / 304）
+
+/** 带 If-None-Match 发一次 sync（模拟浏览器复用已缓存响应） */
+async function conditionalSync(h: Harness, etag: string): Promise<Response> {
+  const request = new Request('https://vault.example.test/api/sync', {
+    method: 'GET',
+    headers: { 'If-None-Match': etag },
+  });
+  return handleSync(request, h.env, USER);
+}
+
+test('200 响应带 ETag 与可缓存的 Cache-Control', async () => {
+  const h = createHarness();
+  await seedCipher(h, 'a');
+
+  const response = await handleSync(syncRequest(), h.env, USER);
+  assert.equal(response.status, 200);
+  const etag = response.headers.get('ETag');
+  assert.ok(etag && etag.startsWith('W/"sync-'), `应返回 sync 的弱 ETag，实际 ${etag}`);
+  // 必须是可存且能再校验的头：`no-store` 会让浏览器永不发条件请求（＝白做）
+  assert.match(String(response.headers.get('Cache-Control')), /^private, max-age=\d+$/);
+
+  h.handle.close();
+});
+
+test('ETag 命中回 304，且不再走缓存查找 / 不再渲染 body', async () => {
+  const h = createHarness();
+  await seedCipher(h, 'a');
+
+  const first = await handleSync(syncRequest(), h.env, USER);
+  const etag = String(first.headers.get('ETag'));
+  await first.text();
+  const matchesBefore = h.cache.matchedKeys.length;
+
+  const second = await conditionalSync(h, etag);
+  assert.equal(second.status, 304, '同一版本应回 304');
+  assert.equal(second.headers.get('ETag'), etag, '304 必须带回同一个 ETag，否则客户端会丢掉缓存');
+  assert.match(String(second.headers.get('Cache-Control')), /^private, max-age=\d+$/, '304 也要带缓存头');
+  assert.equal(await second.text(), '', '304 不能有 body');
+  assert.equal(h.cache.matchedKeys.length, matchesBefore, '命中条件请求就该短路，不必再查缓存');
+
+  h.handle.close();
+});
+
+test('库数据变化后 ETag 变化（旧 ETag 不再命中 304）', async () => {
+  const h = createHarness();
+  await seedCipher(h, 'a');
+  const before = String((await handleSync(syncRequest(), h.env, USER)).headers.get('ETag'));
+
+  await seedCipher(h, 'b');
+  const after = String((await handleSync(syncRequest(), h.env, USER)).headers.get('ETag'));
+  assert.notEqual(after, before, '新建条目后版本标必须变');
+
+  const stale = await conditionalSync(h, before);
+  assert.equal(stale.status, 200, '拿旧 ETag 必须回 200，绝不能 304');
+
+  h.handle.close();
+});
+
+test('账号行变化也会让 ETag 变化（账号写入不推进库修订号）', async () => {
+  const h = createHarness();
+  await seedCipher(h, 'a');
+  const before = String((await handleSync(syncRequest(), h.env, USER)).headers.get('ETag'));
+
+  // 账号类写入（改资料 / 邮箱验证 / 2FA）不走 updateRevisionDate ⇒ 少了 user.updatedAt
+  // 就会拿旧 ETag 回 304，把过期的 profile 留给客户端。
+  h.connection.prepare('UPDATE users SET updated_at = ? WHERE id = ?').run('2026-06-01T00:00:00.000Z', USER);
+
+  const after = String((await handleSync(syncRequest(), h.env, USER)).headers.get('ETag'));
+  assert.notEqual(after, before, '账号行变化必须改变版本标');
+  assert.equal((await conditionalSync(h, before)).status, 200, '旧 ETag 不能再命中 304');
+
+  h.handle.close();
+});
+
+test('影响响应的查询开关也计入 ETag（不同形状的响应不会互相命中）', async () => {
+  const h = createHarness();
+  await seedSend(h, 'send-1');
+  await seedCipher(h, 'a');
+
+  const all = String((await handleSync(syncRequest(), h.env, USER)).headers.get('ETag'));
+  const withoutSends = String((await handleSync(syncRequest({ params: { excludeSends: '1' } }), h.env, USER)).headers.get('ETag'));
+  assert.notEqual(withoutSends, all, 'excludeSends 改变了响应形状 ⇒ 版本标必须不同');
+
+  const crossed = await handleSync(
+    new Request('https://vault.example.test/api/sync?excludeSends=1', {
+      method: 'GET',
+      headers: { 'If-None-Match': all },
+    }),
+    h.env,
+    USER
+  );
+  assert.equal(crossed.status, 200, '带完整版 ETag 请求 excludeSends 形态时不能回 304');
+
+  h.handle.close();
+});
+
+test('未排除 domains 时，版本标带上全局等价域名表版本', async () => {
+  // 部署更新了全局域名表、而用户的库修订号没变 ⇒ 少了这个分量就会一直回 304，
+  // 客户端看不到新的全局域名映射。
+  const withDomains = await buildSyncEtag('rev-1', 'user-1', 'passkey-tag', false, false, false);
+  const withoutDomains = await buildSyncEtag('rev-1', 'user-1', 'passkey-tag', true, false, false);
+  assert.notEqual(withDomains, withoutDomains, '带不带 domains 的响应形状不同 ⇒ 版本标必须不同');
+  assert.match(withDomains, /-[0-9a-f]{16}-/, '应包含全局表的内容哈希（16 位 hex）');
+  assert.doesNotMatch(withoutDomains, /-[0-9a-f]{16}-/, '排除了 domains 就不该再带全局表版本');
+
+  // 同参数可复现（否则每次请求都回 200，条件请求形同虚设）
+  assert.equal(
+    await buildSyncEtag('rev-1', 'user-1', 'passkey-tag', false, false, false),
+    withDomains
+  );
+});
+
