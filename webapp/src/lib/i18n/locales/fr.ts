@@ -1147,6 +1147,7 @@ const fr: Record<string, string> = {
   "txt_offline_mode_notice_title": "Vous êtes en mode hors ligne. Si cela semble incorrect, forcez l’actualisation.",
   "txt_offline_mode_notice_windows": "Windows :",
   "txt_offline_mode_notice_macos": "macOS :",
+  "txt_pwa_offline_fallback": "Le cache hors ligne n'est pas prêt sur cet appareil. Ouvrez NodeWarden une fois en ligne, puis réessayez hors ligne.",
   "txt_submit": "Soumettre",
   "txt_sync": "Synchroniser",
   "txt_sync_vault": "Synchroniser le coffre-fort",

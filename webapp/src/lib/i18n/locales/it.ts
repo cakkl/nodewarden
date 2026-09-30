@@ -1147,6 +1147,7 @@ const it: Record<string, string> = {
   "txt_offline_mode_notice_title": "Sei in modalità offline. Se non sembra corretto, forza l’aggiornamento.",
   "txt_offline_mode_notice_windows": "Windows:",
   "txt_offline_mode_notice_macos": "macOS:",
+  "txt_pwa_offline_fallback": "La cache offline non è pronta su questo dispositivo. Apri NodeWarden una volta online, poi riprova offline.",
   "txt_submit": "Invia",
   "txt_sync": "Sincronizza",
   "txt_sync_vault": "Sincronizza Cassaforte",

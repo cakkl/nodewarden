@@ -1147,6 +1147,7 @@ const sv: Record<string, string> = {
   "txt_offline_mode_notice_title": "Du är i offlineläge. Om det verkar fel, tvinga fram en uppdatering.",
   "txt_offline_mode_notice_windows": "Windows:",
   "txt_offline_mode_notice_macos": "macOS:",
+  "txt_pwa_offline_fallback": "Offlinecachen är inte redo på den här enheten. Öppna NodeWarden en gång uppkopplad och försök sedan igen offline.",
   "txt_submit": "Skicka",
   "txt_sync": "Synkronisera",
   "txt_sync_vault": "Synkronisera valv",

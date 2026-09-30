@@ -1147,6 +1147,7 @@ const es: Record<string, string> = {
   "txt_offline_mode_notice_title": "Estás en modo sin conexión. Si parece un error, fuerza la recarga.",
   "txt_offline_mode_notice_windows": "Windows:",
   "txt_offline_mode_notice_macos": "macOS:",
+  "txt_pwa_offline_fallback": "La caché sin conexión no está lista en este dispositivo. Abre NodeWarden una vez con conexión y vuelve a intentarlo sin conexión.",
   "txt_submit": "Enviar",
   "txt_sync": "Sincronizar",
   "txt_sync_vault": "Sincronizar bóveda",

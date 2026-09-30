@@ -1147,6 +1147,7 @@ const en: Record<string, string> = {
   "txt_offline_mode_notice_title": "You are in offline mode. If this looks wrong, force refresh.",
   "txt_offline_mode_notice_windows": "Windows:",
   "txt_offline_mode_notice_macos": "macOS:",
+  "txt_pwa_offline_fallback": "Offline cache is not ready on this device. Open NodeWarden once while online, then try offline again.",
   "txt_submit": "Submit",
   "txt_sync": "Sync",
   "txt_sync_vault": "Sync Vault",

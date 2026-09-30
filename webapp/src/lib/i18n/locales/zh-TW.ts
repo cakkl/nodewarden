@@ -1147,6 +1147,7 @@ const zhTW: Record<string, string> = {
   "txt_offline_mode_notice_title": "您正處於離線模式，若誤判請強制重新整理",
   "txt_offline_mode_notice_windows": "Windows：",
   "txt_offline_mode_notice_macos": "macOS：",
+  "txt_pwa_offline_fallback": "本裝置的離線快取尚未就緒。請先連線開啟一次 NodeWarden，再嘗試離線存取。",
   "txt_submit": "提交",
   "txt_sync": "同步",
   "txt_sync_vault": "同步",

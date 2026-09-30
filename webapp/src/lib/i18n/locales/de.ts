@@ -1147,6 +1147,7 @@ const de: Record<string, string> = {
   "txt_offline_mode_notice_title": "Sie befinden sich im Offline-Modus. Wenn das nicht stimmt, erzwingen Sie eine Aktualisierung.",
   "txt_offline_mode_notice_windows": "Windows:",
   "txt_offline_mode_notice_macos": "macOS:",
+  "txt_pwa_offline_fallback": "Der Offline-Cache ist auf diesem Gerät nicht bereit. Öffne NodeWarden einmal mit Internetverbindung und versuche es dann erneut offline.",
   "txt_submit": "Senden",
   "txt_sync": "Synchronisieren",
   "txt_sync_vault": "Tresor synchronisieren",

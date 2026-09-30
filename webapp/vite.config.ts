@@ -1,10 +1,25 @@
 import { fileURLToPath } from 'node:url';
+import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import preact from '@preact/preset-vite';
 import { defineConfig, type Plugin } from 'vite';
+import { OFFLINE_FALLBACK_MESSAGES } from './src/lib/offline-fallback-messages';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
+
+/**
+/**
+ * 离线兜底页（缓存全空 + 离线时唯一能看到的东西）。两条硬约束：
+ * 不引用任何外部资源（此时缓存是空的，logo 必破图 ⇒ 构建期内联）；文案也只能构建期内联
+ * 10 种语言（语言包一个都没缓存），运行时按导航请求的 Accept-Language 选。
+ */
+const OFFLINE_FALLBACK_HTML_TEMPLATE = '<!doctype html><html lang="__LANG__"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>NodeWarden</title><style>html,body{height:100%;margin:0;background:#eef4ff;color:#0f172a;font-family:ui-sans-serif,system-ui,sans-serif}.boot-screen{min-height:100%;display:grid;place-items:center;padding:24px;box-sizing:border-box}.boot-card{width:min(420px,100%);display:grid;gap:12px;justify-items:center;padding:28px;border:1px solid rgba(148,163,184,.35);border-radius:22px;background:rgba(255,255,255,.86);box-shadow:0 20px 45px rgba(15,23,42,.1)}.boot-logo{width:74px;height:58px}.boot-logo svg{width:100%;height:100%;display:block}.boot-title{font-weight:700}.boot-sub{color:#475569;text-align:center;font-size:14px;line-height:1.5}</style></head><body><div class="boot-screen"><div class="boot-card"><div class="boot-logo">__LOGO__</div><div class="boot-title">NodeWarden</div><div class="boot-sub">__MESSAGE__</div></div></div></body></html>';
+
+/** 内联进兜底页的 logo。 */
+function readOfflineFallbackLogo(): string {
+  return fs.readFileSync(path.join(rootDir, 'public', 'nodewarden-logo.svg'), 'utf8');
+}
 
 function buildServiceWorkerSource(precacheUrls: string[], version: string): string {
   return `const CACHE_VERSION = ${JSON.stringify(`nodewarden-pwa-${version}`)};
@@ -15,7 +30,9 @@ const PRECACHE_URLS = ${JSON.stringify(precacheUrls, null, 2)};
 const CRITICAL_SHELL_URLS = ['/', '/index.html'];
 const STATIC_PATH_RE = /^\\/(?:assets\\/|payment-logos\\/|icon-|logo-|favicon|apple-touch-icon|nodewarden-|manifest\\.webmanifest$)/;
 const NEVER_CACHE_PATH_RE = /^\\/(?:api|identity|setup|config|notifications|icons|\\.well-known|cdn-cgi)(?:\\/|$)/;
-const OFFLINE_FALLBACK_HTML = '<!doctype html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>NodeWarden</title><style>html,body{height:100%;margin:0;background:#eef4ff;color:#0f172a;font-family:ui-sans-serif,system-ui,sans-serif}.boot-screen{min-height:100%;display:grid;place-items:center;padding:24px;box-sizing:border-box}.boot-card{width:min(420px,100%);display:grid;gap:12px;justify-items:center;padding:28px;border:1px solid rgba(148,163,184,.35);border-radius:22px;background:rgba(255,255,255,.86);box-shadow:0 20px 45px rgba(15,23,42,.1)}.boot-logo{width:74px;height:58px;object-fit:contain}.boot-title{font-weight:700}.boot-sub{color:#475569;text-align:center;font-size:14px;line-height:1.5}</style></head><body><div class="boot-screen"><div class="boot-card"><img class="boot-logo" src="/nodewarden-logo.svg" alt=""><div class="boot-title">NodeWarden</div><div class="boot-sub">Offline cache is not ready on this device. Open NodeWarden once while online, then try offline again.</div></div></div></body></html>';
+const OFFLINE_FALLBACK_TEMPLATE = ${JSON.stringify(OFFLINE_FALLBACK_HTML_TEMPLATE)};
+const OFFLINE_FALLBACK_LOGO = ${JSON.stringify(readOfflineFallbackLogo())};
+const OFFLINE_FALLBACK_MESSAGES = ${JSON.stringify(OFFLINE_FALLBACK_MESSAGES, null, 2)};
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -51,27 +68,6 @@ function isCacheableResponse(response) {
   return response && response.ok && (response.type === 'basic' || response.type === 'default');
 }
 
-async function warmStaticDependencies(response) {
-  try {
-    const html = await response.text();
-    const runtimeCache = await caches.open(RUNTIME_CACHE);
-    const urls = Array.from(html.matchAll(/\\b(?:src|href)=["']([^"']+)["']/g))
-      .map((match) => {
-        try {
-          return new URL(match[1], self.location.origin);
-        } catch {
-          return null;
-        }
-      })
-      .filter((url) => url && url.origin === self.location.origin && STATIC_PATH_RE.test(url.pathname))
-      .map((url) => url.pathname + url.search);
-    await Promise.allSettled(Array.from(new Set(urls)).map((url) => runtimeCache.add(url)));
-    await trimRuntimeCache(runtimeCache, 120);
-  } catch {
-    // Dependency warming is best-effort; never slow or break navigation for it.
-  }
-}
-
 async function appShellNavigation(request) {
   const cache = await caches.open(APP_SHELL_CACHE);
   const url = new URL(request.url);
@@ -82,11 +78,8 @@ async function appShellNavigation(request) {
     try {
       const response = await fetch(request);
       if (isCacheableResponse(response)) {
-        const shellCopy = response.clone();
         await cache.put('/index.html', response.clone());
         await cache.put('/', response.clone());
-        // 依赖预热是 best-effort，不能阻塞导航
-        void warmStaticDependencies(shellCopy);
         return response;
       }
     } catch {
@@ -99,11 +92,40 @@ async function appShellNavigation(request) {
     || (await cache.match(url.pathname, { ignoreSearch: true }))
     || (await cache.match('/'))
     || (await cache.match('/index.html'))
-    || new Response(OFFLINE_FALLBACK_HTML, {
-      status: 200,
-      headers: { 'Content-Type': 'text/html; charset=UTF-8' },
-    })
+    || offlineFallbackResponse(request)
   );
+}
+
+/** 按导航请求的 Accept-Language 选兜底文案；映射规则与 detectBrowserLocale() 保持一致。 */
+function pickOfflineFallbackLocale(request) {
+  const header = String(request.headers.get('Accept-Language') || '').toLowerCase();
+  for (const tag of header.split(',').map((part) => part.split(';')[0].trim()).filter(Boolean)) {
+    if (tag === 'zh-tw' || tag === 'zh-hk' || tag === 'zh-mo' || tag.includes('hant')) return 'zh-TW';
+    if (tag.startsWith('zh')) return 'zh-CN';
+    for (const code of ['ru', 'es', 'fi', 'de', 'fr', 'it', 'sv']) {
+      if (tag.startsWith(code)) return code;
+    }
+    if (tag.startsWith('en')) return 'en';
+  }
+  return 'en';
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** 兜底页：不引任何外部资源（此时缓存是空的），文案已内联。 */
+function offlineFallbackResponse(request) {
+  const locale = pickOfflineFallbackLocale(request);
+  const message = OFFLINE_FALLBACK_MESSAGES[locale] || OFFLINE_FALLBACK_MESSAGES.en;
+  const html = OFFLINE_FALLBACK_TEMPLATE
+    .replace('__LANG__', locale)
+    .replace('__LOGO__', OFFLINE_FALLBACK_LOGO)
+    .replace('__MESSAGE__', escapeHtml(message));
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=UTF-8', 'Cache-Control': 'no-store' },
+  });
 }
 
 async function connectorNavigation(request) {
@@ -224,6 +246,9 @@ function pwaServiceWorkerPlugin(isDemo: boolean): Plugin {
         if (output.type !== 'chunk' && output.type !== 'asset') continue;
         if (fileName === 'sw.js' || fileName === 'robots.txt') continue;
         if (fileName.endsWith('.map')) continue;
+        // 语言包不进预缓存：页面只取当前语言，预缓存 9 份会让首访后台白下 ~900 KB。
+        // 用到的那些由页面的正常请求写进 runtime 缓存（cacheFirst），离线能力不受影响。
+        if (/^assets\/i18n-[^/]+\.js$/.test(fileName)) continue;
         buildUrls.add(`/${fileName}`);
       }
 

@@ -1147,6 +1147,7 @@ const ru: Record<string, string> = {
   "txt_offline_mode_notice_title": "Вы в автономном режиме. Если это ошибка, выполните принудительное обновление.",
   "txt_offline_mode_notice_windows": "Windows:",
   "txt_offline_mode_notice_macos": "macOS:",
+  "txt_pwa_offline_fallback": "Офлайн-кеш на этом устройстве не готов. Откройте NodeWarden один раз с подключением к сети, затем повторите попытку офлайн.",
   "txt_submit": "Отправить",
   "txt_sync": "Синхронизировать",
   "txt_sync_vault": "Синхронизировать хранилище",

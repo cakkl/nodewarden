@@ -83,6 +83,7 @@ import { APP_NOTIFY_EVENT, type AppNotifyDetail } from '@/lib/app-notify';
 import { dispatchBackupProgress, type BackupProgressDetail } from '@/lib/backup-restore-progress';
 import { clearOfflineUnlockRecord } from '@/lib/offline-auth';
 import { clearPasswordSecurityCache } from '@/lib/password-security-cache';
+import { scheduleOfflineLocalePrefetch } from '@/lib/pwa';
 import {
   DIRECT_ALIASES,
   IMPORT_EXPORT_ROUTE_ALIASES,
@@ -1504,6 +1505,13 @@ export default function App() {
     if (phase !== 'app' || !vaultInitialDecryptDone) return;
     void preloadAuthenticatedWorkspace(isAdmin);
   }, [phase, vaultInitialDecryptDone, isAdmin]);
+
+  // 登录就绪后（用户已经能用应用）再空闲补取语言包，见 lib/pwa.ts 的说明。
+  useEffect(() => {
+    if (IS_DEMO_MODE) return;
+    if (phase !== 'app' || !vaultInitialDecryptDone) return;
+    scheduleOfflineLocalePrefetch();
+  }, [phase, vaultInitialDecryptDone]);
 
   useEffect(() => {
     if (IS_DEMO_MODE) return;

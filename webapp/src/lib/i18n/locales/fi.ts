@@ -1147,6 +1147,7 @@ const fi: Record<string, string> = {
   "txt_offline_mode_notice_title": "Olet offline-tilassa. Jos tämä vaikuttaa virheeltä, tee pakotettu päivitys.",
   "txt_offline_mode_notice_windows": "Windows:",
   "txt_offline_mode_notice_macos": "macOS:",
+  "txt_pwa_offline_fallback": "Tämän laitteen offline-välimuisti ei ole valmis. Avaa NodeWarden kerran verkkoyhteydellä ja yritä sitten uudelleen offline-tilassa.",
   "txt_submit": "Lähetä",
   "txt_sync": "Synkronoi",
   "txt_sync_vault": "Synkronoi holvi",

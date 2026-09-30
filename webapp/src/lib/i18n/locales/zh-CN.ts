@@ -1147,6 +1147,7 @@ const zhCN: Record<string, string> = {
   "txt_offline_mode_notice_title": "您正处于离线模式，若误判请强制刷新",
   "txt_offline_mode_notice_windows": "Windows：",
   "txt_offline_mode_notice_macos": "macOS：",
+  "txt_pwa_offline_fallback": "本设备的离线缓存尚未就绪。请先联网打开一次 NodeWarden，再尝试离线访问。",
   "txt_submit": "提交",
   "txt_sync": "同步",
   "txt_sync_vault": "同步",
