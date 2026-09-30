@@ -124,23 +124,21 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
           title: t('txt_change_master_password'),
           message: t('txt_change_password_confirm_and_sign_out_all_devices'),
           danger: true,
-          onConfirm: () => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                await changeMasterPassword(authedFetch, {
-                  email: profile.email,
-                  currentPassword,
-                  newPassword: nextPassword,
-                  currentIterations: defaultKdfIterations,
-                  profileKey: profile.key,
-                });
-                onNotify('success', t('txt_master_password_changed_signing_out_everywhere'));
-                onLogoutNow();
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_change_password_failed'));
-              }
-            })();
+          onConfirm: async () => {
+            try {
+              await changeMasterPassword(authedFetch, {
+                email: profile.email,
+                currentPassword,
+                newPassword: nextPassword,
+                currentIterations: defaultKdfIterations,
+                profileKey: profile.key,
+              });
+              onSetConfirm(null);
+              onNotify('success', t('txt_master_password_changed_signing_out_everywhere'));
+              onLogoutNow();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_change_password_failed'));
+            }
           },
         });
       },
@@ -477,17 +475,15 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
           title: t('txt_revoke_device_authorization'),
           message: t('txt_revoke_30_day_totp_trust_for_name', { name: device.name }),
           danger: true,
-          onConfirm: () => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                await revokeAuthorizedDeviceTrust(authedFetch, device.identifier);
-                await refetchAuthorizedDevices();
-                onNotify('success', t('txt_device_authorization_revoked'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_revoke_device_trust_failed'));
-              }
-            })();
+          onConfirm: async () => {
+            try {
+              await revokeAuthorizedDeviceTrust(authedFetch, device.identifier);
+              onSetConfirm(null);
+              onNotify('success', t('txt_device_authorization_revoked'));
+              await refetchAuthorizedDevices();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_revoke_device_trust_failed'));
+            }
           },
         });
       },
@@ -497,17 +493,15 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
           title: t('txt_trust_device_permanently'),
           message: t('txt_trust_device_permanently_for_name', { name: device.name }),
           danger: false,
-          onConfirm: () => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                await trustAuthorizedDevicePermanently(authedFetch, device.identifier);
-                await refetchAuthorizedDevices();
-                onNotify('success', t('txt_device_trusted_permanently'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_trust_device_permanently_failed'));
-              }
-            })();
+          onConfirm: async () => {
+            try {
+              await trustAuthorizedDevicePermanently(authedFetch, device.identifier);
+              onSetConfirm(null);
+              onNotify('success', t('txt_device_trusted_permanently'));
+              await refetchAuthorizedDevices();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_trust_device_permanently_failed'));
+            }
           },
         });
       },
@@ -517,22 +511,19 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
           title: t('txt_remove_device'),
           message: t('txt_remove_device_and_sign_out_name', { name: device.name }),
           danger: true,
-          onConfirm: () => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                await deleteAuthorizedDevice(authedFetch, device.identifier);
-                if (device.identifier === getCurrentDeviceIdentifier()) {
-                  onNotify('success', t('txt_device_removed'));
-                  onLogoutNow();
-                  return;
-                }
-                await refetchAuthorizedDevices();
-                onNotify('success', t('txt_device_removed'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_remove_device_failed'));
+          onConfirm: async () => {
+            try {
+              await deleteAuthorizedDevice(authedFetch, device.identifier);
+              onSetConfirm(null);
+              onNotify('success', t('txt_device_removed'));
+              if (device.identifier === getCurrentDeviceIdentifier()) {
+                onLogoutNow();
+                return;
               }
-            })();
+              await refetchAuthorizedDevices();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_remove_device_failed'));
+            }
           },
         });
       },
@@ -550,21 +541,19 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
             ? t('txt_remove_selected_devices_and_sign_out_current', { count: selectedDevices.length })
             : t('txt_remove_selected_devices_confirm', { count: selectedDevices.length }),
           danger: true,
-          onConfirm: () => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                await deleteAuthorizedDevices(authedFetch, selectedDevices);
-                onNotify('success', t('txt_selected_devices_removed', { count: selectedDevices.length }));
-                if (includesCurrentDevice) {
-                  onLogoutNow();
-                  return;
-                }
-                await refetchAuthorizedDevices();
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_remove_selected_devices_failed'));
+          onConfirm: async () => {
+            try {
+              await deleteAuthorizedDevices(authedFetch, selectedDevices);
+              onSetConfirm(null);
+              onNotify('success', t('txt_selected_devices_removed', { count: selectedDevices.length }));
+              if (includesCurrentDevice) {
+                onLogoutNow();
+                return;
               }
-            })();
+              await refetchAuthorizedDevices();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_remove_selected_devices_failed'));
+            }
           },
         });
       },
@@ -574,17 +563,15 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
           title: t('txt_revoke_all_trusted_devices'),
           message: t('txt_revoke_30_day_totp_trust_from_all_devices'),
           danger: true,
-          onConfirm: () => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                await revokeAllAuthorizedDeviceTrust(authedFetch);
-                await refetchAuthorizedDevices();
-                onNotify('success', t('txt_all_device_authorizations_revoked'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_revoke_all_device_trust_failed'));
-              }
-            })();
+          onConfirm: async () => {
+            try {
+              await revokeAllAuthorizedDeviceTrust(authedFetch);
+              onSetConfirm(null);
+              onNotify('success', t('txt_all_device_authorizations_revoked'));
+              await refetchAuthorizedDevices();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_revoke_all_device_trust_failed'));
+            }
           },
         });
       },
@@ -595,21 +582,19 @@ export default function useAccountSecurityActions(options: UseAccountSecurityAct
           message: `${t('txt_remove_all_devices_and_sign_out_all_sessions')}\n${t('txt_enter_master_password_to_continue')}`,
           danger: true,
           requireMasterPassword: true,
-          onConfirm: (masterPassword) => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                if (!profile) throw new Error(t('txt_profile_unavailable'));
-                const normalizedPassword = String(masterPassword || '');
-                if (!normalizedPassword.trim()) throw new Error(t('txt_master_password_is_required'));
-                const derived = await deriveLoginHash(profile.email, normalizedPassword, defaultKdfIterations);
-                await deleteAllAuthorizedDevices(authedFetch, derived.hash);
-                onNotify('success', t('txt_all_devices_removed'));
-                onLogoutNow();
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_remove_all_devices_failed'));
-              }
-            })();
+          onConfirm: async (masterPassword) => {
+            try {
+              if (!profile) throw new Error(t('txt_profile_unavailable'));
+              const normalizedPassword = String(masterPassword || '');
+              if (!normalizedPassword.trim()) throw new Error(t('txt_master_password_is_required'));
+              const derived = await deriveLoginHash(profile.email, normalizedPassword, defaultKdfIterations);
+              await deleteAllAuthorizedDevices(authedFetch, derived.hash);
+              onSetConfirm(null);
+              onNotify('success', t('txt_all_devices_removed'));
+              onLogoutNow();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_remove_all_devices_failed'));
+            }
           },
         });
       },
