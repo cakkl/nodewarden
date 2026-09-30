@@ -381,6 +381,7 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
                 onSubmitEmailVerificationCode={props.onSubmitEmailVerificationCode}
                 onLoadMailSettings={props.onLoadMailSettings}
                 mailDeliveryAvailable={props.mailDeliveryAvailable}
+                mailDeliveryUnavailable={props.mailDeliveryUnavailable}
                 onSaveMailSettings={props.onSaveMailSettings}
                 onSendTestMail={props.onSendTestMail}
                 mailPreferences={props.mailPreferences}

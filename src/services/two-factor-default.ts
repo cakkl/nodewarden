@@ -24,12 +24,17 @@ export const TWO_FACTOR_PROVIDER_PREFERENCE_ORDER: readonly number[] = [
 /**
  * 该用户**已配置**的提供程序（按规范顺序）。
  *
- * 刻意不含「服务端此刻能否发信」这类临时状态：邮件服务短暂不可用时，不该把用户的默认值
- * 悄悄改掉（那会让偏好随基础设施抖动而漂移）。
+ * `mailUsable` = 服务端此刻真能发信（`isMailDeliveryAvailable`）。发不出去时邮箱 2FA 整个不计：
+ * 它开不了、码发不出来，登录挑战里本来也不列它（`identity.ts`）—— 继续算「已配置」只会让默认值与
+ * 设置页指向一个不存在的选项。这只是**读路径**的取舍：库里的开关是偏好，不因邮件故障改写。
  */
-export async function listConfiguredTwoFactorProviders(storage: StorageService, user: User): Promise<number[]> {
+export async function listConfiguredTwoFactorProviders(
+  storage: StorageService,
+  user: User,
+  mailUsable = true
+): Promise<number[]> {
   const configured = new Set<number>();
-  if (user.twoFactorEmailEnabled === true) configured.add(TWO_FACTOR_PROVIDER_EMAIL);
+  if (user.twoFactorEmailEnabled === true && mailUsable) configured.add(TWO_FACTOR_PROVIDER_EMAIL);
   if (isTotpEnabled(user.totpSecret)) configured.add(TWO_FACTOR_PROVIDER_AUTHENTICATOR);
   if (isYubiKeyEnabled(user)) configured.add(TWO_FACTOR_PROVIDER_YUBIKEY);
   const credentials = await storage.getAccountPasskeyCredentialsByUserId(user.id, 'twoFactor');
@@ -37,23 +42,33 @@ export async function listConfiguredTwoFactorProviders(storage: StorageService, 
   return TWO_FACTOR_PROVIDER_PREFERENCE_ORDER.filter((provider) => configured.has(provider));
 }
 
-/** 读取时应采用的默认提供程序：存的值仍可用就用它，否则用第一个仍可用的。 */
-export async function resolveDefaultTwoFactorProvider(storage: StorageService, user: User): Promise<number | null> {
-  const configured = await listConfiguredTwoFactorProviders(storage, user);
+/**
+ * 读取时应采用的默认提供程序：存的值仍可用就用它，否则用第一个仍可用的
+ *（邮件发不出去时邮箱 2FA 不可用 ⇒ 自动顺位到下一个）。
+ */
+export async function resolveDefaultTwoFactorProvider(
+  storage: StorageService,
+  user: User,
+  mailUsable = true
+): Promise<number | null> {
+  const configured = await listConfiguredTwoFactorProviders(storage, user, mailUsable);
   const stored = user.defaultTwoFactorProvider ?? null;
   return stored != null && configured.includes(stored) ? stored : configured[0] ?? null;
 }
 
 /**
- * 写入路径的维护：让库里的默认值跟上「可用提供程序」的变化，并返回最终值。
+ * 写入路径的维护：让库里的默认值跟上「用户自己改动了哪些提供程序」，并返回最终值。
  * 幂等 —— 解析结果与已存值相同时不写库。
+ *
+ * ⚠️ 刻意按「邮件可用」解析（`mailUsable = true`）：库里的值只表达**用户偏好**，不该因为邮件服务
+ * 暂时发不出去而漂移（关闭期间读路径自会顺位；恢复后偏好自动生效）。
  */
 export async function reconcileDefaultTwoFactorProvider(
   db: D1Database,
   storage: StorageService,
   user: User
 ): Promise<number | null> {
-  const resolved = await resolveDefaultTwoFactorProvider(storage, user);
+  const resolved = await resolveDefaultTwoFactorProvider(storage, user, true);
   if (resolved !== (user.defaultTwoFactorProvider ?? null)) {
     await setDefaultTwoFactorProvider(db, user.id, resolved);
     user.defaultTwoFactorProvider = resolved;

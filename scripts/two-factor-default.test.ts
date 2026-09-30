@@ -12,6 +12,7 @@ import {
   handlePutTwoFactorDefaultProvider,
 } from '../src/handlers/accounts';
 import { StorageService } from '../src/services/storage';
+import { saveMailSettings } from '../src/services/mail-settings';
 import { getUserById, saveUserPreferences } from '../src/services/storage-user-repo';
 import {
   TWO_FACTOR_PROVIDER_AUTHENTICATOR,
@@ -36,6 +37,9 @@ async function setup() {
   const user = await getUserById(handle.db, USER_ID);
   assert.ok(user, '测试用户应能被读出');
   const env = { DB: handle.db, JWT_SECRET: TEST_JWT_SECRET } as unknown as Env;
+  // 默认把邮件配好（能发信）：端点按「能否发信」决定邮箱 2FA 算不算数，不配的话
+  // 「已配置项」永远少一个邮箱 ⇒ 测不出真正的问题。邮件发不出去的情形由 setMailEnabled(false) 覆盖。
+  await setMailEnabled(env, true);
   return { handle, storage, env, user };
 }
 
@@ -76,6 +80,19 @@ function readStoredDefault(handle: Awaited<ReturnType<typeof createSchemaDatabas
     .prepare('SELECT two_factor_default_provider AS value FROM users WHERE id = ?')
     .get(USER_ID) as { value: number | null } | undefined;
   return row?.value ?? null;
+}
+
+/** 配好 SMTP 参数、只切发送开关：`false` 等价于「发不出信」（管理员关掉，或该部署从未配好）。 */
+async function setMailEnabled(env: Env, enabled: boolean): Promise<void> {
+  await saveMailSettings(env.DB, env, {
+    enabled,
+    host: 'smtp.test',
+    port: 587,
+    encryption: 'starttls',
+    username: '',
+    fromAddress: 'noreply@example.test',
+    fromName: 'NodeWarden',
+  });
 }
 
 // ─────────────────────── 已配置项与默认值解析 ───────────────────────
@@ -252,4 +269,74 @@ test('源码护栏：登录挑战必须按默认值排序（identity.ts）', asy
     /TwoFactorProviders: providers,/,
     '不能把未排序的 providers 直接塞进响应（会丢掉默认方式）'
   );
+});
+
+// ───────────── 邮件发不出去 ⇒ 邮箱 2FA 整体下线 ─────────────
+// 邮件不可用时邮箱 2FA 既开不了也发不出码，登录挑战里本来就不列它（`identity.ts`）⇒ 它不该再算「已配置」，
+// 否则默认值与设置页会指向一个不存在的选项。但库里的开关是**用户偏好**：读路径回退即可，不因邮件故障改写。
+
+test('邮件不可用：邮箱不再算「已配置」，默认值顺位到下一个仍可用项', async () => {
+  const { handle, storage, env } = await setup();
+  await withState(handle, { email: true, totpSecret: 'JBSWY3DPEHPK3PXP' });
+  handle.connection
+    .prepare('UPDATE users SET two_factor_default_provider = ? WHERE id = ?')
+    .run(TWO_FACTOR_PROVIDER_EMAIL, USER_ID);
+  const user = await getUserById(handle.db, USER_ID);
+
+  // 对照：邮件能发时邮箱仍是已配置项（防止本条因为「邮箱压根没启用」而假绿）
+  assert.deepEqual(
+    await listConfiguredTwoFactorProviders(storage, user!, true),
+    [TWO_FACTOR_PROVIDER_EMAIL, TWO_FACTOR_PROVIDER_AUTHENTICATOR]
+  );
+
+  await setMailEnabled(env, false);
+  assert.deepEqual(
+    await listConfiguredTwoFactorProviders(storage, user!, false),
+    [TWO_FACTOR_PROVIDER_AUTHENTICATOR],
+    '邮件发不出去时邮箱不该再算已配置'
+  );
+  assert.equal(
+    await resolveDefaultTwoFactorProvider(storage, user!, false),
+    TWO_FACTOR_PROVIDER_AUTHENTICATOR,
+    '默认值必须顺位到下一个（否则登录时首选一个挑战里不存在的项）'
+  );
+});
+
+test('邮件不可用：状态端点顺位，且不能再把邮箱设为默认', async () => {
+  const { handle, env } = await setup();
+  await withState(handle, { email: true, totpSecret: 'JBSWY3DPEHPK3PXP' });
+  handle.connection
+    .prepare('UPDATE users SET two_factor_default_provider = ? WHERE id = ?')
+    .run(TWO_FACTOR_PROVIDER_EMAIL, USER_ID);
+  await setMailEnabled(env, false);
+
+  const status = await handleGetTwoFactorProviders(new Request('https://vault.example/api/two-factor'), env, USER_ID);
+  const body = (await status.json()) as Record<string, unknown>;
+  assert.equal(body.DefaultProvider, TWO_FACTOR_PROVIDER_AUTHENTICATOR, '设置页要看到真正生效的默认项');
+
+  const rejected = await handlePutTwoFactorDefaultProvider(
+    new Request('https://vault.example/api/accounts/two-factor/default-provider', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providerType: TWO_FACTOR_PROVIDER_EMAIL }),
+    }),
+    env,
+    USER_ID
+  );
+  assert.equal(rejected.status, 400, '邮件发不出去时不能把邮箱设为默认');
+  assert.equal(readStoredDefault(handle), TWO_FACTOR_PROVIDER_EMAIL, '拒绝时不能顺手改库');
+});
+
+test('邮件不可用：不改写库里的偏好（一次邮件故障不该抹掉用户的选择）', async () => {
+  const { handle, storage, env } = await setup();
+  const user = await withState(handle, { email: true });
+  await reconcileDefaultTwoFactorProvider(handle.db, storage, user);
+  await setMailEnabled(env, false);
+
+  assert.equal(
+    await reconcileDefaultTwoFactorProvider(handle.db, storage, user),
+    TWO_FACTOR_PROVIDER_EMAIL,
+    '写入路径刻意不看邮件开关：偏好只在用户自己改动时才变'
+  );
+  assert.equal(readStoredDefault(handle), TWO_FACTOR_PROVIDER_EMAIL);
 });
