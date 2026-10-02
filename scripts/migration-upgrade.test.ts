@@ -16,6 +16,7 @@ import test from 'node:test';
 import { ensureStorageSchema, SCHEMA_STATEMENTS } from '../src/services/storage-schema';
 import { StorageService } from '../src/services/storage';
 import { createD1SqliteDatabase } from './lib/d1-sqlite';
+import { recordQueries } from './lib/sql-recorder';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 const SCHEMA_SQL = readFileSync(path.join(REPO_ROOT, 'migrations', '0001_init.sql'), 'utf8');
@@ -374,6 +375,48 @@ test('无管理员时 bootstrap 会把最早注册的用户提权，并写入审
   assert.equal(audit[0].category, 'security');
   assert.equal(audit[0].level, 'security');
   assert.equal(String(audit[0].metadata), '{"reason":"no_admin_present"}');
+
+  handle.close();
+});
+
+test('initializeDatabase：必需表被删仍会重建（换检查方式后语义不能丢）', async () => {
+  const handle = freshDatabase();
+  seedRows(handle.connection);
+
+  resetSchemaVerifiedFlag();
+  await expectNoOutboundFetch(() => new StorageService(handle.db).initializeDatabase());
+  assert.ok(tableExists(handle.connection, 'new_device_otps'), '前置条件：必需表应已被建出');
+
+  handle.connection.exec('DROP TABLE new_device_otps');
+  resetSchemaVerifiedFlag();
+  await expectNoOutboundFetch(() => new StorageService(handle.db).initializeDatabase());
+
+  assert.ok(
+    tableExists(handle.connection, 'new_device_otps'),
+    '必需表缺失时必须重建 —— 否则运行期会因缺表报错，而版本号一致会让它一直不被修'
+  );
+  handle.close();
+});
+
+test('initializeDatabase：稳态下不得扫描 sqlite_master（防每次冷启动白读 82-88 行）', async () => {
+  const handle = freshDatabase();
+  seedRows(handle.connection);
+
+  // 先跑一次把 schema.version 写上 —— 后续调用才是线上「稳态冷启动」走的那条分支
+  resetSchemaVerifiedFlag();
+  await expectNoOutboundFetch(() => new StorageService(handle.db).initializeDatabase());
+
+  const recorder = recordQueries(handle.db);
+  resetSchemaVerifiedFlag();
+  await expectNoOutboundFetch(() => new StorageService(recorder.db).initializeDatabase());
+
+  const scanned = recorder.queries.filter((sql) => /sqlite_master/i.test(sql));
+  assert.deepStrictEqual(
+    scanned,
+    [],
+    'sqlite_master 无 `name` 索引 ⇒ 查它必然全表扫（线上 88 个对象、每次冷启动白读 82-88 行）；' +
+      `应改用 PRAGMA table_info（rows_read 恒为 0）。实际发出：${JSON.stringify(scanned)}`
+  );
 
   handle.close();
 });
