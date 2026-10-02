@@ -15,6 +15,8 @@ import {
 } from '@/lib/two-factor-providers';
 import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
 import { AVAILABLE_LOCALES, detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import { buildLocaleOptions } from '@/lib/locale-options';
+import { buildTimezoneGroups } from '@/lib/timezone-options';
 import { useDateTimeFormat } from '@/lib/datetime';
 import { detectBrowserTimeZone } from '@/lib/datetime';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -363,11 +365,17 @@ export default function SettingsPage(props: SettingsPageProps) {
   }
 
   /**
-   * 「自动」档在下拉里显示**实际生效值**（如「自动（简体中文）」），而不是「按浏览器」字样：
-   * 用户要看的是现在到底用的是什么。服务端还没有值时用本机检测值兜底。
+   * 「自动」档括号里放**探测出的语言**（「自动（简体中文）」），与当前手动选的语言无关 ——
+   * 用户要知道的是「选自动会变成哪种语言」。括号里的名字走 `localeLabel()`，始终是语言自己的写法。
    */
-  const autoLocaleValue = props.mailPreferences?.locale ?? detectBrowserLocale();
-  const autoTimezoneValue = props.mailPreferences?.timezone ?? detectBrowserTimeZone();
+  const detectedLocale = detectBrowserLocale();
+  /** 时区同理：「自动」括号里是本机探测到的时区，与手动选的无关 */
+  const detectedTimezone = detectBrowserTimeZone();
+  /** 418 项算偏移要 ~40 ms ⇒ 必须缓存（分组/顺序/文本见 `timezone-options.ts`） */
+  const timezoneSelectGroups = useMemo(
+    () => buildTimezoneGroups(timezoneOptions, detectedTimezone),
+    [timezoneOptions, detectedTimezone]
+  );
 
   /**
    * 表单被改动 ⇒ 之前的测试结果作废，保存重新变为不可用。
@@ -664,8 +672,8 @@ export default function SettingsPage(props: SettingsPageProps) {
       auto ? { locale: effective, localeAuto: true } : { locale: effective, localeAuto: false }
     );
     if (effective !== getLocale()) {
+      // 热切换：`setLocale` 会通知订阅者重渲染 ⇒ 不整页重载，也就不需要重新解锁密码库。
       await setLocale(effective);
-      window.location.reload();
     }
   }
 
@@ -992,9 +1000,9 @@ export default function SettingsPage(props: SettingsPageProps) {
                       onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale | typeof AUTO_OPTION)}
                     >
                       <option value={AUTO_OPTION}>
-                        {t('txt_preferences_auto', { value: localeLabel(autoLocaleValue) })}
+                        {t('txt_preferences_auto', { value: localeLabel(detectedLocale) })}
                       </option>
-                      {AVAILABLE_LOCALES.map((option) => (
+                      {buildLocaleOptions(detectedLocale).map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -1011,12 +1019,21 @@ export default function SettingsPage(props: SettingsPageProps) {
                         onInput={(e) => void changeTimezone((e.currentTarget as HTMLSelectElement).value)}
                       >
                         <option value={AUTO_OPTION}>
-                          {t('txt_preferences_auto', { value: autoTimezoneValue })}
+                          {t('txt_preferences_auto', { value: detectedTimezone })}
                         </option>
-                        {timezoneOptions.map((zone) => (
-                          <option key={zone} value={zone}>
-                            {zone}
+                        {timezoneSelectGroups.detectedOption && (
+                          <option value={timezoneSelectGroups.detectedOption.value}>
+                            {timezoneSelectGroups.detectedOption.label}
                           </option>
+                        )}
+                        {timezoneSelectGroups.groups.map((group) => (
+                          <optgroup key={group.region} label={group.region}>
+                            {group.options.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </optgroup>
                         ))}
                       </select>
                       <div className="field-help">{t('txt_timezone_help')}</div>

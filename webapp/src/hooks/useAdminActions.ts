@@ -50,18 +50,16 @@ export default function useAdminActions(options: UseAdminActionsOptions) {
           title: t('txt_create_timed_invite'),
           message: t('txt_enter_master_password_to_continue'),
           requireMasterPassword: true,
-          onConfirm: (masterPassword) => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                const hash = await withMasterPasswordHash(masterPassword);
-                await createInvite(authedFetch, hours, hash);
-                await refetchInvites();
-                onNotify('success', t('txt_invite_created'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_create_invite_failed'));
-              }
-            })();
+          onConfirm: async (masterPassword) => {
+            try {
+              const hash = await withMasterPasswordHash(masterPassword);
+              await createInvite(authedFetch, hours, hash);
+              onSetConfirm(null);
+              onNotify('success', t('txt_invite_created'));
+              await refetchInvites();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_create_invite_failed'));
+            }
           },
         });
       },
@@ -73,18 +71,16 @@ export default function useAdminActions(options: UseAdminActionsOptions) {
           message: t('txt_enter_master_password_to_continue'),
           danger: nextStatus === 'banned',
           requireMasterPassword: true,
-          onConfirm: (masterPassword) => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                const hash = await withMasterPasswordHash(masterPassword);
-                await setUserStatus(authedFetch, userId, nextStatus, hash);
-                await refetchUsers();
-                onNotify('success', t('txt_user_status_updated'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_update_user_status_failed'));
-              }
-            })();
+          onConfirm: async (masterPassword) => {
+            try {
+              const hash = await withMasterPasswordHash(masterPassword);
+              await setUserStatus(authedFetch, userId, nextStatus, hash);
+              onSetConfirm(null);
+              onNotify('success', t('txt_user_status_updated'));
+              await refetchUsers();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_update_user_status_failed'));
+            }
           },
         });
       },
@@ -95,18 +91,16 @@ export default function useAdminActions(options: UseAdminActionsOptions) {
           message: `${t('txt_delete_invite_confirm_message')}\n${t('txt_enter_master_password_to_continue')}`,
           danger: true,
           requireMasterPassword: true,
-          onConfirm: (masterPassword) => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                const hash = await withMasterPasswordHash(masterPassword);
-                await deleteInvite(authedFetch, code, hash);
-                await refetchInvites();
-                onNotify('success', t('txt_invite_deleted'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_delete_invite_failed'));
-              }
-            })();
+          onConfirm: async (masterPassword) => {
+            try {
+              const hash = await withMasterPasswordHash(masterPassword);
+              await deleteInvite(authedFetch, code, hash);
+              onSetConfirm(null);
+              onNotify('success', t('txt_invite_deleted'));
+              await refetchInvites();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_delete_invite_failed'));
+            }
           },
         });
       },
@@ -117,18 +111,16 @@ export default function useAdminActions(options: UseAdminActionsOptions) {
           message: `${t('txt_delete_invalid_invites_confirm_message')}\n${t('txt_enter_master_password_to_continue')}`,
           danger: true,
           requireMasterPassword: true,
-          onConfirm: (masterPassword) => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                const hash = await withMasterPasswordHash(masterPassword);
-                await deleteInvalidInvites(authedFetch, hash);
-                await refetchInvites();
-                onNotify('success', t('txt_invalid_invites_deleted'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_delete_invalid_invites_failed'));
-              }
-            })();
+          onConfirm: async (masterPassword) => {
+            try {
+              const hash = await withMasterPasswordHash(masterPassword);
+              await deleteInvalidInvites(authedFetch, hash);
+              onSetConfirm(null);
+              onNotify('success', t('txt_invalid_invites_deleted'));
+              await refetchInvites();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_delete_invalid_invites_failed'));
+            }
           },
         });
       },
@@ -139,18 +131,16 @@ export default function useAdminActions(options: UseAdminActionsOptions) {
           message: `${t('txt_delete_all_invite_codes_active_inactive')}\n${t('txt_enter_master_password_to_continue')}`,
           danger: true,
           requireMasterPassword: true,
-          onConfirm: (masterPassword) => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                const hash = await withMasterPasswordHash(masterPassword);
-                await deleteAllInvites(authedFetch, hash);
-                await refetchInvites();
-                onNotify('success', t('txt_all_invites_deleted'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_delete_all_invites_failed'));
-              }
-            })();
+          onConfirm: async (masterPassword) => {
+            try {
+              const hash = await withMasterPasswordHash(masterPassword);
+              await deleteAllInvites(authedFetch, hash);
+              onSetConfirm(null);
+              onNotify('success', t('txt_all_invites_deleted'));
+              await refetchInvites();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_delete_all_invites_failed'));
+            }
           },
         });
       },
@@ -161,18 +151,16 @@ export default function useAdminActions(options: UseAdminActionsOptions) {
           message: `${t('txt_delete_this_user_and_all_user_data')}\n${t('txt_enter_master_password_to_continue')}`,
           danger: true,
           requireMasterPassword: true,
-          onConfirm: (masterPassword) => {
-            onSetConfirm(null);
-            void (async () => {
-              try {
-                const hash = await withMasterPasswordHash(masterPassword);
-                await deleteUser(authedFetch, userId, hash);
-                await refetchUsers();
-                onNotify('success', t('txt_user_deleted'));
-              } catch (error) {
-                onNotify('error', error instanceof Error ? error.message : t('txt_delete_user_failed'));
-              }
-            })();
+          onConfirm: async (masterPassword) => {
+            try {
+              const hash = await withMasterPasswordHash(masterPassword);
+              await deleteUser(authedFetch, userId, hash);
+              onSetConfirm(null);
+              onNotify('success', t('txt_user_deleted'));
+              await refetchUsers();
+            } catch (error) {
+              onNotify('error', error instanceof Error ? error.message : t('txt_delete_user_failed'));
+            }
           },
         });
       },

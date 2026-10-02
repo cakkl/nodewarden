@@ -10,7 +10,12 @@ import {
   type NetworkStatus,
 } from '@/lib/network-status';
 
-const STATUS_CHECK_INTERVAL_MS = 30_000;
+/**
+ * 周期兜底的间隔。每次探针都是**一次完整 Worker 调用**（`cache: 'no-store'` + 唯一 query），
+ * 原为 30 秒 ⇒ 页面开着就是 120 次/小时。首屏、`online`、重新聚焦、重新可见各已探一次，
+ * 且真实 API 失败也会翻状态（`api/auth.ts` 的 `recordNodeWardenUnreachable`）⇒ 周期只做兜底。
+ */
+const STATUS_CHECK_INTERVAL_MS = 5 * 60_000;
 
 function statusLabel(status: NetworkStatus): string {
   if (status === 'online') return t('txt_online');
@@ -36,7 +41,9 @@ export default function NetworkStatusBadge() {
     const scheduleNextCheck = () => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        void checkService().finally(scheduleNextCheck);
+        // 后台标签不探（会被节流到约 1 次/分钟，白烧调用）；重新可见时由下面的 visibilitychange 补一次。
+        const pending = document.visibilityState === 'visible' ? checkService() : Promise.resolve();
+        void pending.finally(scheduleNextCheck);
       }, STATUS_CHECK_INTERVAL_MS);
     };
 

@@ -208,26 +208,32 @@ test('设置页：「刷新状态」同时刷新提供程序、邮件两步登�
   assert.match(source, /onClick=\{\(\) => void refreshTwoFactorStatus\(\)\}/, '按钮必须仍然调用该处理函数');
 });
 
-// 设置页首帧必须就是对的：这两份状态由 App 的启动查询提供，不能再「进区才拉」——
-// 那会让徽标 / 开关 / 按钮在加载完成后突然冒出来（并带布局跳动）。
-test('设置页状态来自启动查询，且不再在进入分区时拉取', () => {
+// 设置页首帧不能显示**错误**状态：邮箱验证状态随 profile 一起来（不再是独立请求）；
+// 邮件配置查询按**路由**门控（`/settings*` 才拉，省掉管理员每次启动的一次请求），
+// 但**不许**再挂到内层分区上 —— 那是"点了邮件页签才开始拉"。
+// 路由门控之所以安全：设置页在数据未到时渲染 `null`（而不是「未配置」），只是晚一个 RTT 出现。
+test('设置页状态来自启动查询 / 路由门控，且不再在进入分区时拉取', () => {
   const app = readSource('webapp/src/App.tsx');
   assert.match(
     app,
-    /const emailVerificationQuery = useQuery\(\{[\s\S]{0,400}?vaultInitialDecryptDone,/,
-    'App 必须在应用就绪时就拉邮箱验证状态'
+    /emailVerification: profileQuery\.data\?\.emailVerification \?\? null/,
+    '邮箱验证状态要随启动时的 profile 查询一起来（退回「进分区才拉」照样会闪）'
   );
   assert.match(
     app,
-    /const mailSettingsQuery = useQuery\(\{[\s\S]{0,400}?isAdmin && vaultInitialDecryptDone,/,
-    '邮件配置查询必须只对管理员启用（那是管理员端点）'
+    /const mailSettingsQuery = useQuery\(\{[\s\S]{0,520}?isAdmin && vaultInitialDecryptDone && location\.startsWith\(ROUTES\.settings\),/,
+    '邮件配置查询必须只对管理员启用（那是管理员端点），且只按路由门控'
   );
-  assert.match(app, /emailVerification: emailVerificationQuery\.data \?\? null/, '查询结果要传给设置页');
   assert.match(app, /mailSettings: mailSettingsQuery\.data \?\? null/, '查询结果要传给设置页');
 
   const settings = readSource('webapp/src/components/SettingsPage.tsx');
   assert.doesNotMatch(settings, /activeSection !== 'account'/, '邮箱验证状态不能再挂在「进账户区」上');
   assert.doesNotMatch(settings, /activeSection !== 'mail'/, '邮件配置不能再挂在「进邮件区」上');
+  assert.match(
+    settings,
+    /mailSettings === null \? null :/,
+    '数据未到时必须渲染 null —— 否则会先闪一下「未配置」（这正是路由门控的前提）'
+  );
   assert.match(settings, /if \(props\.emailVerification\) setEmailVerification\(props\.emailVerification\)/, '启动查询结果要同步进本地状态');
   assert.match(settings, /if \(props\.mailSettings\) applyMailSettings\(props\.mailSettings\)/, '启动查询结果要灌进邮件表单');
 });

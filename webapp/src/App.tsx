@@ -41,7 +41,7 @@ import {
 import { clearAuditLogs, getAuditLogSettings, listAdminInvites, listAdminUsers, listAuditLogs, saveAuditLogSettings, type AuditLogFilters } from '@/lib/api/admin';
 import { getDomainRules, saveDomainRules } from '@/lib/api/domains';
 import { getSendById, getSends } from '@/lib/api/send';
-import { getCipherById, getFolderById, repairCipherKeyMismatches, repairCipherUriChecksums } from '@/lib/api/vault';
+import { getCipherById, getFolderById, repairCipherKeyMismatches, repairCipherUriChecksums } from '@/lib/api/vault-lazy';
 import { getCachedVaultCoreSnapshot, invalidateVaultCoreSyncSnapshot, loadVaultCoreSyncSnapshot, saveVaultCoreSyncSnapshot } from '@/lib/api/vault-sync';
 import { silentlyRepairBackupSettingsIfNeeded } from '@/lib/backup-settings-repair';
 import {
@@ -73,6 +73,7 @@ import useAdminActions from '@/hooks/useAdminActions';
 import useAdminMailActions from '@/hooks/useAdminMailActions';
 import useBackupActions from '@/hooks/useBackupActions';
 import { RESEND_COOLDOWN_SECONDS, useResendCountdown } from '@/hooks/useResendCountdown';
+import useI18nRevision from '@/hooks/useI18nRevision';
 import useVaultSendActions from '@/hooks/useVaultSendActions';
 import { useToastManager } from '@/hooks/useToastManager';
 import { detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
@@ -83,6 +84,7 @@ import { APP_NOTIFY_EVENT, type AppNotifyDetail } from '@/lib/app-notify';
 import { dispatchBackupProgress, type BackupProgressDetail } from '@/lib/backup-restore-progress';
 import { clearOfflineUnlockRecord } from '@/lib/offline-auth';
 import { clearPasswordSecurityCache } from '@/lib/password-security-cache';
+import { scheduleOfflineLocalePrefetch } from '@/lib/pwa';
 import {
   DIRECT_ALIASES,
   IMPORT_EXPORT_ROUTE_ALIASES,
@@ -152,6 +154,20 @@ const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
  */
 const NOTIFICATION_RECONNECT_STABLE_MS = 30_000;
 
+/**
+ * `profile` 查询的 key（`profile.id` 优先、回落邮箱，与 `vaultCacheKey` 同口径）。
+ * 抽成函数：解锁回填也要往同一个 key 写缓存，两处各写一遍必然漂。
+ */
+function profileCacheKey(
+  profileId: string | null | undefined,
+  email: string | null | undefined
+): readonly [string, string] {
+  return ['profile', String(profileId || email || '').trim()];
+}
+
+/** 已授权设备列表的 staleTime。 */
+const AUTHORIZED_DEVICES_STALE_MS = 30_000;
+
 type ThemePreference = 'system' | 'light' | 'dark';
 type LockTimeoutMinutes = 0 | 1 | 5 | 15 | 30;
 type SessionTimeoutAction = 'lock' | 'logout';
@@ -186,6 +202,9 @@ function readSessionTimeoutAction(): SessionTimeoutAction {
 }
 
 export default function App() {
+  // 语言热切换：`t()` 读的是模块级文案表，根组件订阅一次即可带动整棵树重渲染
+  // （`memo` 组件不跟着更新，用到 `t()` 的要自己订阅）。
+  useI18nRevision();
   const initialBootstrap = useMemo(
     () => (IS_DEMO_MODE ? createDemoInitialBootstrapState() : readInitialAppBootstrapState()),
     []
@@ -201,6 +220,11 @@ export default function App() {
   const [phase, setPhase] = useState<AppPhase>(initialBootstrap.phase);
   const [session, setSessionState] = useState<SessionState | null>(initialBootstrap.session);
   const [profile, setProfile] = useState<Profile | null>(initialProfileSnapshot);
+  /**
+   * 解锁回填（`login.profilePromise`）是否还在路上。落地前**不发** `profileQuery`，
+   * 否则两边请求同时飞出、同一份 profile 拉两次（实测相隔 6 ms、各 2,697 B）。
+   */
+  const [profileHydrationPending, setProfileHydrationPending] = useState(false);
   const [defaultKdfIterations, setDefaultKdfIterations] = useState(initialBootstrap.defaultKdfIterations);
   const [registrationInviteRequired, setRegistrationInviteRequired] = useState(initialBootstrap.registrationInviteRequired);
   const [jwtWarning, setJwtWarning] = useState<{ reason: JwtUnsafeReason; minLength: number } | null>(initialBootstrap.jwtWarning);
@@ -601,6 +625,7 @@ export default function App() {
     setProfile(login.profile);
     setUnlockPreparing(false);
     setLockedSessionRefreshError('');
+    setProfileHydrationPending(true);
     setPendingTotp(null);
     setPendingTotpMode(null);
     setPendingPasskeyPassword(null);
@@ -618,8 +643,13 @@ export default function App() {
         const hydratedProfile = await login.profilePromise;
         if (sessionRef.current?.accessToken !== login.session.accessToken) return;
         setProfile(hydratedProfile);
+        // 顺手写进缓存：不然 profileQuery 会把同一份 ~5 KB 再拉一遍。
+        queryClient.setQueryData(profileCacheKey(hydratedProfile.id, login.session.email), hydratedProfile);
       } catch {
-        // Keep the in-memory transient profile for the current session.
+        // 回填失败也放行，让 profileQuery 走常规路径（自带重试与错误提示）。
+      } finally {
+        // 必须放行：否则一次失败就把 profileQuery 永久关在门外了。
+        setProfileHydrationPending(false);
       }
     })();
   }
@@ -1298,9 +1328,9 @@ export default function App() {
     queryClient.setQueryData(sendsQueryKey, encryptedSendsFromSync);
   }, [queryClient, sendsQueryKey, encryptedSendsFromSync]);
   const profileQuery = useQuery({
-    queryKey: ['profile', vaultCacheKey || session?.email],
+    queryKey: profileCacheKey(profile?.id, session?.email),
     queryFn: () => getProfile(authedFetch),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken,
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && !profileHydrationPending,
     staleTime: 30_000,
   });
 
@@ -1352,20 +1382,26 @@ export default function App() {
   useEffect(() => {
     const serverLocale = mailPreferences?.locale;
     if (!serverLocale || serverLocale === getLocale()) return;
-    void setLocale(serverLocale as Locale).then(() => window.location.reload());
+    // 热切换即可（`setLocale` 会通知订阅者重渲染）；整页重载会要求重新解锁密码库。
+    void setLocale(serverLocale as Locale);
   }, [mailPreferences?.locale]);
 
   const isAdmin = isAdminProfile(profile);
+  /**
+   * 管理员数据只在对应页面才拉：消费方都是懒加载的页面组件，启动时（用户还在密码库）
+   * 提前拉只是白跑请求 + D1 查询。切到该页时查询自动启用，页面内的 staleTime 兼顾来回切不重拉。
+   */
+  const onAdminRoute = location === ROUTES.admin;
   const usersQuery = useQuery({
     queryKey: ['admin-users', vaultCacheKey],
     queryFn: () => listAdminUsers(authedFetch),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone,
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone && onAdminRoute,
     staleTime: 30_000,
   });
   const invitesQuery = useQuery({
     queryKey: ['admin-invites', vaultCacheKey],
     queryFn: () => listAdminInvites(authedFetch),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone,
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone && onAdminRoute,
     staleTime: 30_000,
   });
   const twoFactorStatusQuery = useQuery({
@@ -1378,9 +1414,8 @@ export default function App() {
     queryKey: ['authorized-devices', vaultCacheKey || session?.email],
     queryFn: () => getAuthorizedDevices(authedFetch),
     enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && vaultInitialDecryptDone,
-    staleTime: 30_000,
-  });
-  const domainRulesQueryKey = useMemo(() => ['domain-rules', vaultCacheKey || session?.email] as const, [vaultCacheKey, session?.email]);
+    staleTime: AUTHORIZED_DEVICES_STALE_MS,
+  });  const domainRulesQueryKey = useMemo(() => ['domain-rules', vaultCacheKey || session?.email] as const, [vaultCacheKey, session?.email]);
   const domainRulesQuery = useQuery({
     queryKey: domainRulesQueryKey,
     queryFn: () => getDomainRules(authedFetch),
@@ -1490,7 +1525,8 @@ export default function App() {
   useQuery({
     queryKey: ['admin-backup-settings', vaultCacheKey],
     queryFn: () => backupActions.loadSettings(),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone,
+    // 只是给备份页预热缓存（消费方是 `onLoadBackupSettings` 的 `ensureQueryData`）⇒ 进备份页再拉。
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone && location.startsWith(ROUTES.backup),
     staleTime: 30_000,
   });
 
@@ -1504,6 +1540,13 @@ export default function App() {
     if (phase !== 'app' || !vaultInitialDecryptDone) return;
     void preloadAuthenticatedWorkspace(isAdmin);
   }, [phase, vaultInitialDecryptDone, isAdmin]);
+
+  // 登录就绪后（用户已经能用应用）再空闲补取语言包，见 lib/pwa.ts 的说明。
+  useEffect(() => {
+    if (IS_DEMO_MODE) return;
+    if (phase !== 'app' || !vaultInitialDecryptDone) return;
+    scheduleOfflineLocalePrefetch();
+  }, [phase, vaultInitialDecryptDone]);
 
   useEffect(() => {
     if (IS_DEMO_MODE) return;
@@ -1930,6 +1973,10 @@ export default function App() {
         }
       };
 
+      // 只有**重连**才需要重新对齐设备列表：首次连接紧跟在启动查询之后（实测相隔 262 ms），
+      // 那时查询还在飞行中，无条件刷就是白跑一次（600 B + 3 次 D1 往返）。
+      let connectedOnce = false;
+
       socket.addEventListener('open', () => {
         // 只「连上」不算成功：稳定存活够久之后才清零退避。
         clearStableTimer();
@@ -1937,7 +1984,10 @@ export default function App() {
           stableTimer = null;
           reconnectAttempts = 0;
         }, NOTIFICATION_RECONNECT_STABLE_MS);
-        void refreshAuthorizedDevicesRef.current();
+        if (connectedOnce) {
+          void refreshAuthorizedDevicesRef.current();
+        }
+        connectedOnce = true;
         try {
           socket?.send(`{"protocol":"json","version":1}${SIGNALR_RECORD_SEPARATOR}`);
         } catch {
@@ -2146,19 +2196,14 @@ export default function App() {
     queryClient,
   });
 
-  // 设置页首帧要用到的两份状态：与其它启动查询同一门控，**应用就绪时就拉**。
+  // 设置页首帧要用到的状态：与其它启动查询同一门控，**应用就绪时就拉**。
   // 否则要等进到那个分区才请求 ⇒ 首帧缺元素 / 显示成「未配置」，并带布局跳动。
-  const emailVerificationQuery = useQuery({
-    queryKey: ['email-verification', vaultCacheKey || session?.email],
-    queryFn: () => getEmailVerificationStatus(authedFetch),
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && vaultInitialDecryptDone,
-    staleTime: 30_000,
-  });
+  // （邮箱验证状态已并进 profile ⇒ 不再是独立请求。）
   const mailSettingsQuery = useQuery({
     queryKey: ['admin-mail-settings', vaultCacheKey || session?.email],
     queryFn: () => adminMailActions.loadMailSettings(),
-    // 邮件设置是管理员端点：非管理员既看不到那个分区，也不该发这个请求
-    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone,
+    // 邮件设置是管理员端点（非管理员看不到那分区也不该请求），且只被设置页消费 ⇒ 进 `/settings*` 再拉。
+    enabled: !IS_DEMO_MODE && phase === 'app' && !!session?.accessToken && isAdmin && vaultInitialDecryptDone && location.startsWith(ROUTES.settings),
     staleTime: 30_000,
   });
 
@@ -2337,10 +2382,11 @@ export default function App() {
     onGetApiKey: accountSecurityActions.getApiKey,
     onRotateApiKey: accountSecurityActions.rotateApiKey,
     // 设置页的邮箱验证状态 / 邮件配置由启动查询提供：首帧即正确，进分区不再拉取
-    emailVerification: emailVerificationQuery.data ?? null,
+    emailVerification: profileQuery.data?.emailVerification ?? null,
     mailSettings: mailSettingsQuery.data ?? null,
     onRefreshEmailVerification: async () => {
-      await emailVerificationQuery.refetch();
+      // 重拉 profile（它的响应里带着邮箱验证状态），不再为它单开一个请求。
+      await profileQuery.refetch();
     },
     onMailSettingsSaved: (settings: MailSettings) => {
       queryClient.setQueryData(['admin-mail-settings', vaultCacheKey || session?.email], settings);

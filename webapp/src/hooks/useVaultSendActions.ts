@@ -49,7 +49,7 @@ import {
   updateFolder,
   unarchiveCipher,
   uploadCipherAttachment,
-} from '@/lib/api/vault';
+} from '@/lib/api/vault-lazy';
 import { deriveLoginHash, getPreloginKdfConfig, verifyMasterPassword } from '@/lib/api/auth';
 import type { AuthedFetch } from '@/lib/api/shared';
 import { downloadBytesAsFile } from '@/lib/download';

@@ -25,8 +25,16 @@ import {
   handleVerifyEmailCode,
 } from '../src/handlers/account-email-verification';
 import { getUserById } from '../src/services/storage-user-repo';
+import { handleGetProfile } from '../src/handlers/accounts';
+import { handleSync } from '../src/handlers/sync';
 import type { Env } from '../src/types';
+import { recordQueries } from './lib/sql-recorder';
 import { TEST_JWT_SECRET, createSchemaDatabase, insertUser } from './lib/test-harness';
+
+// sync 走 Cache API（`caches.default`）；测试环境没有这个全局对象。
+(globalThis as { caches?: unknown }).caches = {
+  default: { match: async () => undefined, put: async () => undefined },
+};
 
 const USER_ID = '8f1c2f60-2b54-4d3e-9c11-6a2f7b8d0e01';
 const USER_EMAIL = 'verify@example.test';
@@ -51,6 +59,56 @@ function post(path: string, body: unknown): Request {
 function get(path: string): Request {
   return new Request(`https://vault.example.test${path}`, { method: 'GET' });
 }
+
+// ---------------------------------------------------------------- profile 内联的验证状态
+
+test('profile 内联邮箱验证状态：与独立端点同值', async () => {
+  const { handle, user, env } = await setup();
+
+  const standalone = (await (
+    await handleGetEmailVerificationStatus(get('/api/accounts/email-verification'), env, user)
+  ).json()) as Record<string, unknown>;
+  const profile = (await (await handleGetProfile(get('/api/accounts/profile'), env, USER_ID)).json()) as {
+    emailVerification?: Record<string, unknown>;
+  };
+
+  assert.ok(profile.emailVerification, 'profile 必须带上 emailVerification（设置页首帧要用它）');
+  for (const key of ['available', 'verified', 'email', 'pendingExpiresAt']) {
+    assert.deepEqual(profile.emailVerification[key], standalone[key], `${key} 应与独立端点一致`);
+  }
+
+  handle.close();
+});
+
+test('profile 内联验证状态只多查一次库（mail 可用性复用同一次查询）', async () => {
+  const { handle, env } = await setup();
+  void env;
+
+  const recorder = recordQueries(handle.db);
+  const recorderEnv = { DB: recorder.db, JWT_SECRET: TEST_JWT_SECRET } as unknown as Env;
+  await handleGetProfile(get('/api/accounts/profile'), recorderEnv, USER_ID);
+
+  // getUserById + mail 可用性 + 待用码（拆成两个请求时是 2 + 2 次，且 mail 可用性查了两遍）。
+  assert.equal(recorder.roundTrips, 3, 'profile 应只查 3 次：用户、mail 可用性、待用码');
+
+  handle.close();
+});
+
+test('sync 的 profile 不带验证状态（守住它没被加到共享的 buildProfileResponse 上）', async () => {
+  const { handle, env } = await setup();
+
+  const response = await handleSync(get('/api/sync'), env, USER_ID);
+  const body = (await response.json()) as { profile?: Record<string, unknown> };
+
+  assert.ok(body.profile, 'sync 响应里应有 profile');
+  assert.equal(
+    'emailVerification' in body.profile,
+    false,
+    'sync 每次都会调 buildProfileResponse —— 在共享函数里加查询会拖慢最核心的同步路径'
+  );
+
+  handle.close();
+});
 
 // ---------------------------------------------------------------- 服务层
 

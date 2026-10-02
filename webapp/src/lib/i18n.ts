@@ -1,7 +1,8 @@
 // CONTRACT:
 // Locale bundles are standalone and loaded on demand. Adding a locale requires
 // updating Locale, AVAILABLE_LOCALES, browser-language detection, localeLoaders,
-// scripts/i18n-utils.cjs, and the locale file itself.
+// scripts/i18n-utils.cjs, webapp/vite.config.ts (offline fallback messages), and
+// the locale file itself.
 //
 // Do not call t() at module scope for exported arrays/constants; async init can
 // otherwise leave raw txt_* keys in the rendered UI.
@@ -21,7 +22,6 @@ export type Locale =
   | 'it'
   | 'sv';
 
-import enMessages from './i18n/locales/en';
 const LOCALE_STORAGE_KEY = 'nodewarden.locale';
 
 type MessageTable = Record<string, string>;
@@ -40,8 +40,39 @@ export const AVAILABLE_LOCALES: readonly { value: Locale; label: string }[] = [
 ];
 
 let locale: Locale = resolveInitialLocale();
-let activeMessages: MessageTable = enMessages;
-const loadedMessages = new Map<Locale, MessageTable>([['en', enMessages]]);
+// 初始为空：文案表由 `initI18n()` 填入（英文也按需加载，见 `localeLoaders`）。
+// ⚠️ 因此**不得在模块作用域调 `t()`** —— 那时只会拿到 `txt_*` 键。
+let activeMessages: MessageTable = {};
+const loadedMessages = new Map<Locale, MessageTable>();
+
+type I18nListener = () => void;
+
+const i18nListeners = new Set<I18nListener>();
+/** `useSyncExternalStore` 的快照：语言 / 文案表每变一次自增 */
+let i18nRevision = 0;
+
+/**
+ * 订阅「当前语言或文案表变化」。
+ *
+ * `t()` 是渲染期直接读模块级 `activeMessages` 的纯函数（文案没进 context），
+ * 所以热切换语言必须由**订阅者重渲染整棵树** —— 根组件订阅一次即可。
+ * ⚠️ `memo` 包裹的组件不会跟着更新，用到 `t()` 的要自己订阅（如 `CipherListItem`）。
+ */
+export function subscribeI18n(listener: I18nListener): () => void {
+  i18nListeners.add(listener);
+  return () => {
+    i18nListeners.delete(listener);
+  };
+}
+
+export function getI18nRevision(): number {
+  return i18nRevision;
+}
+
+function notifyI18nChanged(): void {
+  i18nRevision += 1;
+  for (const listener of i18nListeners) listener();
+}
 
 function isLocale(value: unknown): value is Locale {
   return AVAILABLE_LOCALES.some((item) => item.value === value);
@@ -57,32 +88,54 @@ function resolveInitialLocale(): Locale {
   return detectBrowserLocale();
 }
 
+function browserLanguageTags(): string[] {
+  if (typeof navigator === 'undefined') return [];
+  return Array.isArray(navigator.languages) ? navigator.languages : [navigator.language];
+}
+
+/** 单个语言标签 → 受支持语言；认不出来返回 null。 */
+function localeFromLanguageTag(tag: string): Locale | null {
+  const normalized = String(tag || '').toLowerCase();
+  if (normalized === 'zh-tw' || normalized === 'zh-hk' || normalized === 'zh-mo' || normalized.includes('hant')) return 'zh-TW';
+  if (normalized.startsWith('zh')) return 'zh-CN';
+  if (normalized.startsWith('ru')) return 'ru';
+  if (normalized.startsWith('es')) return 'es';
+  if (normalized.startsWith('fi')) return 'fi';
+  if (normalized.startsWith('de')) return 'de';
+  if (normalized.startsWith('fr')) return 'fr';
+  if (normalized.startsWith('it')) return 'it';
+  if (normalized.startsWith('sv')) return 'sv';
+  if (normalized.startsWith('en')) return 'en';
+  return null;
+}
+
 /**
  * 按浏览器语言偏好选一个受支持的语言（**不看 localStorage**）。
- *
  * 用于「自动（按浏览器）」档与登录时的自动填充：要的是这台设备当前用什么语言。
  */
 export function detectBrowserLocale(): Locale {
-  if (typeof navigator !== 'undefined') {
-    const langs = Array.isArray(navigator.languages) ? navigator.languages : [navigator.language];
-    for (const lang of langs) {
-      const normalized = String(lang || '').toLowerCase();
-      if (normalized === 'zh-tw' || normalized === 'zh-hk' || normalized === 'zh-mo' || normalized.includes('hant')) return 'zh-TW';
-      if (normalized.startsWith('zh')) return 'zh-CN';
-      if (normalized.startsWith('ru')) return 'ru';
-      if (normalized.startsWith('es')) return 'es';
-      if (normalized.startsWith('fi')) return 'fi';
-      if (normalized.startsWith('de')) return 'de';
-      if (normalized.startsWith('fr')) return 'fr';
-      if (normalized.startsWith('it')) return 'it';
-      if (normalized.startsWith('sv')) return 'sv';
-    }
+  for (const tag of browserLanguageTags()) {
+    const match = localeFromLanguageTag(tag);
+    // 英文不在这里返回：偏好列表里「en 在前、非 en 在后」时应选后者（英文是最终兜底）。
+    if (match && match !== 'en') return match;
   }
   return 'en';
 }
 
+/** 浏览器语言偏好里**所有**受支持的语言（按偏好顺序去重）；用于登录后空闲补取离线语言包。 */
+export function detectPreferredLocales(): Locale[] {
+  const result: Locale[] = [];
+  for (const tag of browserLanguageTags()) {
+    const match = localeFromLanguageTag(tag);
+    if (match && !result.includes(match)) result.push(match);
+  }
+  return result;
+}
+
 const localeLoaders: Record<Locale, () => Promise<{ default: MessageTable }>> = {
-  en: () => Promise.resolve({ default: enMessages }),
+  // 英文也走动态：它是兜底表，只有英文用户 / 加载失败时才需要。
+  // 静态打包进来会让首屏白下 24.4 KB gzip。
+  en: () => import('./i18n/locales/en'),
   'zh-CN': () => import('./i18n/locales/zh-CN'),
   'zh-TW': () => import('./i18n/locales/zh-TW'),
   ru: () => import('./i18n/locales/ru'),
@@ -97,7 +150,6 @@ const localeLoaders: Record<Locale, () => Promise<{ default: MessageTable }>> = 
 function localeToHtmlLang(value: Locale): string {
   return value;
 }
-
 function syncDocumentLanguage(): void {
   if (typeof document === 'undefined') return;
   document.documentElement.lang = localeToHtmlLang(locale);
@@ -111,8 +163,18 @@ async function loadLocaleMessages(next: Locale): Promise<MessageTable> {
   return mod.default;
 }
 
+/** 预取某语言的文案（进内存表，并经 SW 的 cacheFirst 落进 runtime 缓存）。 */
+export async function preloadLocaleMessages(next: Locale): Promise<void> {
+  await loadLocaleMessages(next);
+}
+
+/** 兜底文案表（英文）。连它也加载不到就只能显示 `txt_*` 键 —— 那时整包都没下来，界面本就不可用。 */
 async function loadFallbackMessages(): Promise<MessageTable> {
-  return enMessages;
+  try {
+    return await loadLocaleMessages('en');
+  } catch {
+    return {};
+  }
 }
 
 export type I18nParams = Record<string, string | number | null | undefined>;
@@ -126,6 +188,8 @@ export async function initI18n(): Promise<void> {
     activeMessages = await loadFallbackMessages();
   } finally {
     syncDocumentLanguage();
+    // 文案表可能刚被换上（含兜底到英文），通知订阅者重渲染。
+    notifyI18nChanged();
   }
 }
 
@@ -340,4 +404,6 @@ export async function setLocale(next: Locale): Promise<void> {
   } catch {
     // ignore storage errors
   }
+  // 通知订阅者重渲染 —— 调用方不需要再整页重载（后者会连带要求重新解锁）。
+  notifyI18nChanged();
 }

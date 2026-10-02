@@ -1,5 +1,5 @@
 import type { Env, User } from '../types';
-import { KV_MAX_OBJECT_BYTES, deleteBlobObject, getAttachmentObjectKey, getBlobStorageKind, putBlobObject } from './blob-store';
+import { KV_MAX_OBJECT_BYTES, deleteBlobObject, getAttachmentObjectKey, getBlobObject, getBlobStorageKind, putBlobObject } from './blob-store';
 import { BACKUP_SETTINGS_CONFIG_KEY, normalizeImportedBackupSettingsValue } from './backup-config';
 import { reportProgress } from './backup-progress';
 import { YUBICO_BOOTSTRAP_CLAIM_CONFIG_KEY } from './yubico-config';
@@ -448,9 +448,18 @@ async function insertRows(
   }
 }
 
-async function restoreBlobFiles(env: Env, db: BackupPayload['db'], files: Record<string, Uint8Array>): Promise<AttachmentRestoreResult> {
+async function restoreBlobFiles(
+  env: Env,
+  db: BackupPayload['db'],
+  files: Record<string, Uint8Array>,
+  keepKeys: Set<string>
+): Promise<AttachmentRestoreResult & { writtenKeys: string[]; overwritten: BlobRollbackStash }> {
   const restoredAttachments: SqlRow[] = [];
   const skippedItems: BackupImportSkipSummary['items'] = [];
+  // 本次真正落盘的键。恢复失败时要靠它回退（DB 没换成功，这些对象必须清掉/还原）。
+  const writtenKeys: string[] = [];
+  // 被覆盖的活库附件原内容（仅在键与活库撞车时才会有）—— 失败时要放回去。
+  const overwritten = createBlobRollbackStash();
 
   for (const row of db.attachments || []) {
     const cipherId = String(row.cipher_id || '').trim();
@@ -467,10 +476,13 @@ async function restoreBlobFiles(env: Env, db: BackupPayload['db'], files: Record
       continue;
     }
     try {
-      await putBlobObject(env, getAttachmentObjectKey(cipherId, attachmentId), bytes, {
+      const objectKey = getAttachmentObjectKey(cipherId, attachmentId);
+      await stashLiveBlobIfOverwriting(env, objectKey, keepKeys, overwritten);
+      await putBlobObject(env, objectKey, bytes, {
         size: bytes.byteLength,
         contentType: 'application/octet-stream',
       });
+      writtenKeys.push(objectKey);
       restoredAttachments.push(row);
     } catch {
       skippedItems.push({
@@ -484,6 +496,8 @@ async function restoreBlobFiles(env: Env, db: BackupPayload['db'], files: Record
   return {
     imported: restoredAttachments.length,
     restoredAttachments,
+    writtenKeys,
+    overwritten,
     skipped: {
       reason: skippedItems.length ? ATTACHMENT_RESTORE_FAILED_REASON : null,
       attachments: skippedItems.length,
@@ -584,15 +598,21 @@ async function restoreRemoteAttachmentFiles(
   env: Env,
   payload: BackupPayload,
   files: Record<string, Uint8Array>,
-  source: RemoteAttachmentSource
+  source: RemoteAttachmentSource,
+  keepKeys: Set<string>
 ): Promise<{
   imported: number;
   skipped: BackupImportSkipSummary;
   restoredAttachments: SqlRow[];
+  writtenKeys: string[];
+  overwritten: BlobRollbackStash;
 }> {
   const manifestLookup = buildAttachmentBlobLookup(payload.manifest);
   const restoredAttachments: SqlRow[] = [];
   const skippedItems: BackupImportSkipSummary['items'] = [];
+  // 同 restoreBlobFiles：失败时必须能回退这次写进去的对象。
+  const writtenKeys: string[] = [];
+  const overwritten = createBlobRollbackStash();
 
   for (const row of payload.db.attachments || []) {
     const cipherId = String(row.cipher_id || '').trim();
@@ -617,10 +637,13 @@ async function restoreRemoteAttachmentFiles(
       continue;
     }
     try {
-      await putBlobObject(env, getAttachmentObjectKey(cipherId, attachmentId), bytes, {
+      const objectKey = getAttachmentObjectKey(cipherId, attachmentId);
+      await stashLiveBlobIfOverwriting(env, objectKey, keepKeys, overwritten);
+      await putBlobObject(env, objectKey, bytes, {
         size: bytes.byteLength,
         contentType: 'application/octet-stream',
       });
+      writtenKeys.push(objectKey);
       restoredAttachments.push(row);
     } catch {
       skippedItems.push({
@@ -634,6 +657,8 @@ async function restoreRemoteAttachmentFiles(
   return {
     imported: restoredAttachments.length,
     restoredAttachments,
+    writtenKeys,
+    overwritten,
     skipped: {
       reason: skippedItems.length ? ATTACHMENT_RESTORE_FAILED_REASON : null,
       attachments: skippedItems.length,
@@ -645,6 +670,83 @@ async function restoreRemoteAttachmentFiles(
 async function cleanupOrphanedBlobFiles(env: Env, beforeKeys: Set<string>, afterKeys: Set<string>): Promise<void> {
   const staleKeys = Array.from(beforeKeys).filter((key) => !afterKeys.has(key));
   for (const key of staleKeys) {
+    await deleteBlobObject(env, key);
+  }
+}
+
+/**
+ * 失败回退用的暂存：记录「被本次写入覆盖掉的活库附件原内容」，失败时放回去。
+ * 只在键与活库撞车（同实例恢复）时才有条目。
+ *
+ * ⚠️ 上限是必需的：Workers 内存上限 128 MB，而撞车键可能等于**整份活库附件**。
+ * 超限的键记进 `skippedKeys`，失败时**不删**（删了会毁活库数据），只记日志点名。
+ */
+const MAX_BLOB_ROLLBACK_STASH_BYTES = 16 * 1024 * 1024;
+
+interface BlobRollbackStash {
+  originals: Map<string, Uint8Array>;
+  bytes: number;
+  skippedKeys: string[];
+}
+
+function createBlobRollbackStash(): BlobRollbackStash {
+  return { originals: new Map(), bytes: 0, skippedKeys: [] };
+}
+
+/** 把一次 restore 的暂存并进整次恢复的暂存（本地/远端各调用一次 restore）。 */
+function mergeBlobRollbackStash(target: BlobRollbackStash, source: BlobRollbackStash): void {
+  for (const [key, bytes] of source.originals) {
+    if (target.originals.has(key)) continue;
+    target.originals.set(key, bytes);
+    target.bytes += bytes.byteLength;
+  }
+  for (const key of source.skippedKeys) {
+    if (!target.skippedKeys.includes(key)) target.skippedKeys.push(key);
+  }
+}
+
+/** 写新内容之前，若该键正被活库引用，先把原内容留在手边（失败时放回去）。 */
+async function stashLiveBlobIfOverwriting(
+  env: Env,
+  objectKey: string,
+  keepKeys: Set<string>,
+  stash: BlobRollbackStash
+): Promise<void> {
+  if (!keepKeys.has(objectKey) || stash.originals.has(objectKey) || stash.skippedKeys.includes(objectKey)) return;
+  const existing = await getBlobObject(env, objectKey);
+  if (!existing?.body) return;
+  const size = Number(existing.size) || 0;
+  if (size > 0 && stash.bytes + size > MAX_BLOB_ROLLBACK_STASH_BYTES) {
+    stash.skippedKeys.push(objectKey);
+    return;
+  }
+  const bytes = new Uint8Array(await new Response(existing.body).arrayBuffer());
+  stash.originals.set(objectKey, bytes);
+  stash.bytes += bytes.byteLength;
+}
+
+/**
+ * 恢复**失败**时回退本次写进去的附件对象，让 blob 存储回到失败前的状态。
+ *
+ * 附件是在换表之前就写进 R2/KV 的，而失败路径只丢影子表 ⇒ 不清理会留下两种残留：
+ * · 备份来自别的实例 ⇒ 多出无引用的对象（永久占空间）；
+ * · 备份来自**同一实例** ⇒ 键名相同，活库附件被备份里的旧版本静默覆盖（下载不校验大小）。
+ */
+async function rollbackWrittenBlobFiles(env: Env, writtenKeys: string[], stash: BlobRollbackStash): Promise<void> {
+  for (const key of writtenKeys) {
+    const original = stash.originals.get(key);
+    if (original) {
+      // 撞车的键必须**还原内容**（删除是错的：活库还指着它）。
+      await putBlobObject(env, key, original, {
+        size: original.byteLength,
+        contentType: 'application/octet-stream',
+      });
+      continue;
+    }
+    if (stash.skippedKeys.includes(key)) {
+      console.warn(`Backup restore rollback: keeping overwritten attachment ${key} (rollback stash over budget)`);
+      continue;
+    }
     await deleteBlobObject(env, key);
   }
 }
@@ -703,7 +805,11 @@ export async function importBackupArchiveBytes(
   }
 
   await resetRestoreArtifacts(env.DB);
+  // `previousBlobKeys` 既是成功路径的对比物，也是**失败回退的保留集**：失败后活库未作改动，
+  // 所以「仍被引用的键」就是这份快照。
   const previousBlobKeys = replaceExisting ? await collectCurrentBlobKeys(env.DB) : new Set<string>();
+  const writtenBlobKeys: string[] = [];
+  const overwrittenBlobs = createBlobRollbackStash();
   try {
     await reportProgress(progress, {
       source: 'local',
@@ -742,7 +848,9 @@ export async function importBackupArchiveBytes(
       stageDetail: 'txt_backup_restore_progress_local_files_detail',
       replaceExisting,
     });
-    const restored = await restoreBlobFiles(env, db, parsed.files);
+    const restored = await restoreBlobFiles(env, db, parsed.files, previousBlobKeys);
+    writtenBlobKeys.push(...restored.writtenKeys);
+    mergeBlobRollbackStash(overwrittenBlobs, restored.overwritten);
     const restoredAttachmentKeys = new Set((restored.restoredAttachments || []).map(attachmentRowKey));
     const failedRestoreRows = (db.attachments || []).filter((row) => !restoredAttachmentKeys.has(attachmentRowKey(row)));
     await removeAttachmentRows(env.DB, failedRestoreRows, true).catch(() => undefined);
@@ -810,13 +918,15 @@ export async function importBackupArchiveBytes(
       source: 'local',
       step: 'local_failed',
       fileName,
-      stageTitle: 'txt_backup_restore_progress_local_finalize_title',
-      stageDetail: 'txt_backup_restore_progress_local_finalize_detail',
+      stageTitle: 'txt_backup_restore_failed',
+      stageDetail: 'txt_backup_restore_progress_local_failed_detail',
       replaceExisting,
       done: true,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     });
+    // 附件比换表先落盘 ⇒ 失败必须回退：删掉活库不引用的新对象、把被覆盖的活库附件放回去。
+    await rollbackWrittenBlobFiles(env, writtenBlobKeys, overwrittenBlobs).catch(() => undefined);
     await resetRestoreArtifacts(env.DB).catch(() => undefined);
     throw error;
   }
@@ -845,6 +955,8 @@ export async function importRemoteBackupArchiveBytes(
 
   await resetRestoreArtifacts(env.DB);
   const previousBlobKeys = replaceExisting ? await collectCurrentBlobKeys(env.DB) : new Set<string>();
+  const writtenBlobKeys: string[] = [];
+  const overwrittenBlobs = createBlobRollbackStash();
   try {
     await reportProgress(progress, {
       source: 'remote',
@@ -883,7 +995,9 @@ export async function importRemoteBackupArchiveBytes(
       stageDetail: 'txt_backup_restore_progress_remote_files_detail',
       replaceExisting,
     });
-    const restored = await restoreRemoteAttachmentFiles(env, preparedRemote.payload, parsed.files, source);
+    const restored = await restoreRemoteAttachmentFiles(env, preparedRemote.payload, parsed.files, source, previousBlobKeys);
+    writtenBlobKeys.push(...restored.writtenKeys);
+    mergeBlobRollbackStash(overwrittenBlobs, restored.overwritten);
     const restoredAttachmentKeys = new Set((restored.restoredAttachments || []).map(attachmentRowKey));
     const failedRestoreRows = (db.attachments || []).filter((row) => !restoredAttachmentKeys.has(attachmentRowKey(row)));
     await removeAttachmentRows(env.DB, failedRestoreRows, true).catch(() => undefined);
@@ -957,13 +1071,15 @@ export async function importRemoteBackupArchiveBytes(
       source: 'remote',
       step: 'remote_failed',
       fileName,
-      stageTitle: 'txt_backup_restore_progress_remote_finalize_title',
-      stageDetail: 'txt_backup_restore_progress_remote_finalize_detail',
+      stageTitle: 'txt_backup_remote_restore_failed',
+      stageDetail: 'txt_backup_restore_progress_remote_failed_detail',
       replaceExisting,
       done: true,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
     });
+    // 同本地路径：附件比换表先落盘，失败必须回退（删新对象 + 放回被覆盖的活库附件）。
+    await rollbackWrittenBlobFiles(env, writtenBlobKeys, overwrittenBlobs).catch(() => undefined);
     await resetRestoreArtifacts(env.DB).catch(() => undefined);
     throw error;
   }

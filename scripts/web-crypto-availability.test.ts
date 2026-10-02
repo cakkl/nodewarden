@@ -6,6 +6,10 @@ import {
   requireWebCrypto,
   WebCryptoUnavailableError,
 } from '../webapp/src/lib/crypto';
+import { setLocale } from '../webapp/src/lib/i18n';
+
+// 断言用英文文案：文案表初始为空，环境探测在 Node 下还可能给出别的语言 ⇒ 显式切到英文。
+await setLocale('en');
 
 const supportedCrypto = {
   subtle: {

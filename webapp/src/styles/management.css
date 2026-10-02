@@ -629,10 +629,6 @@
   @apply m-0;
 }
 
-.section-title-flush {
-  @apply mt-0;
-}
-
 .section-note {
   @apply mt-1;
 }
@@ -730,10 +726,6 @@
 .settings-submodule h3 {
   @apply mb-4 mt-0 text-base font-extrabold;
   color: var(--text);
-}
-
-.settings-placeholder-module {
-  background: transparent;
 }
 
 .settings-vertical-fields {
@@ -1581,13 +1573,6 @@
   width: 100%;
 }
 
-.sensitive-actions-module {
-  @apply min-w-0 p-0;
-  background: transparent;
-  border: 0;
-  box-shadow: none;
-}
-
 .settings-module h3 {
   @apply mb-4 mt-0 text-base font-extrabold;
   color: var(--text);
@@ -1599,13 +1584,6 @@
 
 .settings-module-head h3 {
   @apply m-0;
-}
-
-.totp-status-pill {
-  @apply inline-flex min-h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-extrabold;
-  border: 1px solid color-mix(in srgb, var(--success) 26%, var(--line));
-  background: color-mix(in srgb, var(--success) 9%, var(--panel));
-  color: var(--success);
 }
 
 .account-passkey-mode-field {
@@ -1726,10 +1704,6 @@
   @apply grid gap-3;
 }
 
-.sensitive-actions-grid {
-  @apply grid gap-[3px];
-}
-
 .sensitive-action {
   @apply border;
   border-radius: .5rem;
@@ -1755,18 +1729,6 @@
 .sensitive-action h4 {
   @apply mb-1 mt-0 text-base font-extrabold;
   color: var(--text);
-}
-
-.recovery-code-card {
-  @apply mb-0 mt-2.5 border p-3;
-  border-radius: .5rem;
-  border-width: 1px;
-  border-color: var(--line);
-  background: var(--panel);
-}
-
-.recovery-code-value {
-  @apply font-extrabold tracking-[0.08em];
 }
 
 .api-key-warning-panel,
@@ -1954,11 +1916,6 @@
   color: #b42318;
 }
 
-.status-ok {
-  @apply mb-2.5 mt-0.5 font-bold;
-  color: #0f766e;
-}
-
 .restore-progress-card {
   @apply mb-3 mt-2 rounded-xl border px-4 py-3.5;
   border-color: #d7e2f1;
@@ -2059,6 +2016,24 @@
 
 .restore-progress-item.done .restore-progress-dot {
   background: #94a3b8;
+}
+
+/* 失败态：恢复没成功（但活数据未被改动）。用 danger 语义色，不自动关闭，由用户点「关闭」。 */
+.restore-progress-current.failed {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 6%, var(--panel));
+}
+
+.restore-progress-item.failed {
+  color: var(--danger-text);
+}
+
+.restore-progress-item.failed .restore-progress-dot {
+  background: var(--danger);
+}
+
+.restore-progress-actions {
+  @apply mt-3 flex justify-end;
 }
 
 .kv-line strong {

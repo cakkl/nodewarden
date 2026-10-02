@@ -596,6 +596,17 @@ export interface TokenResponse {
   };
 }
 
+/** 邮箱验证的「可用性 + 当前状态」；`/api/accounts/email-verification` 与 profile 用同一形状。 */
+export interface EmailVerificationState {
+  object: 'emailVerification';
+  available: boolean;
+  verified: boolean;
+  email: string;
+  pendingExpiresAt: string | null;
+  codeTtlSeconds: number;
+  maxAttempts: number;
+}
+
 export interface ProfileResponse {
   id: string;
   name: string | null;
@@ -620,6 +631,8 @@ export interface ProfileResponse {
   avatarColor: string | null;
   creationDate: string;
   verifyDevices: boolean;
+  /** 设置页首帧要用的邮箱验证状态（随 profile 一起返回，省掉一次独立请求与重复的 mail 可用性查询）。 */
+  emailVerification?: EmailVerificationState;
   role?: UserRole;
   status?: UserStatus;
   object: string;

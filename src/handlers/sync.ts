@@ -8,9 +8,34 @@ import {
   buildUserDecryptionCompat,
   buildUserDecryptionOptions,
 } from '../utils/user-decryption';
-import { buildDomainsResponse } from '../services/domain-rules';
+import { buildDomainsResponse, getGlobalDomainsTableVersion } from '../services/domain-rules';
 import { buildWebAuthnPrfOption } from '../utils/account-passkeys';
 import { buildProfileResponse } from '../utils/profile-response';
+import { matchesIfNoneMatch, notModifiedResponse } from '../utils/conditional-request';
+
+/** 200 与 304 共用：304 也要带回去，否则浏览器会丢掉已缓存的那份。 */
+const SYNC_CACHE_CONTROL = `private, max-age=${Math.max(1, Math.floor(LIMITS.cache.syncResponseTtlMs / 1000))}`;
+
+/**
+ * sync 的版本标，复用服务端缓存键的同一组版本戳。
+ * ⚠️ 两个容易漏的分量：
+ * · `user.updatedAt` —— 账号类写入（改资料 / 邮箱验证 / 2FA）**不**推进 `user_revisions`
+ *   ⇒ 只用修订号会让 sync 里那部分 `profile` 被旧 304 卡住；
+ * · 全局域名表版本 —— 部署换表时用户修订号不变。
+ *
+ * 导出仅为可测性（进程内造不出各分量的组合：全局表版本是进程级缓存的）。
+ */
+export async function buildSyncEtag(
+  revisionDate: string,
+  userUpdatedAt: string | null,
+  accountPasskeyCacheTag: string,
+  excludeDomains: boolean,
+  excludeSends: boolean,
+  preserveRepairableUris: boolean
+): Promise<string> {
+  const globalDomainsVersion = excludeDomains ? '' : await getGlobalDomainsTableVersion();
+  return `W/"sync-${revisionDate}-${userUpdatedAt ?? ''}-${accountPasskeyCacheTag}-${globalDomainsVersion}-${excludeDomains ? 1 : 0}${excludeSends ? 1 : 0}${preserveRepairableUris ? 1 : 0}"`;
+}
 
 // CONTRACT:
 // /api/sync reuses cipherToResponse() as the single cipher response shaper.
@@ -72,6 +97,11 @@ export async function handleSync(request: Request, env: Env, userId: string): Pr
     ].join(':'))
     .join(',');
   const cacheRequest = buildSyncCacheRequest(request, userId, revisionDate, accountPasskeyCacheTag, excludeDomains, excludeSends, preserveRepairableUris);
+  // 版本戳已就绪 ⇒ 先看条件请求：命中 304 就连缓存查找与 13.4 KB 传输都省了。
+  const syncEtag = await buildSyncEtag(revisionDate, user.updatedAt ?? null, accountPasskeyCacheTag, excludeDomains, excludeSends, preserveRepairableUris);
+  if (matchesIfNoneMatch(request, syncEtag)) {
+    return notModifiedResponse(syncEtag, SYNC_CACHE_CONTROL);
+  }
   const cachedResponse = await readSyncCache(cacheRequest);
   if (cachedResponse) {
     return cachedResponse;
@@ -146,7 +176,8 @@ export async function handleSync(request: Request, env: Env, userId: string): Pr
     status: 200,
     headers: {
       'Content-Type': 'application/json',
-      'Cache-Control': `private, max-age=${Math.max(1, Math.floor(LIMITS.cache.syncResponseTtlMs / 1000))}`,
+      'Cache-Control': SYNC_CACHE_CONTROL,
+      ETag: syncEtag,
     },
   });
   await writeSyncCache(cacheRequest, response);

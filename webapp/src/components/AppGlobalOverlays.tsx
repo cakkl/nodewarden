@@ -23,7 +23,8 @@ export interface AppConfirmState {
   hideCancel?: boolean;
   /** When true, dialog shows a master-password field and passes it to onConfirm. */
   requireMasterPassword?: boolean;
-  onConfirm: (masterPassword?: string) => void;
+  /** 可返回 Promise：弹窗会等它 settle（期间显示进度、保持打开），见 ConfirmDialog。 */
+  onConfirm: (masterPassword?: string) => void | Promise<void>;
   onCancel?: () => void;
 }
 
@@ -89,6 +90,12 @@ function uniqueSupportedProviders(providerTypes: number[] | undefined): number[]
 export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
   const [methodChooserOpen, setMethodChooserOpen] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  // 确认框关掉（成功 / 取消 / 换成另一个确认）就清掉主密码。提交时**不**清：
+  // 失败时弹窗还开着，用户要能直接重试。
+  useEffect(() => {
+    if (!props.confirm) setConfirmPassword('');
+  }, [props.confirm]);
   // 恢复码是**弹窗内**的一种验证方式（不跳页、不重发邮件码），所以自成一个模式。
   const [recoveryMode, setRecoveryMode] = useState(false);
   const [recoveryCode, setRecoveryCode] = useState('');
@@ -137,8 +144,8 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
         confirmDisabled={requireMasterPassword && !confirmPassword.trim()}
         onConfirm={() => {
           if (requireMasterPassword && !confirmPassword.trim()) return;
-          props.confirm?.onConfirm(requireMasterPassword ? confirmPassword : undefined);
-          setConfirmPassword('');
+          // 必须 **return**：ConfirmDialog 靠这个 Promise 决定何时复位「处理中」。
+          return props.confirm?.onConfirm(requireMasterPassword ? confirmPassword : undefined);
         }}
         onCancel={() => {
           setConfirmPassword('');

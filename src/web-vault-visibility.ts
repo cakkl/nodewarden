@@ -19,6 +19,16 @@ const BACKEND_EXACT_PATHS = new Set([
   '/config',
   '/accounts/kdf',
   '/settings/domains',
+  // 下面这些是「官方客户端用裸路径、本仓也注册了 /api 变体」的兼容别名。
+  // ⚠️ 漏掉它们的后果：隐藏模式下会被 404（而不是走到 handler 的 501/正常逻辑），
+  // 其中 `/accounts/resend-new-device-otp` 正是官方界面「重新发送验证码」按钮用的路径 ⇒ 用户无法重发。
+  // 新增裸别名时**必须同步登记在这里**；`scripts/web-vault-visibility.test.ts` 有漂移护栏。
+  '/accounts/resend-new-device-otp',
+  '/accounts/request-otp',
+  '/accounts/verify-otp',
+  '/two-factor/send-email-login',
+  '/two-factor/get-email',
+  '/two-factor/email',
 ]);
 
 export function isBackendRequestPath(pathname: string): boolean {

@@ -1,7 +1,7 @@
 import { createPortal } from 'preact/compat';
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ComponentChildren } from 'preact';
-import { TriangleAlert, X } from 'lucide-preact';
+import { LoaderCircle, TriangleAlert, X } from 'lucide-preact';
 import { t } from '@/lib/i18n';
 
 interface ConfirmDialogProps {
@@ -24,7 +24,11 @@ interface ConfirmDialogProps {
   dismissable?: boolean;
   confirmDisabled?: boolean;
   cancelDisabled?: boolean;
-  onConfirm: () => void;
+  /**
+   * 确认动作。返回 Promise 时弹窗会保持打开、按钮进入处理中，直到它 settle ——
+   * 否则高延迟下用户会以为「点了没反应」。约定：**成功时**调用方才关弹窗，失败就留着让用户重试。
+   */
+  onConfirm: () => void | Promise<void>;
   onCancel: () => void;
   children?: ComponentChildren;
   afterActions?: ComponentChildren;
@@ -90,6 +94,7 @@ export function useDialogLifecycle(active: boolean, onCancel?: (() => void) | nu
 export default function ConfirmDialog(props: ConfirmDialogProps) {
   const [present, setPresent] = useState(props.open);
   const [closing, setClosing] = useState(false);
+  const [busy, setBusy] = useState(false);
   const cardRef = useRef<HTMLFormElement | null>(null);
   const maskPointerStartedRef = useRef(false);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -98,13 +103,32 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
   const titleId = `${dialogId}-title`;
   const messageId = `${dialogId}-message`;
   const hasMessage = !!props.message;
-  const canDismiss = !props.cancelDisabled && !closing && props.dismissable !== false;
+  const canDismiss = !props.cancelDisabled && !closing && !busy && props.dismissable !== false;
+
+  /**
+   * 确认动作：等 `onConfirm` 的 Promise settle 再复位 `busy`。
+   * 期间弹窗保持打开、按钮禁用 ⇒ 用户看得到「在处理」，也不会重复点击。
+   */
+  async function runConfirm(): Promise<void> {
+    if (busy || props.confirmDisabled || closing) return;
+    setBusy(true);
+    try {
+      await props.onConfirm();
+    } catch (error) {
+      // 调用方负责提示失败（弹窗会留着以便重试）；这里只保证 busy 复位，并留一条线索。
+      console.error('Confirm dialog action failed:', error);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (props.open) {
       lastTitleRef.current = props.title;
       setPresent(true);
       setClosing(false);
+      // 新的一次确认：复位上一次的处理中状态。
+      setBusy(false);
       return;
     }
     if (!present) return;
@@ -207,8 +231,7 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
         onKeyDown={handleDialogKeyDown}
         onSubmit={(e) => {
           e.preventDefault();
-          if (props.confirmDisabled || closing) return;
-          props.onConfirm();
+          void runConfirm();
         }}
       >
         {props.variant === 'warning' ? (
@@ -224,9 +247,9 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
             type="button"
             className="dialog-close-btn"
             aria-label={t('txt_close')}
-            disabled={props.cancelDisabled}
+            disabled={props.cancelDisabled || busy}
             onClick={() => {
-              if (props.cancelDisabled) return;
+              if (props.cancelDisabled || busy) return;
               props.onCancel();
             }}
           >
@@ -240,20 +263,21 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
           <button
             type="submit"
             className={`btn ${props.danger ? 'btn-danger' : 'btn-primary'} dialog-btn`}
-            disabled={props.confirmDisabled}
+            disabled={props.confirmDisabled || busy}
             data-dialog-confirm="true"
           >
-            {props.confirmText || t('txt_yes')}
+            {busy ? <LoaderCircle size={16} className="generator-spinner" /> : null}
+            {busy ? t('txt_loading') : (props.confirmText || t('txt_yes'))}
           </button>
         )}
         {!props.hideCancel && (
           <button
             type="button"
             className="btn btn-secondary dialog-btn"
-            disabled={props.cancelDisabled}
+            disabled={props.cancelDisabled || busy}
             data-dialog-cancel="true"
             onClick={() => {
-              if (props.cancelDisabled) return;
+              if (props.cancelDisabled || busy) return;
               props.onCancel();
             }}
           >

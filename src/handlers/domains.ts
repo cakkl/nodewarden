@@ -1,12 +1,14 @@
 import type { Env } from '../types';
 import { StorageService } from '../services/storage';
 import {
+  buildDomainsEtag,
   buildDomainsResponse,
   customRulesToActiveEquivalentDomains,
   normalizeCustomEquivalentDomains,
   normalizeEquivalentDomains,
   normalizeExcludedGlobalTypes,
 } from '../services/domain-rules';
+import { conditionalJsonResponse } from '../utils/conditional-request';
 import { errorResponse, jsonResponse } from '../utils/response';
 
 // CONTRACT:
@@ -32,14 +34,17 @@ async function readPayload(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
-export async function handleGetDomains(env: Env, userId: string): Promise<Response> {
+export async function handleGetDomains(request: Request, env: Env, userId: string): Promise<Response> {
   const storage = new StorageService(env.DB);
   const settings = await storage.getUserDomainSettings(userId);
-  return jsonResponse(buildDomainsResponse(
-    settings.equivalentDomains,
-    settings.customEquivalentDomains,
-    settings.excludedGlobalEquivalentDomains
-  ));
+  // 这份响应 10 KB，且其中绝大部分是所有用户一样的全局等价域名表 ⇒ 未变化时回 304 空 body。
+  return conditionalJsonResponse(request, await buildDomainsEtag(settings.updatedAt), () =>
+    buildDomainsResponse(
+      settings.equivalentDomains,
+      settings.customEquivalentDomains,
+      settings.excludedGlobalEquivalentDomains
+    )
+  );
 }
 
 export async function handleUpdateDomains(request: Request, env: Env, userId: string): Promise<Response> {

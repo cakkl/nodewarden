@@ -11,6 +11,7 @@ import {
   isWebVaultHidden,
   webVaultNotFoundResponse,
 } from './web-vault-visibility';
+import { withStaticCacheHeaders } from './static-asset-cache';
 
 let dbInitialized = false;
 let dbInitError: string | null = null;
@@ -68,7 +69,7 @@ async function maybeServeAsset(request: Request, env: Env): Promise<Response | n
     }
   }
 
-  return addSearchIndexHeaders(request, response);
+  return addSearchIndexHeaders(request, withStaticCacheHeaders(url.pathname, response));
 }
 
 async function ensureDatabaseInitialized(env: Env): Promise<void> {

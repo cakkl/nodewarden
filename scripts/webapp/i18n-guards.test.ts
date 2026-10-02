@@ -1,9 +1,10 @@
-// 跨端 i18n 护栏：文案键与语言清单都不能只改一半。
+// 跨端 i18n 护栏：文案键、语言清单、以及「切语言」这条用户路径。
 //
-// 两类静默失配（都已发生）：
-// 1. 代码里用了语言包**不存在**的键 —— `t()` 找不到键时原样返回键名，界面上直接显示
-//    `txt_xxx`。编译、类型、`i18n:validate` 都发现不了（后者只比对语言包之间的键一致性）。
-// 2. 界面语言清单与邮件模板语言清单分居前后端，只改一边就会出现「界面切到某语言、邮件仍是英文」。
+// 三类静默失配（前两类已发生）：
+// 1. 代码里用了语言包**不存在**的键 —— `t()` 找不到键时原样返回键名，界面直接显示 `txt_xxx`。
+//    编译、类型、`i18n:validate` 都发现不了（后者只比对语言包之间的键一致性）。
+// 2. 界面语言清单与邮件模板语言清单分居前后端，只改一边 ⇒ 「界面切了语言、邮件还是英文」。
+// 3. 英文包被静态打回首屏（多下 ~24 KB gzip）、或切语言退回整页重载（连带要求重新解锁）。
 //
 // 清单用**源码文本抽取**而不是 import：两份清单分属不同 tsconfig（DOM lib 与
 // @cloudflare/workers-types 的全局声明互斥），同一个测试里互相 import 会产生 29 个真实报错。
@@ -114,4 +115,35 @@ test('代码里以字面量形式使用的文案键都存在于英文语言包',
     `以下文案键在代码里被使用，但英文语言包（进而所有语言包）里不存在，界面会原样显示键名：\n` +
       missing.map((key) => `  ${key}  ←  ${[...used.get(key)!].join(', ')}`).join('\n')
   );
+});
+// ---------------------------------------------------------------- 首屏体积与热切换
+
+test('英文语言包按需加载：不得静态 import 回首屏', () => {
+  const source = readSource('webapp/src/lib/i18n.ts');
+  assert.doesNotMatch(
+    source,
+    /^import\s+\w+\s+from\s+'\.\/i18n\/locales\/en';/m,
+    '英文表静态 import 会让首屏必下 ~24 KB gzip —— 它只有英文用户与加载失败兜底时才需要'
+  );
+  assert.match(source, /en:\s*\(\)\s*=>\s*import\('\.\/i18n\/locales\/en'\)/, '英文要走动态加载器');
+
+  const config = readSource('webapp/vite.config.ts');
+  assert.doesNotMatch(
+    config,
+    /localeMatch\[1\] !== 'en'/,
+    '英文也要单独成 chunk，否则会被 shared 组收回首屏（shared 是 modulepreload 的）'
+  );
+});
+
+test('切语言不得整页重载（重载会连带要求重新解锁密码库）', () => {
+  const settings = readSource('webapp/src/components/SettingsPage.tsx');
+  assert.doesNotMatch(settings, /window\.location\.reload\(\)/, '切语言必须走热切换（订阅重渲染）');
+
+  const app = readSource('webapp/src/App.tsx');
+  const localeEffect = app.match(
+    /const serverLocale = mailPreferences\?\.locale;[\s\S]{0,400}?\}, \[mailPreferences\?\.locale\]\);/
+  );
+  assert.ok(localeEffect, '未能抽到「服务端语言偏好」那个 effect —— 写法变了，本护栏要跟着改');
+  assert.doesNotMatch(localeEffect[0], /location\.reload/, '服务端偏好切换同样要走热切换');
+  assert.match(app, /useI18nRevision\(\)/, '根组件必须订阅语言变化，否则热切换不会重渲染');
 });
