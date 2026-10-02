@@ -54,11 +54,17 @@ test('vault-lazy 与 vault.ts 的运行时导出一一对应', () => {
   assert.match(lazy, /export type \{[^}]*CiphersImportPayload[^}]*\} from '\.\/vault'/, '类型也要重新导出');
 });
 
+/**
+ * 该源码是否以 `from '<说明符>'` 形式静态引用（先把空白压平，不依赖具体换行 / 缩进）。
+ * ⚠️ 不拼正则：动态构造 + 部分字符转义会被安全扫描器判成风险（PR 评论里出现过）。
+ */
+function importsFrom(source: string, specifier: string): boolean {
+  const flat = source.replace(/\s+/g, ' ');
+  return flat.includes(`from '${specifier}'`) || flat.includes(`from "${specifier}"`);
+}
+
 test('除 vault-lazy 外，没有模块静态引用 vault.ts', () => {
-  const importers = listSourceFiles((source) => {
-    const withoutTypes = stripTypeImports(source);
-    return new RegExp(`from\\s*['"]${VAULT_SPECIFIER.replace(/[/@]/g, '\\$&')}['"]`).test(withoutTypes);
-  });
+  const importers = listSourceFiles((source) => importsFrom(stripTypeImports(source), VAULT_SPECIFIER));
   assert.deepEqual(importers, [], `静态引用会把 63 KB 的 vault.ts 拉回首屏，请改成 ${LAZY_SPECIFIER}`);
 });
 
@@ -70,7 +76,7 @@ test('vault-lazy 只通过动态 import 取 vault.ts', () => {
 });
 
 test('调用方已改到 vault-lazy', () => {
-  const callers = listSourceFiles((source) => new RegExp(`from\\s*['"]${LAZY_SPECIFIER.replace(/[/@]/g, '\\$&')}['"]`).test(source));
+  const callers = listSourceFiles((source) => importsFrom(source, LAZY_SPECIFIER));
   assert.deepEqual(
     callers,
     ['webapp/src/App.tsx', 'webapp/src/hooks/useVaultSendActions.ts'],

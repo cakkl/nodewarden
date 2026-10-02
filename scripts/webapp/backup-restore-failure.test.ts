@@ -37,20 +37,24 @@ test('失败上报必须用专门的失败文案，不得复用「正在进行�
     ['remote_failed', TITLE_KEYS[1], DETAIL_KEYS[1]],
   ]) {
     const branch = slice(server, `step: '${step}'`, 420);
-    assert.match(branch, new RegExp(`stageTitle: '${titleKey}'`), `${step} 的标题应复用既有的失败文案`);
-    assert.match(branch, new RegExp(`stageDetail: '${detailKey}'`), `${step} 应使用专门的失败说明`);
-    assert.doesNotMatch(
-      branch,
-      /_finalize_title|_finalize_detail/,
-      `${step} 不得复用「正在校验并完成切换」—— 那一刻已经失败了`
-    );
+    assert.ok(branch.includes(`stageTitle: '${titleKey}'`), `${step} 的标题应复用既有的失败文案`);
+    assert.ok(branch.includes(`stageDetail: '${detailKey}'`), `${step} 应使用专门的失败说明`);
+    for (const stale of ['_finalize_title', '_finalize_detail']) {
+      assert.ok(
+        !branch.includes(stale),
+        `${step} 不得复用「正在校验并完成切换」—— 那一刻已经失败了`
+      );
+    }
   }
 });
 
 test('失败说明必须让用户知道「原有数据未作改动」', () => {
   for (const key of DETAIL_KEYS) {
     for (const locale of ['en', 'zh-CN']) {
-      assert.match(readSource(`webapp/src/lib/i18n/locales/${locale}.ts`), new RegExp(`"${key}": "[^"]+"`), `${locale} 缺 ${key}`);
+      assert.ok(
+        readSource(`webapp/src/lib/i18n/locales/${locale}.ts`).includes(`"${key}": "`),
+        `${locale} 缺 ${key}`
+      );
     }
   }
   // 语义断言放在英文（参考语言）上：说明数据未作改动 + 给出重试指引

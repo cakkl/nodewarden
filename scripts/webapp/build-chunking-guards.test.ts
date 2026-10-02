@@ -31,11 +31,21 @@ function listSourceFiles(predicate: (source: string) => boolean, extensions = /\
   return found.sort();
 }
 
-// 组内 `name` 在前、`priority` 在后 ⇒ 「name 之后的第一个 priority」就是它自己的。
+/**
+ * 取某个 `codeSplitting` 分组的 priority：组内 `name` 在前、`priority` 在后
+ * ⇒ 找 `name:` 之后的第一个 `priority:`。
+ * ⚠️ 用字符串定位而不是拼正则 —— 动态构造的正则会被安全扫描器判成 ReDoS 风险（PR 评论里出现过）。
+ */
 function groupPriority(config: string, groupName: string): number {
-  const match = config.match(new RegExp(`name:\\s*'${groupName}'[\\s\\S]*?priority:\\s*(\\d+)`));
-  assert.ok(match, `vite.config.ts 里找不到名为 ${groupName} 的 codeSplitting 分组`);
-  return Number(match[1]);
+  const anchor = `name: '${groupName}'`;
+  const anchorAt = config.indexOf(anchor);
+  assert.ok(anchorAt >= 0, `vite.config.ts 里找不到名为 ${groupName} 的 codeSplitting 分组`);
+  const rest = config.slice(anchorAt + anchor.length);
+  const priorityAt = rest.indexOf('priority:');
+  assert.ok(priorityAt >= 0, `${groupName} 分组没有 priority —— 写法变了，本护栏要跟着改`);
+  const parsed = Number.parseInt(rest.slice(priorityAt + 'priority:'.length).trim(), 10);
+  assert.ok(Number.isFinite(parsed), `${groupName} 分组的 priority 不是数字`);
+  return parsed;
 }
 
 test('词表必须单独成 chunk，且优先级高过 shared 组', () => {
@@ -76,8 +86,23 @@ test('词表在源码里只有一份', () => {
 // 绑进库页 chunk（解锁后的默认落地页），每个用户每次解锁都多下 46 KB gzip。
 const JSQR_MODULE = 'jsqr';
 
-function listImporters(pattern: string): string[] {
-  return listSourceFiles((source) => new RegExp(pattern).test(source));
+/**
+ * 找出以静态 / 动态 import 引用某模块的文件（`require()` 归为静态）。
+ * 同样不拼正则：扫描器对动态正则会报 ReDoS。
+ */
+function listFilesImportingModule(moduleName: string, mode: 'static' | 'dynamic'): string[] {
+  const tokens = [`'${moduleName}'`, `"${moduleName}"`];
+  return listSourceFiles((source) => {
+    for (const token of tokens) {
+      let at = source.indexOf(token);
+      while (at >= 0) {
+        const isDynamicImport = /import\s*\(\s*$/.test(source.slice(Math.max(0, at - 20), at));
+        if (isDynamicImport === (mode === 'dynamic')) return true;
+        at = source.indexOf(token, at + token.length);
+      }
+    }
+    return false;
+  });
 }
 
 test('jsQR 只能按需加载', () => {
@@ -93,12 +118,12 @@ test('jsQR 只能按需加载', () => {
 
 test('jsQR 全仓只有一处引入点，且是动态的', () => {
   assert.deepEqual(
-    listImporters(`from\\s*['"]${JSQR_MODULE}['"]|require\\(['"]${JSQR_MODULE}['"]\\)`),
+    listFilesImportingModule(JSQR_MODULE, 'static'),
     [],
-    '不允许任何静态引入'
+    '不允许任何静态引入（`require()` 也算静态）'
   );
   assert.deepEqual(
-    listImporters(`import\\(['"]${JSQR_MODULE}['"]\\)`),
+    listFilesImportingModule(JSQR_MODULE, 'dynamic'),
     ['webapp/src/components/vault/VaultEditor.tsx'],
     '一旦有第二处引入，jsQR（>50 KB）会被 shared 组收走 —— 而 shared 是首屏 modulepreload 的'
   );
