@@ -721,3 +721,106 @@ test('附件 16：导入失败时，进度上报抛错不得覆盖原始的失�
   source.close();
   target.close();
 });
+
+// ---------------------------------------------------------------- 失败时的 blob 回退（PERF 62）
+
+const LIVE_ATTACHMENT_BYTES = new TextEncoder().encode('LIVE-INSTANCE-ATTACHMENT-BYTES');
+
+/**
+ * 造一个「换表那一批」必定失败的 DB 代理。
+ *
+ * 触发点刻意选在换表（`INSERT INTO <table> SELECT * FROM <table>__restore`）而不是更早的步骤：
+ * 附件是在**换表之前**写进 R2/KV 的 ⇒ 只有让换表失败，才能观察到「附件已落盘但事务没提交」这一窗口。
+ */
+function failingSwapDatabase(handle: Handle): { db: D1Database; batchCount: () => number } {
+  const statementSql = new WeakMap<object, string>();
+  let batches = 0;
+  const proxy = new Proxy(handle.db as unknown as Record<string, unknown>, {
+    get(targetDb, property, receiver) {
+      if (property === 'prepare') {
+        return (sql: string) => {
+          const statement = (targetDb.prepare as (s: string) => object).call(targetDb, sql);
+          statementSql.set(statement, sql);
+          return statement;
+        };
+      }
+      if (property === 'batch') {
+        return async (statements: object[]) => {
+          batches += 1;
+          const sqls = statements.map((s) => statementSql.get(s) || '');
+          if (sqls.some((sql) => /^INSERT INTO attachments SELECT/i.test(sql.trim()))) {
+            throw new Error('swap exploded');
+          }
+          return (targetDb.batch as (items: object[]) => Promise<unknown>).call(targetDb, statements);
+        };
+      }
+      const value = Reflect.get(targetDb, property, receiver);
+      return typeof value === 'function' ? (value as (...a: unknown[]) => unknown).bind(targetDb) : value;
+    },
+  });
+  return { db: proxy as unknown as D1Database, batchCount: () => batches };
+}
+
+test('附件 17：恢复失败时，被覆盖的**活库**附件内容必须还原（同实例恢复的场景）', async () => {
+  const { source, bytes } = await exportWithAttachments({ inlineAttachmentBlobs: true });
+
+  // 活库：与备份**同一套 ID**（同一实例的灾难恢复）⇒ 附件键会撞车
+  const target = freshDatabase();
+  seedSource(target);
+  seedAttachmentRow(target);
+  const targetR2 = createR2MemoryBucket();
+  const objectKey = getAttachmentObjectKey(ATTACHMENT_CIPHER_ID, ATTACHMENT_ID);
+  await targetR2.bucket.put(objectKey, LIVE_ATTACHMENT_BYTES, { httpMetadata: { contentType: 'application/pdf' } });
+
+  const keysBefore = targetR2.keys();
+  const attachmentsBefore = selectAll(target, 'attachments', 'id');
+  assert.notDeepStrictEqual(LIVE_ATTACHMENT_BYTES, ATTACHMENT_BYTES, '前置条件：活库与备份的内容必须不同');
+
+  const { db: failingDb, batchCount } = failingSwapDatabase(target);
+  await assert.rejects(
+    () =>
+      importBackupArchiveBytes(bytes, { DB: failingDb, ATTACHMENTS: targetR2.bucket } as unknown as Env, 'actor-1', true),
+    /swap exploded/,
+    '前置条件：本次恢复必须真的失败在换表那一步'
+  );
+  assert.ok(batchCount() > 0, '前置条件：应执行过 batch（否则没走到换表）');
+
+  // ① DB 未被改动（影子表交换保证）
+  assert.deepStrictEqual(selectAll(target, 'attachments', 'id'), attachmentsBefore, '活库的附件行不该变');
+  // ② blob 键集合与失败前一致（不留孤儿、不少对象）
+  assert.deepStrictEqual(targetR2.keys(), keysBefore, 'blob 键集合必须与失败前完全一致');
+  // ③ 被覆盖的内容必须还原 —— 这是本条的核心：删除是错的（活库还指着它）
+  assert.deepStrictEqual(
+    targetR2.bytesOf(objectKey),
+    LIVE_ATTACHMENT_BYTES,
+    '活库附件的原内容必须被放回去（否则用户下载会拿到备份里的旧文件，且不报错）'
+  );
+
+  source.close();
+  target.close();
+});
+
+test('附件 18：恢复失败时不得留下无人引用的附件对象（备份来自别的实例）', async () => {
+  const { source, bytes } = await exportWithAttachments({ inlineAttachmentBlobs: true });
+
+  // 全新实例：没有 id 撞车 ⇒ 写进去的附件键都只被「未提交」的影子表引用
+  const target = freshDatabase();
+  const targetR2 = createR2MemoryBucket();
+  assert.deepStrictEqual(targetR2.keys(), [], '前置条件：起始 blob 存储应为空');
+
+  const { db: failingDb } = failingSwapDatabase(target);
+  await assert.rejects(
+    () =>
+      importBackupArchiveBytes(bytes, { DB: failingDb, ATTACHMENTS: targetR2.bucket } as unknown as Env, 'actor-1', false),
+    /swap exploded/
+  );
+
+  assert.deepStrictEqual(
+    targetR2.keys(),
+    [],
+    '失败后不应残留任何附件对象 —— 它们没有任何 DB 行引用，会永久占空间'
+  );
+
+  source.close();
+  target.close();
+});

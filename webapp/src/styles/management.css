@@ -2018,6 +2018,24 @@
   background: #94a3b8;
 }
 
+/* 失败态：恢复没成功（但活数据未被改动）。用 danger 语义色，不自动关闭，由用户点「关闭」。 */
+.restore-progress-current.failed {
+  border-color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 6%, var(--panel));
+}
+
+.restore-progress-item.failed {
+  color: var(--danger-text);
+}
+
+.restore-progress-item.failed .restore-progress-dot {
+  background: var(--danger);
+}
+
+.restore-progress-actions {
+  @apply mt-3 flex justify-end;
+}
+
 .kv-line strong {
   overflow-wrap: anywhere;
 }

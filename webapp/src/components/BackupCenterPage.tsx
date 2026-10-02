@@ -82,6 +82,8 @@ interface BackupProgressState {
   phases: BackupProgressPhase[];
   currentTitleKey: string;
   currentDetailKey: string;
+  /** 恢复失败：面板保留给用户读（不自动关），并说明「原有数据未作改动」。 */
+  failed?: boolean;
 }
 
 const LOCAL_RESTORE_PHASES: BackupProgressPhase[] = [
@@ -350,6 +352,8 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
       return;
     }
     setRestoreElapsedSeconds(Math.max(0, Math.floor((Date.now() - restoreProgress.startedAt) / 1000)));
+    // 失败后面板会停住等用户读，秒数再继续涨会误导「还在跑」⇒ 冻在失败那一刻。
+    if (restoreProgress.failed) return;
     const tickTimer = window.setInterval(() => {
       setRestoreElapsedSeconds(Math.max(0, Math.floor((Date.now() - restoreProgress.startedAt) / 1000)));
     }, 1000);
@@ -365,8 +369,13 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
       const source = (detail.source || pending?.source || null) as 'local' | 'remote' | null;
       const includeAttachments = pending?.includeAttachments || false;
       const phases = getBackupProgressPhases(operation, source, includeAttachments);
+      const failed = detail.ok === false;
       const matchedPhaseIndex = phases.findIndex((phase) => phase.titleKey === detail.stageTitle);
-      const phaseIndex = matchedPhaseIndex >= 0 ? matchedPhaseIndex : 0;
+      // 失败记录带的是**专门的失败标题**（不属于任何阶段）⇒ 保留上一轮的进度，别退回第 0 步。
+      const carriedPhaseIndex = pending && pending.phases.length === phases.length ? pending.phaseIndex : 0;
+      const phaseIndex = matchedPhaseIndex >= 0
+        ? matchedPhaseIndex
+        : Math.min(carriedPhaseIndex, Math.max(0, phases.length - 1));
       const nextState: BackupProgressState = {
         operation,
         source,
@@ -377,20 +386,22 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
           : Date.now(),
         phaseIndex,
         phases,
-        currentTitleKey: detail.stageTitle || phases[Math.max(0, phaseIndex)].titleKey,
-        currentDetailKey: detail.stageDetail || phases[Math.max(0, phaseIndex)].detailKey,
+        failed,
+        currentTitleKey: detail.stageTitle || phases[phaseIndex].titleKey,
+        currentDetailKey: detail.stageDetail || phases[phaseIndex].detailKey,
       };
       restoreProgressPendingRef.current = nextState;
       if (restoreProgressTimerRef.current === null) {
         setRestoreProgress(nextState);
       }
-      if (detail.done) {
+      // 失败不自动关：让用户看清面板上的「原有数据未作改动」（失败原因另有 toast）。
+      if (detail.done && !failed) {
         window.setTimeout(() => {
           setRestoreProgress((current) => (
             current && current.fileLabel === (detail.fileName || current.fileLabel) ? null : current
           ));
           setRestoreElapsedSeconds(0);
-        }, detail.ok === false ? 1200 : 900);
+        }, 900);
       }
     };
     window.addEventListener(BACKUP_PROGRESS_EVENT, handleProgress as EventListener);
@@ -1053,7 +1064,7 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
 
       {restoreProgress && typeof document !== 'undefined' ? createPortal((
         <div className="restore-progress-overlay" aria-live="polite">
-          <section className="restore-progress-card restore-progress-modal">
+          <section className={`restore-progress-card restore-progress-modal${restoreProgress.failed ? ' failed' : ''}`}>
           <div className="restore-progress-head">
             <div>
               <div className="restore-progress-kicker">{t('txt_backup_progress_kicker')}</div>
@@ -1076,13 +1087,15 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
               }}
             />
           </div>
-          <div className="restore-progress-current">
+          <div className={`restore-progress-current${restoreProgress.failed ? ' failed' : ''}`}>
             <strong>{t(restoreProgress.currentTitleKey)}</strong>
             <p>{t(restoreProgress.currentDetailKey)}</p>
           </div>
           <ol className="restore-progress-list">
             {restoreProgress.phases.map((phase, index) => {
-              const status = index < restoreProgress.phaseIndex ? 'done' : index === restoreProgress.phaseIndex ? 'active' : 'pending';
+              const status = restoreProgress.failed && index === restoreProgress.phaseIndex
+                ? 'failed'
+                : index < restoreProgress.phaseIndex ? 'done' : index === restoreProgress.phaseIndex ? 'active' : 'pending';
               return (
                 <li key={phase.titleKey} className={`restore-progress-item ${status}`}>
                   <span className="restore-progress-dot" />
@@ -1091,6 +1104,20 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
               );
             })}
           </ol>
+          {restoreProgress.failed && (
+            <div className="restore-progress-actions">
+              <button
+                type="button"
+                className="btn btn-secondary small"
+                onClick={() => {
+                  setRestoreProgress(null);
+                  setRestoreElapsedSeconds(0);
+                }}
+              >
+                {t('txt_close')}
+              </button>
+            </div>
+          )}
           </section>
         </div>
       ), document.body) : null}
