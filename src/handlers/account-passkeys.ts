@@ -475,7 +475,7 @@ export async function handlePutTwoFactorWebAuthn(request: Request, env: Env, use
     await storage.saveUser(user);
   }
   await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
-  await storage.deleteRefreshTokensByUserId(userId);
+  // 不撤销会话（理由见 handlers/accounts.ts 的 handleDisableTwoFactorProvider）。
   AuthService.invalidateUserCache(userId);
 
   await auditAndNotify(env, {
@@ -517,7 +517,7 @@ export async function handleDeleteTwoFactorWebAuthn(request: Request, env: Env, 
   const deleted = await storage.deleteAccountPasskeyCredential(userId, credential.id, 'twoFactor');
   if (!deleted) return errorResponse('Unable to delete WebAuthn credential.', 400);
   await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
-  await storage.deleteRefreshTokensByUserId(userId);
+  // 只删一把凭据更不该动会话：该因素仍在启用。
   AuthService.invalidateUserCache(userId);
 
   await auditAndNotify(env, {

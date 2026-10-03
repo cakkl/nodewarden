@@ -202,14 +202,19 @@ export class StorageService {
     return stmt.bind(...values.map(v => v === undefined ? null : v));
   }
 
+  /**
+   * 所有必需表是否都在。
+   *
+   * 用 `PRAGMA table_info` 而非 `SELECT ... FROM sqlite_master`：后者因 sqlite_master 上没有 `name`
+   * 索引而必然全表扫（线上该库 88 个 schema 对象 ⇒ 每次冷启动白读 82-88 行，占该实例行读六成以上）；
+   * 前者只读内存 schema，线上实测 `rows_read` 恒为 0。
+   */
   private async hasRequiredSchemaTables(): Promise<boolean> {
-    const placeholders = REQUIRED_SCHEMA_TABLES.map(() => '?').join(', ');
-    const result = await this.db
-      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (${placeholders})`)
-      .bind(...REQUIRED_SCHEMA_TABLES)
-      .all<{ name: string }>();
-    const found = new Set((result.results || []).map((row) => row.name));
-    return REQUIRED_SCHEMA_TABLES.every((table) => found.has(table));
+    // 表名是本文件常量、无外部输入（同 storage-account-passkey-repo.ts 的写法）。
+    const results = await Promise.all(
+      REQUIRED_SCHEMA_TABLES.map((table) => this.db.prepare(`PRAGMA table_info(${table})`).all())
+    );
+    return results.every((result) => (result.results || []).length > 0);
   }
 
   private sqlChunkSize(fixedBindCount: number, bindCountPerItem = 1): number {

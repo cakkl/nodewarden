@@ -1107,7 +1107,7 @@ export async function handlePutTwoFactorAuthenticator(request: Request, env: Env
   user.updatedAt = new Date().toISOString();
   await storage.saveUser(user);
   await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
-  await storage.deleteRefreshTokensByUserId(user.id);
+  // 不撤销会话（理由见 handleDisableTwoFactorProvider）。
   AuthService.invalidateUserCache(user.id);
   await auditAndNotify(env, {
     actorUserId: user.id,
@@ -1187,7 +1187,7 @@ export async function handlePutTwoFactorYubiKey(request: Request, env: Env, user
   user.updatedAt = new Date().toISOString();
   await storage.saveUser(user);
   await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
-  await storage.deleteRefreshTokensByUserId(user.id);
+  // 不撤销会话（理由见 handleDisableTwoFactorProvider）。
   AuthService.invalidateUserCache(user.id);
   await auditAndNotify(env, {
     actorUserId: user.id,
@@ -1340,7 +1340,8 @@ export async function handleDisableTwoFactorProvider(request: Request, env: Env,
   user.updatedAt = new Date().toISOString();
   await storage.saveUser(user);
   await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
-  await storage.deleteRefreshTokensByUserId(user.id);
+  // 不撤销既有会话：停用一路因素不改变凭据强度，删令牌却会让所有客户端一起掉线
+  // （官方也不动会话）。唯一例外见 two-factor-recovery.ts。
   AuthService.invalidateUserCache(user.id);
   await auditAndNotify(env, {
     actorUserId: user.id,
@@ -1412,7 +1413,7 @@ export async function handleSetTotpStatus(request: Request, env: Env, userId: st
     user.updatedAt = new Date().toISOString();
     await storage.saveUser(user);
     await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
-    await storage.deleteRefreshTokensByUserId(user.id);
+    // 不撤销会话（理由见 handleDisableTwoFactorProvider）。
     AuthService.invalidateUserCache(user.id);
     await auditAndNotify(env, {
       actorUserId: user.id,
@@ -1437,7 +1438,7 @@ export async function handleSetTotpStatus(request: Request, env: Env, userId: st
     user.updatedAt = new Date().toISOString();
     await storage.saveUser(user);
     await reconcileDefaultTwoFactorProvider(env.DB, storage, user);
-    await storage.deleteRefreshTokensByUserId(user.id);
+    // 不撤销会话（理由见 handleDisableTwoFactorProvider）。
     AuthService.invalidateUserCache(user.id);
     await auditAndNotify(env, {
       actorUserId: user.id,
