@@ -484,7 +484,7 @@ test('恢复码、通行密钥的新增与删除都会发提醒', async () => {
 
 test('恢复码：首次生成才发通知，重复读取不发', async () => {
   const { handle, env } = await setup({ optIn: true, verified: true });
-  const passwordHash = await new AuthService(env).hashPasswordServer('client-hash', USER_EMAIL);
+  const passwordHash = await new AuthService(env).hashPasswordServer('client-hash');
   handle.connection.prepare('UPDATE users SET master_password_hash = ? WHERE id = ?').run(passwordHash, USER_ID);
 
   const request = (): Request =>

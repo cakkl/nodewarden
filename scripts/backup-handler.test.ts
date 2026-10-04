@@ -65,7 +65,7 @@ async function createHarness(): Promise<Harness> {
     },
   } as unknown as Env;
 
-  const adminHash = await new AuthService(env).hashPasswordServer(CLIENT_HASH, ADMIN_EMAIL);
+  const adminHash = await new AuthService(env).hashPasswordServer(CLIENT_HASH);
   insertUser(handle.connection, ADMIN_ID, { email: ADMIN_EMAIL, role: 'admin', masterPasswordHash: adminHash });
   insertUser(handle.connection, MEMBER_ID);
 

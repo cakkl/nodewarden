@@ -62,7 +62,7 @@ async function seedUserWithPassword(
 ): Promise<string> {
   const id = options.id ?? USER_ID;
   const email = options.email ?? USER_EMAIL;
-  const masterPasswordHash = await h.auth.hashPasswordServer(CLIENT_HASH, email);
+  const masterPasswordHash = await h.auth.hashPasswordServer(CLIENT_HASH);
   insertUser(h.handle.connection, id, {
     email,
     status: options.status,
@@ -261,7 +261,9 @@ test('token：被封禁（banned）的账号无法登录，且不签发凭据', 
   });
 
   assert.equal(result.status, 400, `被封禁的账号必须登不进来，实际 ${result.status}`);
-  assert.match(String(result.body.error_description ?? ''), /disabled/i);
+  // 文案与「密码错误」**刻意一致**（防账号枚举：不泄露「该账号存在但被禁」）。
+  // 区分只留在审计事件里（`auth.login.failed.user_inactive`）。
+  assert.match(String(result.body.error_description ?? ''), /incorrect/i);
   assert.ok(result.body.access_token === undefined, '封禁账号绝不能签发 access token');
   assert.ok(result.body.refresh_token === undefined);
 

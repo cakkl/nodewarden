@@ -53,7 +53,7 @@ async function setup(options: { emailVerified?: boolean; mailConfigured?: boolea
     });
   }
 
-  const masterPasswordHash = await new AuthService(env).hashPasswordServer(CLIENT_HASH, USER_EMAIL);
+  const masterPasswordHash = await new AuthService(env).hashPasswordServer(CLIENT_HASH);
   insertUser(handle.connection, USER_ID, { email: USER_EMAIL, masterPasswordHash });
   handle.connection
     .prepare('UPDATE users SET email_verified = ? WHERE id = ?')

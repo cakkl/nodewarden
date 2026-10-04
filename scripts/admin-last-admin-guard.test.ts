@@ -60,7 +60,7 @@ async function seedUser(
     role: options.role,
     status: options.status,
     createdAt: options.createdAt,
-    masterPasswordHash: await new AuthService(h.env).hashPasswordServer(CLIENT_HASH, email),
+    masterPasswordHash: await new AuthService(h.env).hashPasswordServer(CLIENT_HASH),
   });
 }
 

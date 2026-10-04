@@ -86,7 +86,7 @@ async function setup(options: SetupOptions = {}): Promise<Harness> {
     });
   }
 
-  const masterPasswordHash = await new AuthService(env).hashPasswordServer(CLIENT_HASH, USER_EMAIL);
+  const masterPasswordHash = await new AuthService(env).hashPasswordServer(CLIENT_HASH);
   insertUser(handle.connection, USER_ID, {
     email: USER_EMAIL,
     masterPasswordHash,
