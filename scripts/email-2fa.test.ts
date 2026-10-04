@@ -319,7 +319,7 @@ async function setupEmailTwoFactorAccount(mailEnabled: boolean) {
     },
   } as unknown as Env;
   await saveMailSettings(env.DB, env, mailSettingsInput(mailEnabled));
-  const masterPasswordHash = await new AuthService(env).hashPasswordServer(CLIENT_HASH, USER_EMAIL);
+  const masterPasswordHash = await new AuthService(env).hashPasswordServer(CLIENT_HASH);
   insertUser(handle.connection, USER_ID, { email: USER_EMAIL, masterPasswordHash });
   await saveUserPreferences(handle.db, USER_ID, { twoFactorEmailEnabled: true });
   await setEmailVerified(handle.db, USER_ID, true);

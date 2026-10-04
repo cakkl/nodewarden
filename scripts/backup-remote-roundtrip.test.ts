@@ -232,7 +232,7 @@ async function setup(): Promise<Harness> {
 
   insertUser(handle.connection, ADMIN_ID, {
     email: ADMIN_EMAIL,
-    masterPasswordHash: await new AuthService(env).hashPasswordServer(CLIENT_HASH, ADMIN_EMAIL),
+    masterPasswordHash: await new AuthService(env).hashPasswordServer(CLIENT_HASH),
     role: 'admin',
   });
   seedData(handle.connection);

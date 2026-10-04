@@ -75,7 +75,7 @@ test('行为：关停验证器 2FA 保留既有刷新令牌，但该因素确实
 
   insertUser(handle.connection, userId, {
     email: userEmail,
-    masterPasswordHash: await new AuthService(env).hashPasswordServer(clientHash, userEmail),
+    masterPasswordHash: await new AuthService(env).hashPasswordServer(clientHash),
   });
   handle.connection
     .prepare('UPDATE users SET totp_secret = ? WHERE id = ?')

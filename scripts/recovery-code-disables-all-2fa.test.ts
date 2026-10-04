@@ -58,7 +58,7 @@ test('行为：/recover-2fa 必须一并停用邮件 2FA，并轮换恢复码、
 
   insertUser(handle.connection, userId, {
     email: userEmail,
-    masterPasswordHash: await new AuthService(env).hashPasswordServer(clientHash, userEmail),
+    masterPasswordHash: await new AuthService(env).hashPasswordServer(clientHash),
   });
   handle.connection
     .prepare(

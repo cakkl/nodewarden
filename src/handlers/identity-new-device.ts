@@ -18,7 +18,6 @@ import { AuthService } from '../services/auth';
 import { StorageService } from '../services/storage';
 import type { Env, User } from '../types';
 import { errorResponse, jsonResponse } from '../utils/response';
-import { constantTimeEquals } from '../utils/api-key';
 
 /** 新账号豁免期：与官方一致，创建 24h 内不拦。 */
 const NEW_DEVICE_VERIFICATION_ACCOUNT_GRACE_MS = 24 * 60 * 60 * 1000;
@@ -199,8 +198,9 @@ export async function handleResendNewDeviceOtp(request: Request, env: Env): Prom
   const auth = new AuthService(env);
   const storedHash = String(user.masterPasswordHash || '').trim();
   if (!storedHash) return ok();
-  const serverHash = await auth.hashPasswordServer(passwordHash, user.email);
-  if (!constantTimeEquals(serverHash, storedHash)) return ok();
+  // ⚠️ 必须走 verifyPassword，不能自己 hashPasswordServer 再比字符串：
+  // 新格式（`$s2$…`）带**随机盐**，每次哈希结果都不同 ⇒ 字符串比较永远不相等。
+  if (!(await auth.verifyPassword(passwordHash, storedHash, user.email))) return ok();
   if (user.verifyDevices !== true) return ok();
   if (!(await emailAvailabilityForUser(env, user)).ok) return ok();
   if (!(await isNewDeviceVerificationEnabled(env.DB))) return ok();

@@ -246,7 +246,7 @@ async function createAuditHarness() {
   const auth = new AuthService(env);
   insertUser(handle.connection, USER_ID, {
     email: USER_EMAIL,
-    masterPasswordHash: await auth.hashPasswordServer(CLIENT_HASH, USER_EMAIL),
+    masterPasswordHash: await auth.hashPasswordServer(CLIENT_HASH),
   });
   return { handle, env };
 }
