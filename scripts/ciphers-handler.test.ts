@@ -15,6 +15,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  handleBulkMoveCiphers,
   handleCreateCipher,
   handleDeleteCipherCompat,
   handleGetCipher,
@@ -340,6 +341,39 @@ for (const offsetMs of [-1, -1000, -60_000]) {
 test('客户端比服务端新时不判为陈旧（单向：只看服务端是否更新过）', async () => {
   const { h, result } = await updateWithRevisionOffset(60_000);
   assert.equal(result.status, 200, `客户端偏移 +60s 不属陈旧，实际 ${result.status}`);
+  h.handle.close();
+});
+
+// ---------------------------------------------------------------- 批量操作
+
+/**
+ * 批量端点会推进条目的 `updated_at`，而客户端只能从响应学到新版本号。
+ * 少返回它，客户端本地就滞留旧值 —— 随后编辑该条目再保存会被零容差预检误判成「他人改动」。
+ * 本仓的 archive / unarchive / restore 都返回 `buildCipherListResponse`，本用例把 move 钉在同一约定上。
+ */
+test('批量移动必须返回受影响条目，且 revisionDate 是推进后的值', async () => {
+  const h = createHarness();
+  const id = await seedCipher(h);
+  const before = '2026-03-01T00:00:00.000Z';
+  h.connection.prepare('UPDATE ciphers SET updated_at = ? WHERE id = ?').run(before, id);
+
+  const response = await handleBulkMoveCiphers(jsonRequest({ ids: [id], folderId: null }, 'PUT'), h.env, USER_A);
+  assert.equal(response.status, 200, `批量移动应返回 200（而非 204），实际 ${response.status}`);
+  const body = (await response.json()) as { object?: string; data?: Record<string, unknown>[] };
+  assert.equal(body.object, 'list');
+  assert.equal(body.data?.length, 1, '应返回被移动的条目');
+  assert.equal(body.data?.[0]?.id, id);
+  const revisionDate = String(body.data?.[0]?.revisionDate ?? '');
+  assert.ok(
+    Date.parse(revisionDate) > Date.parse(before),
+    `返回的 revisionDate 应是推进后的值，实际 ${revisionDate}`
+  );
+  assert.equal(
+    String(cipherRow(h.connection, id)?.updated_at),
+    revisionDate,
+    '响应里的 revisionDate 必须与库里的 updated_at 一致'
+  );
+
   h.handle.close();
 });
 

@@ -54,6 +54,7 @@ import {
 import { deriveLoginHash, getPreloginKdfConfig, verifyMasterPassword } from '@/lib/api/auth';
 import type { AuthedFetch } from '@/lib/api/shared';
 import { downloadBytesAsFile } from '@/lib/download';
+import { runSequentialTasks, type LabeledTask } from '@/lib/sequential-tasks';
 import type { Cipher, Folder as VaultFolder, Profile, Send, SendDraft, SessionState, VaultDraft } from '@/lib/types';
 
 type Notify = (type: 'success' | 'error' | 'warning', text: string) => void;
@@ -349,6 +350,18 @@ export default function useVaultSendActions(options: UseVaultSendActionsOptions)
       });
     }
 
+    // 采纳服务端返回的条目：本地乐观 patch 只改了业务字段，版本号必须跟服务端（否则随后的保存
+    // 会被判成「他人改动」）。单个解密失败不影响其余 —— 服务端那边已经成功了。
+    async function adoptServerCiphers(updated: Cipher[]) {
+      for (const cipher of updated) {
+        try {
+          await decryptAndPatch(cipher);
+        } catch {
+          // 忽略：本地没跟上只影响一致性，下次同步会修正
+        }
+      }
+    }
+
     async function decryptAndReplaceOptimistic(optimisticId: string, encrypted: Cipher) {
       if (!session?.symEncKey || !session?.symMacKey) {
         await refetchCiphers();
@@ -587,22 +600,44 @@ export default function useVaultSendActions(options: UseVaultSendActionsOptions)
         patchCipherBatch([cipher.id], () => optimistic, { patchEncrypted: false });
         try {
           const updated = await updateCipher(authedFetch, session, cipher, draft);
-          for (const attachmentId of removeAttachmentIds) {
-            const id = String(attachmentId || '').trim();
-            if (!id) continue;
-            await deleteCipherAttachment(authedFetch, cipher.id, id);
-          }
-          for (const file of addFiles) {
-            setUploadingAttachmentName(file.name);
-            setAttachmentUploadPercent(0);
-            await uploadCipherAttachment(authedFetch, session, cipher.id, file, cipher, setAttachmentUploadPercent);
-          }
-          const finalCipher = addFiles.length || removeAttachmentIds.length
+          // 条目已写入 ⇒ 附件步骤即使失败也不能当成「条目保存失败」：否则会误报成冲突、回滚出与
+          // 服务端不一致的界面，且编辑器保留旧版本号草稿 ⇒ 重试必被预检拒绝。改为逐个尝试、收集失败。
+          const attachmentsById = new Map((cipher.attachments || []).map((item) => [String(item?.id || ''), item]));
+          const attachmentTasks: (LabeledTask & { file?: File })[] = [
+            ...removeAttachmentIds
+              .map((attachmentId) => String(attachmentId || '').trim())
+              .filter(Boolean)
+              .map((id) => {
+                const attachment = attachmentsById.get(id);
+                return {
+                  label: attachment?.decFileName || attachment?.fileName || id,
+                  run: () => deleteCipherAttachment(authedFetch, cipher.id, id),
+                };
+              }),
+            ...addFiles.map((file) => ({
+              label: file.name,
+              file,
+              run: () => uploadCipherAttachment(authedFetch, session, cipher.id, file, cipher, setAttachmentUploadPercent),
+            })),
+          ];
+          const failures = await runSequentialTasks(attachmentTasks, (task) => {
+            if (task.file) {
+              setUploadingAttachmentName(task.file.name);
+              setAttachmentUploadPercent(0);
+            }
+          });
+          const finalCipher = attachmentTasks.length
             ? await getCipherById(authedFetch, cipher.id)
             : updated;
           await decryptAndPatch(finalCipher);
           void refreshVaultRevisionStamp();
-          onNotify('success', t('txt_item_updated'));
+          if (failures.length) {
+            for (const failure of failures) {
+              onNotify('error', `${failure.label}: ${failure.reason}`);
+            }
+          } else {
+            onNotify('success', t('txt_item_updated'));
+          }
         } catch (error) {
           patchCipherBatch([cipher.id], () => previousCipher, { patchEncrypted: false });
           if (error instanceof Error && error.message === t('txt_item_changed_elsewhere')) {
@@ -740,9 +775,10 @@ export default function useVaultSendActions(options: UseVaultSendActionsOptions)
           throw error;
         }
         try {
-          await bulkArchiveCiphers(authedFetch, ids);
+          const updated = await bulkArchiveCiphers(authedFetch, ids);
           const archivedDate = new Date().toISOString();
           patchCipherBatch(ids, (cipher) => ({ ...cipher, archivedDate, deletedDate: null }));
+          await adoptServerCiphers(updated);
           void refreshVaultRevisionStamp();
           onNotify('success', t('txt_archived_selected_items'));
         } catch (error) {
@@ -759,8 +795,9 @@ export default function useVaultSendActions(options: UseVaultSendActionsOptions)
           throw error;
         }
         try {
-          await bulkUnarchiveCiphers(authedFetch, ids);
+          const updated = await bulkUnarchiveCiphers(authedFetch, ids);
           patchCipherBatch(ids, (cipher) => ({ ...cipher, archivedDate: null }));
+          await adoptServerCiphers(updated);
           void refreshVaultRevisionStamp();
           onNotify('success', t('txt_unarchived_selected_items'));
         } catch (error) {
@@ -777,8 +814,9 @@ export default function useVaultSendActions(options: UseVaultSendActionsOptions)
           throw error;
         }
         try {
-          await bulkMoveCiphers(authedFetch, ids, folderId);
+          const updated = await bulkMoveCiphers(authedFetch, ids, folderId);
           patchCipherBatch(ids, (cipher) => ({ ...cipher, folderId }));
+          await adoptServerCiphers(updated);
           void refreshVaultRevisionStamp();
           onNotify('success', t('txt_moved_selected_items'));
         } catch (error) {
@@ -888,8 +926,9 @@ export default function useVaultSendActions(options: UseVaultSendActionsOptions)
           throw error;
         }
         try {
-          await bulkRestoreCiphers(authedFetch, ids);
+          const updated = await bulkRestoreCiphers(authedFetch, ids);
           patchCipherBatch(ids, (cipher) => ({ ...cipher, deletedDate: null }));
+          await adoptServerCiphers(updated);
           void refreshVaultRevisionStamp();
           onNotify('success', t('txt_restored_selected_items'));
         } catch (error) {

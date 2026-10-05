@@ -1306,7 +1306,8 @@ export async function handleBulkMoveCiphers(request: Request, env: Env, userId: 
     return errorResponse('Invalid JSON', 400);
   }
 
-  if (!body.ids || !Array.isArray(body.ids)) {
+  const ids = parseCipherIdList(body);
+  if (!ids) {
     return errorResponse('ids array is required', 400);
   }
 
@@ -1316,12 +1317,14 @@ export async function handleBulkMoveCiphers(request: Request, env: Env, userId: 
     if (!folderOk) return errorResponse('Folder not found', 404);
   }
 
-  const revisionDate = await storage.bulkMoveCiphers(body.ids, folderId, userId);
+  const revisionDate = await storage.bulkMoveCiphers(ids, folderId, userId);
   if (revisionDate) {
     notifyVaultSyncForRequest(request, env, userId, revisionDate);
   }
 
-  return new Response(null, { status: 204 });
+  // 必须把受影响条目带回（同 handleBulkArchiveCiphers / handleBulkRestoreCiphers）：本操作推进了
+  // updatedAt，客户端只能从响应学到新版本号 —— 少了它，本地滞留旧值，随后保存会被预检判成他人改动。
+  return buildCipherListResponse(request, storage, userId, ids);
 }
 
 async function buildCipherListResponse(
