@@ -1,11 +1,14 @@
 {
   "name": "nodewarden",
-  "version": "1.8.0",
+  "version": "1.8.1",
   "description": "Minimal Bitwarden-compatible server running on Cloudflare Workers",
   "author": "shuaiplus",
   "license": "LGPL-3.0",
   "main": "src/index.ts",
   "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.11.0"
+  },
   "scripts": {
     "dev": "wrangler dev -c wrangler.toml",
     "dev:kv": "wrangler dev -c wrangler.kv.toml",
@@ -17,6 +20,7 @@
     "i18n:validate": "node scripts/i18n-validate.cjs",
     "deps:check": "node scripts/check-deps.cjs",
     "test:config-compatibility": "tsx --test scripts/config-compatibility.test.ts",
+    "test:vault-compatibility": "tsx --tsconfig webapp/tsconfig.json --import ./scripts/offline-workers-loader.mjs --test scripts/vault-compatibility.test.ts",
     "test:web-crypto": "tsx --test scripts/web-crypto-availability.test.ts",
     "test:notifications-security": "tsx --test scripts/notifications-security.test.ts",
     "test:webauthn-mobile": "node --test scripts/webauthn-mobile-connector.test.mjs",
@@ -68,7 +72,7 @@
     "test:error-response-shape": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/error-response-shape.test.ts",
     "test:hide-web-vault": "tsx --import ./scripts/lib/register-cloudflare-stub.mjs --test scripts/web-vault-visibility.test.ts",
     "test:backup-restore-failure": "tsx --tsconfig tsconfig.webapp-tests.json --test scripts/webapp/backup-restore-failure.test.ts",
-    "test": "npm run test:config-compatibility && npm run test:web-crypto && npm run test:notifications-security && npm run test:webauthn-connectors && npm run test:security-audit && npm run test:backup-roundtrip && npm run test:backup-remote-roundtrip && npm run test:backup-remote-timeout && npm run test:backup-visibility && npm run test:yubico-otp-timeout && npm run test:ensure-kv && npm run test:error-message-guard && npm run test:regex-hardening && npm run test:audit-log-pagination && npm run test:migration-upgrade && npm run test:ciphers-handler && npm run test:sync-handler && npm run test:identity-handler && npm run test:admin-last-admin && npm run test:sends-handler && npm run test:folders-handler && npm run test:import-handler && npm run test:attachments-handler && npm run test:backup-handler && npm run test:webapp-lib && npm run test:query-plan && npm run test:query-count && npm run test:conditional-request && npm run test:app-version-log && npm run test:audit-events && npm run test:mail-smtp && npm run test:email-verification && npm run test:mail-render-preferences && npm run test:security-notifications && npm run test:account-preferences && npm run test:security-stamp-alias && npm run test:email-verified && npm run test:email-2fa && npm run test:recovery-2fa && npm run test:two-factor-session && npm run test:password-hint && npm run test:same-origin && npm run test:email-endpoint-paths && npm run test:error-response-shape && npm run test:send-otp && npm run test:new-device && npm run test:account-otp && npm run test:two-factor-default && npm run test:hide-web-vault && npm run test:backup-restore-failure",
+    "test": "npm run test:config-compatibility && npm run test:vault-compatibility && npm run test:web-crypto && npm run test:notifications-security && npm run test:webauthn-connectors && npm run test:security-audit && npm run test:backup-roundtrip && npm run test:backup-remote-roundtrip && npm run test:backup-remote-timeout && npm run test:backup-visibility && npm run test:yubico-otp-timeout && npm run test:ensure-kv && npm run test:error-message-guard && npm run test:regex-hardening && npm run test:audit-log-pagination && npm run test:migration-upgrade && npm run test:ciphers-handler && npm run test:sync-handler && npm run test:identity-handler && npm run test:admin-last-admin && npm run test:sends-handler && npm run test:folders-handler && npm run test:import-handler && npm run test:attachments-handler && npm run test:backup-handler && npm run test:webapp-lib && npm run test:query-plan && npm run test:query-count && npm run test:conditional-request && npm run test:app-version-log && npm run test:audit-events && npm run test:mail-smtp && npm run test:email-verification && npm run test:mail-render-preferences && npm run test:security-notifications && npm run test:account-preferences && npm run test:security-stamp-alias && npm run test:email-verified && npm run test:email-2fa && npm run test:recovery-2fa && npm run test:two-factor-session && npm run test:password-hint && npm run test:same-origin && npm run test:email-endpoint-paths && npm run test:error-response-shape && npm run test:send-otp && npm run test:new-device && npm run test:account-otp && npm run test:two-factor-default && npm run test:hide-web-vault && npm run test:backup-restore-failure",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p webapp/tsconfig.json --noEmit && tsc -p tsconfig.scripts.json --noEmit && tsc -p tsconfig.webapp-tests.json --noEmit",
     "verify": "npm run typecheck && npm run i18n:validate && npm test && npm run build",
     "deploy": "wrangler deploy",
@@ -102,8 +106,8 @@
     }
   },
   "overrides": {
-    "nanoid": "^3.3.18",
-    "undici": "^8.9.0",
+    "nanoid": "3.3.18",
+    "undici": "8.10.2",
     "@babel/core": ">=7.29.6",
     "esbuild": ">=0.28.1",
     "ws": "^8.21.0",
@@ -116,11 +120,9 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260930.1",
     "@preact/preset-vite": "^2.10.6",
-    "@tailwindcss/postcss": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.3",
-    "autoprefixer": "^10.6.1",
     "opencc-js": "^1.4.2",
-    "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

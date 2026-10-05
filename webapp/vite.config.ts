@@ -3,12 +3,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import preact from '@preact/preset-vite';
+import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type Plugin } from 'vite';
 import { OFFLINE_FALLBACK_MESSAGES } from './src/lib/offline-fallback-messages';
 
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 
-/**
 /**
  * 离线兜底页（缓存全空 + 离线时唯一能看到的东西）。两条硬约束：
  * 不引用任何外部资源（此时缓存是空的，logo 必破图 ⇒ 构建期内联）；文案也只能构建期内联
@@ -319,6 +319,7 @@ export default defineConfig(({ mode }) => {
       // prefresh 曾因 `@prefresh/babel-plugin` 0.5.3 在 Babel 8 下无限递归（`getFirstParent` 爆栈）而关闭；
       // 0.5.4 修好后恢复默认开启 —— 版本由 package.json 的 overrides 锁定。
       preact({}),
+      tailwindcss(),
       searchIndexPolicyPlugin(isDemo),
       pwaServiceWorkerPlugin(isDemo),
       // demo 没有后端，但仍会被探针请求 /api/** ⇒ 给一个最小应答，避免控制台噪音

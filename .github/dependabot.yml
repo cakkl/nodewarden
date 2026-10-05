@@ -18,8 +18,13 @@ updates:
         update-types:
           - "minor"
           - "patch"
-    # 原先这里 ignore 了 tailwindcss 的 major 更新；2026-09-18 已完成 v3 → v4 迁移，
-    # 该条已过期 ⇒ 删除，让 Dependabot 正常提 v5 的 major PR。
+    ignore:
+      - dependency-name: "tailwindcss"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "@tailwindcss/*"
+        update-types:
+          - "version-update:semver-major"
 
   - package-ecosystem: "github-actions"
     directory: "/"

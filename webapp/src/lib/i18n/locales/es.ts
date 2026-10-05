@@ -1217,6 +1217,7 @@ const es: Record<string, string> = {
   "txt_remove_device_failed": "Error al quitar dispositivo",
   "txt_remove_all_devices_failed": "Error al quitar todos los dispositivos",
   "txt_update_item_failed": "Error al actualizar elemento",
+  "txt_item_changed_elsewhere": "Este elemento se modificó en otro cliente. Tus cambios siguen en el formulario. Copia los cambios necesarios, vuelve a abrir el elemento y guárdalo.",
   "txt_update_send_failed": "Error al actualizar envío",
   "txt_update_user_status_failed": "Error al actualizar estado de usuario",
   "txt_use_your_one_time_recovery_code_to_disable_two_step_verification": "Use su código de recuperación de un solo uso para desactivar la verificación en dos pasos.",

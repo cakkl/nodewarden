@@ -1,5 +1,3 @@
-@reference './tailwind.css';
-
 .app-page {
   @apply relative min-h-full bg-transparent;
 }
