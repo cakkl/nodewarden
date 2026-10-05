@@ -169,6 +169,8 @@ function readCipherRevisionDate(source: any): string | null {
   return revision.present ? normalizeCipherTimestamp(revision.value) : null;
 }
 
+// 零容差：服务端 updatedAt 比客户端新即算陈旧。前提是服务端不产生客户端看不见的推进
+// （见 attachments.ts 传字节那步）；⚠️ 改成容差式判定等于放弃「1 秒内的丢更新检测」。
 function isStaleCipherUpdate(existingUpdatedAt: string, clientRevisionDate: string | null): boolean {
   if (!clientRevisionDate) return false;
   const existingTs = Date.parse(existingUpdatedAt);

@@ -18,9 +18,10 @@ import {
   handleDeleteAttachment,
   handleGetAttachment,
   handlePublicDownloadAttachment,
+  handleUpdateAttachmentMetadata,
   handleUploadAttachment,
 } from '../src/handlers/attachments';
-import { handleCreateCipher } from '../src/handlers/ciphers';
+import { handleCreateCipher, handleUpdateCipher } from '../src/handlers/ciphers';
 import type { Env } from '../src/types';
 import { createR2MemoryBucket } from './lib/r2-memory';
 import { createSchemaDatabase, enc, insertUser, TEST_JWT_SECRET } from './lib/test-harness';
@@ -198,6 +199,114 @@ test('上传：内容写入 R2，且键为「条目 id / 附件 id」', async ()
   const key = `${cipherId}/${created.attachmentId}`;
   assert.ok(h.bucket.keys().includes(key), `对象应写入 ${key}，实际键：${JSON.stringify(h.bucket.keys())}`);
   assert.equal(new TextDecoder().decode(h.bucket.bytesOf(key)!), content, 'R2 里的内容应与上传一致');
+
+  h.handle.close();
+});
+
+// ------------------------------------------------------- 传字节不得推进条目版本
+
+/**
+ * 官方客户端流程：建元数据（响应带 `cipherResponse.revisionDate` 供刷新）→ 传字节 → 用它保存条目。
+ * 「传字节」的响应是裸 201、无 body ⇒ 一旦这一步推进 `updated_at`，客户端就滞留旧值，随后的保存
+ * 被零容差预检判成「他人改动」。官方同此：`Cipher_UpdateAttachment.sql` 只 SET [Attachments]。
+ */
+function cipherUpdatedAt(h: Harness, cipherId: string): string {
+  const row = h.connection.prepare('SELECT updated_at FROM ciphers WHERE id = ?').get(cipherId) as
+    | { updated_at: string }
+    | undefined;
+  assert.ok(row, '条目应存在');
+  return row.updated_at;
+}
+
+test('上传附件字节不得推进 cipher 的 updated_at（建元数据时已推进过）', async () => {
+  const h = await createHarness();
+  const cipherId = await seedCipher(h);
+  const created = await createAttachment(h, cipherId, { fileSize: byteLength('bytes') });
+  // 建元数据应当推进：客户端能从 cipherResponse 学到新值
+  const afterMetadata = cipherUpdatedAt(h, cipherId);
+
+  const uploaded = await handleUploadAttachment(
+    multipartUpload(created.uploadIdSearch, 'bytes'),
+    h.env,
+    OWNER,
+    cipherId,
+    created.attachmentId
+  );
+  assert.equal(uploaded.status, 201, `上传应成功（201），实际 ${uploaded.status}`);
+  assert.equal(
+    cipherUpdatedAt(h, cipherId),
+    afterMetadata,
+    '传字节的响应是裸 201（客户端学不到新值）⇒ 推进会使客户端滞留旧值'
+  );
+
+  h.handle.close();
+});
+
+test('上传附件后，用建元数据时拿到的 revisionDate 保存条目必须成功（官方客户端流程）', async () => {
+  const h = await createHarness();
+  const cipherId = await seedCipher(h);
+  const created = await createAttachment(h, cipherId, { fileSize: byteLength('bytes') });
+  const learnedRevision = String(
+    (created.body.cipherResponse as { revisionDate?: string } | undefined)?.revisionDate ?? ''
+  );
+  assert.ok(learnedRevision, '建元数据的响应必须带 cipherResponse.revisionDate（客户端靠它刷新）');
+
+  const uploaded = await handleUploadAttachment(
+    multipartUpload(created.uploadIdSearch, 'bytes'),
+    h.env,
+    OWNER,
+    cipherId,
+    created.attachmentId
+  );
+  assert.equal(uploaded.status, 201, `上传应成功（201），实际 ${uploaded.status}`);
+
+  const saved = await handleUpdateCipher(
+    jsonRequest(
+      `https://vault.example.test/api/ciphers/${cipherId}`,
+      { type: 1, name: enc('renamed-after-upload'), lastKnownRevisionDate: learnedRevision },
+      'PUT'
+    ),
+    h.env,
+    OWNER,
+    cipherId
+  );
+  assert.equal(saved.status, 200, `上传后保存应成功，实际 ${saved.status}`);
+
+  h.handle.close();
+});
+
+test('改名附件后，用该响应带回来的 revisionDate 保存条目必须成功（改名端点同属隐式推进）', async () => {
+  const h = await createHarness();
+  const cipherId = await seedCipher(h);
+  const created = await createAttachment(h, cipherId, { fileSize: byteLength('bytes') });
+
+  const renamed = await handleUpdateAttachmentMetadata(
+    jsonRequest(`https://vault.example.test/api/ciphers/${cipherId}/attachment/${created.attachmentId}/metadata`, {
+      fileName: enc('renamed-file'),
+    }),
+    h.env,
+    OWNER,
+    cipherId,
+    created.attachmentId
+  );
+  assert.equal(renamed.status, 200, `改名应成功（200），实际 ${renamed.status}`);
+  const renamedBody = (await renamed.json()) as Record<string, unknown>;
+  const learnedRevision = String(
+    (renamedBody.Cipher as { revisionDate?: string } | undefined)?.revisionDate ?? ''
+  );
+  assert.ok(learnedRevision, '改名响应必须带回刷新后的 cipher（客户端靠它刷新 revisionDate）');
+
+  const saved = await handleUpdateCipher(
+    jsonRequest(
+      `https://vault.example.test/api/ciphers/${cipherId}`,
+      { type: 1, name: enc('saved-after-rename'), lastKnownRevisionDate: learnedRevision },
+      'PUT'
+    ),
+    h.env,
+    OWNER,
+    cipherId
+  );
+  assert.equal(saved.status, 200, `改名后保存应成功，实际 ${saved.status}`);
 
   h.handle.close();
 });
