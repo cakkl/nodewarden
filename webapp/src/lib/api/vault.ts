@@ -1522,8 +1522,18 @@ export async function bulkDeleteCiphers(authedFetch: AuthedFetch, ids: string[])
   }
 }
 
-export async function bulkArchiveCiphers(authedFetch: AuthedFetch, ids: string[]): Promise<void> {
+/**
+ * 批量端点返回受影响条目（`{data: [...]}`）。**必须采纳** —— 这些操作推进了条目的 revisionDate，
+ * 客户端只能从响应学到新值；忽略它会让本地滞留旧值，随后编辑该条目保存被误判成「他人改动」。
+ */
+async function readCipherList(resp: Response): Promise<Cipher[]> {
+  const body = await parseJson<{ data?: Cipher[] }>(resp);
+  return Array.isArray(body?.data) ? body.data : [];
+}
+
+export async function bulkArchiveCiphers(authedFetch: AuthedFetch, ids: string[]): Promise<Cipher[]> {
   const uniqueIds = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+  const updated: Cipher[] = [];
   for (const chunk of chunkArray(uniqueIds, BULK_API_CHUNK_SIZE)) {
     const resp = await authedFetch('/api/ciphers/archive', {
       method: 'PUT',
@@ -1531,7 +1541,9 @@ export async function bulkArchiveCiphers(authedFetch: AuthedFetch, ids: string[]
       body: JSON.stringify({ ids: chunk }),
     });
     if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_archive_failed')));
+    updated.push(...await readCipherList(resp));
   }
+  return updated;
 }
 
 export async function bulkPermanentDeleteCiphers(authedFetch: AuthedFetch, ids: string[]): Promise<void> {
@@ -1546,8 +1558,9 @@ export async function bulkPermanentDeleteCiphers(authedFetch: AuthedFetch, ids: 
   }
 }
 
-export async function bulkRestoreCiphers(authedFetch: AuthedFetch, ids: string[]): Promise<void> {
+export async function bulkRestoreCiphers(authedFetch: AuthedFetch, ids: string[]): Promise<Cipher[]> {
   const uniqueIds = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+  const updated: Cipher[] = [];
   for (const chunk of chunkArray(uniqueIds, BULK_API_CHUNK_SIZE)) {
     const resp = await authedFetch('/api/ciphers/restore', {
       method: 'POST',
@@ -1555,11 +1568,14 @@ export async function bulkRestoreCiphers(authedFetch: AuthedFetch, ids: string[]
       body: JSON.stringify({ ids: chunk }),
     });
     if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_restore_failed')));
+    updated.push(...await readCipherList(resp));
   }
+  return updated;
 }
 
-export async function bulkUnarchiveCiphers(authedFetch: AuthedFetch, ids: string[]): Promise<void> {
+export async function bulkUnarchiveCiphers(authedFetch: AuthedFetch, ids: string[]): Promise<Cipher[]> {
   const uniqueIds = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+  const updated: Cipher[] = [];
   for (const chunk of chunkArray(uniqueIds, BULK_API_CHUNK_SIZE)) {
     const resp = await authedFetch('/api/ciphers/unarchive', {
       method: 'PUT',
@@ -1567,15 +1583,18 @@ export async function bulkUnarchiveCiphers(authedFetch: AuthedFetch, ids: string
       body: JSON.stringify({ ids: chunk }),
     });
     if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_unarchive_failed')));
+    updated.push(...await readCipherList(resp));
   }
+  return updated;
 }
 
 export async function bulkMoveCiphers(
   authedFetch: AuthedFetch,
   ids: string[],
   folderId: string | null
-): Promise<void> {
+): Promise<Cipher[]> {
   const uniqueIds = Array.from(new Set(ids.map((id) => String(id || '').trim()).filter(Boolean)));
+  const updated: Cipher[] = [];
   for (const chunk of chunkArray(uniqueIds, BULK_API_CHUNK_SIZE)) {
     const resp = await authedFetch('/api/ciphers/move', {
       method: 'POST',
@@ -1583,5 +1602,7 @@ export async function bulkMoveCiphers(
       body: JSON.stringify({ ids: chunk, folderId }),
     });
     if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_bulk_move_failed')));
+    updated.push(...await readCipherList(resp));
   }
+  return updated;
 }
