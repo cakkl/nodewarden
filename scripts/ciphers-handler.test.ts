@@ -31,7 +31,7 @@ const NOW = '2026-01-01T00:00:00.000Z';
 const USER_A = 'user-a';
 const USER_B = 'user-b';
 
-/** 远早于任何 updated_at，用于触发 stale 检查（判定阈值是差值 >1000ms） */
+/** 远早于任何 updated_at ⇒ 与任何实现下的阈值都必定判为陈旧 */
 const STALE_REVISION = '2020-01-01T00:00:00.000Z';
 
 /**
@@ -296,6 +296,50 @@ test('不传 revisionDate 时不做陈旧判定（客户端可省略该字段）
   const ok = await callUpdate(h.env, USER_A, id, { type: 1, name: enc('without-revision') });
   assert.equal(ok.status, 200, '省略 lastKnownRevisionDate 不应被当作陈旧');
 
+  h.handle.close();
+});
+
+// ---------------------------------------------------------------- 陈旧判定边界（零容差）
+
+/**
+ * 零容差：服务端 updatedAt 比客户端新即算陈旧（哪怕 1ms）。敢这么严的前提是服务端不再产生
+ * 客户端看不见的推进（见 `attachments.ts` 传字节那步）⇒ 差值恒为 0。
+ * ⚠️ 改成容差式判定等于放弃「1 秒内的丢更新检测」（同 base 的并发保存会双双成功）。
+ */
+const BOUNDARY_BASE = '2026-03-01T00:00:00.000Z';
+
+async function updateWithRevisionOffset(offsetMs: number) {
+  const h = createHarness();
+  const id = await seedCipher(h);
+  // 固定服务端 updated_at，使差值只由客户端偏移决定（负 = 服务端更新过，正 = 客户端那份更新）
+  h.connection.prepare('UPDATE ciphers SET updated_at = ? WHERE id = ?').run(BOUNDARY_BASE, id);
+  const clientRevision = new Date(Date.parse(BOUNDARY_BASE) + offsetMs).toISOString();
+  const result = await callUpdate(h.env, USER_A, id, {
+    type: 1,
+    name: enc('boundary'),
+    lastKnownRevisionDate: clientRevision,
+  });
+  return { h, result };
+}
+
+test('客户端与服务端版本一致时必须接受', async () => {
+  const { h, result } = await updateWithRevisionOffset(0);
+  assert.equal(result.status, 200, `差值 0 应接受，实际 ${result.status}`);
+  h.handle.close();
+});
+
+for (const offsetMs of [-1, -1000, -60_000]) {
+  test(`服务端比客户端新 ${-offsetMs}ms 就必须拒绝（零容差）`, async () => {
+    const { h, result } = await updateWithRevisionOffset(offsetMs);
+    assert.equal(result.status, 400, `服务端更新过即视为陈旧，实际 ${result.status}`);
+    assert.match(String(result.body.error), /out of date/i, '应提示客户端重新同步');
+    h.handle.close();
+  });
+}
+
+test('客户端比服务端新时不判为陈旧（单向：只看服务端是否更新过）', async () => {
+  const { h, result } = await updateWithRevisionOffset(60_000);
+  assert.equal(result.status, 200, `客户端偏移 +60s 不属陈旧，实际 ${result.status}`);
   h.handle.close();
 });
 

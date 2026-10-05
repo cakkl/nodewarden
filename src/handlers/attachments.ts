@@ -108,7 +108,6 @@ async function runWithConcurrency<T>(
 async function processAttachmentUpload(
   request: Request,
   env: Env,
-  cipher: Cipher,
   attachment: Attachment,
   cipherId: string
 ): Promise<Response> {
@@ -151,12 +150,8 @@ async function processAttachmentUpload(
     await storage.saveAttachment(attachment);
   }
 
-  const revisionInfo = await storage.updateCipherRevisionDate(cipherId);
-  if (revisionInfo) {
-    notifyVaultSyncForRequest(request, env, revisionInfo.userId, revisionInfo.revisionDate);
-    notifyCipherUpdateForRequest(request, env, cipher, revisionInfo.revisionDate);
-  }
-
+  // 刻意不推进 updatedAt：本步响应是裸 201，客户端拿不到新 revisionDate ⇒ 推进会让它滞留旧值，
+  // 随后的保存被零容差预检误判成「他人改动」。官方同此（Cipher_UpdateAttachment.sql 只 SET [Attachments]）。
   return new Response(null, { status: 201 });
 }
 
@@ -259,7 +254,7 @@ export async function handleUploadAttachment(
     return errorResponse('Attachment not found', 404);
   }
 
-  return processAttachmentUpload(request, env, cipher, attachment, cipherId);
+  return processAttachmentUpload(request, env, attachment, cipherId);
 }
 
 export async function handlePublicUploadAttachment(
@@ -297,7 +292,7 @@ export async function handlePublicUploadAttachment(
     return errorResponse('Attachment not found', 404);
   }
 
-  return processAttachmentUpload(request, env, cipher, attachment, cipherId);
+  return processAttachmentUpload(request, env, attachment, cipherId);
 }
 
 // GET /api/ciphers/{cipherId}/attachment/{attachmentId}
@@ -326,7 +321,7 @@ export async function handleGetAttachment(
 
   // Generate short-lived download token
   const token = await createFileDownloadToken(cipherId, attachmentId, env.JWT_SECRET);
-  
+
   // Generate download URL with token
   const url = new URL(request.url);
   const downloadUrl = `${url.origin}/api/attachments/${cipherId}/${attachmentId}?token=${token}`;
@@ -391,6 +386,12 @@ export async function handleUpdateAttachmentMetadata(
     notifyCipherUpdateForRequest(request, env, cipher, revisionInfo.revisionDate);
   }
 
+  // 必须把刷新后的 cipher 带回：改名真的改了条目数据 ⇒ 该推进版本，但客户端只能从响应里的
+  // revisionDate 学到新值。字段名同 handleDeleteAttachment（客户端读 Cipher / cipher 两种拼法）。
+  const updatedCipher = await storage.getCipherForUser(cipherId, userId);
+  const attachments = await storage.getAttachmentsByCipher(cipherId);
+  const cipherResponse = cipherToResponse(updatedCipher!, attachments);
+
   return jsonResponse({
     object: 'attachment',
     id: attachment.id,
@@ -398,6 +399,8 @@ export async function handleUpdateAttachmentMetadata(
     key: attachment.key,
     size: String(Number(attachment.size) || 0),
     sizeName: attachment.sizeName,
+    Cipher: cipherResponse,
+    cipher: cipherResponse,
   });
 }
 
