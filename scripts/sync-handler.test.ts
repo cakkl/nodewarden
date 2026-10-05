@@ -365,6 +365,13 @@ test('ETag 命中回 304，且不再走缓存查找 / 不再渲染 body', async 
 test('库数据变化后 ETag 变化（旧 ETag 不再命中 304）', async () => {
   const h = createHarness();
   await seedCipher(h, 'a');
+
+  // 把 revision_date 拨回已知的过去时刻再取基线：`updateRevisionDate` 是**毫秒精度**，
+  // 两次 seedCipher 可能落在同一毫秒 ⇒ ETag 不变 ⇒ 旧 ETag 命中 304（实测连跑 5 次红 1 次）。
+  // ⚠️ 必须**先拨过去、再取 before** —— 反过来 seedCipher 会把值覆盖回当前毫秒，断言照样随机失败。
+  h.connection
+    .prepare('UPDATE user_revisions SET revision_date = ? WHERE user_id = ?')
+    .run('2020-01-01T00:00:00.000Z', USER);
   const before = String((await handleSync(syncRequest(), h.env, USER)).headers.get('ETag'));
 
   await seedCipher(h, 'b');

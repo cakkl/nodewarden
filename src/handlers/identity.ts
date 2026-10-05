@@ -1,4 +1,5 @@
 import { Env, TokenResponse, User } from '../types';
+import { waitUntil } from 'cloudflare:workers';
 import { StorageService } from '../services/storage';
 import { AuthService } from '../services/auth';
 import { RateLimitService, getClientIdentifier } from '../services/ratelimit';
@@ -148,20 +149,20 @@ async function persistIdentityDevicePushToken(
 
   const pushUuid = device.pushUuid || generateUUID();
   await storage.updateDevicePushToken(userId, deviceSession.identifier, pushUuid, pushToken);
-  const registered = await registerMobilePushDevice(env, {
+  // 不阻塞登录响应（理由见 handlers/devices.ts 的 handleRegisterDevice）。
+  waitUntil(registerMobilePushDevice(env, {
     userId,
     deviceIdentifier: deviceSession.identifier,
     type: device.type || deviceType,
     pushUuid,
     pushToken,
-  });
+  }));
   console.info('Mobile push token updated from identity token request', {
     userId,
     deviceIdentifier: deviceSession.identifier,
     deviceType: device.type || deviceType,
     pushUuid,
     pushTokenLength: pushToken.length,
-    relayRegistered: registered,
   });
 }
 

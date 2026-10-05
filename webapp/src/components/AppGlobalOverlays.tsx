@@ -260,6 +260,10 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
                 <input className="input" type={isYubiKeyOtp ? 'password' : 'text'} value={props.totpCode} autoComplete="one-time-code" onInput={(e) => props.onTotpCodeChange((e.currentTarget as HTMLInputElement).value)} />
               </label>
             )}
+            <label className="check-line check-line-compact">
+              <input type="checkbox" checked={props.rememberDevice} onChange={(e) => props.onRememberDeviceChange((e.currentTarget as HTMLInputElement).checked)} />
+              <span>{t('txt_trust_this_device_for_30_days')}</span>
+            </label>
             {isEmailOtp && props.onResendEmailCode && (
               <button
                 type="button"
@@ -270,10 +274,6 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
                 {resendLabel(t('txt_resend_code'), props.emailCodeResendIn ?? 0)}
               </button>
             )}
-            <label className="check-line check-line-compact">
-              <input type="checkbox" checked={props.rememberDevice} onChange={(e) => props.onRememberDeviceChange((e.currentTarget as HTMLInputElement).checked)} />
-              <span>{t('txt_trust_this_device_for_30_days')}</span>
-            </label>
           </>
         )}
       </ConfirmDialog>

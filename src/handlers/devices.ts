@@ -1,5 +1,6 @@
 import type { Device, DevicePendingAuthRequest, DeviceResponse, ProtectedDeviceResponse as ProtectedDeviceWireResponse } from '../types';
 import { Env } from '../types';
+import { waitUntil } from 'cloudflare:workers';
 import { getOnlineUserDevices, notifyUserLogout } from '../durable/notifications-hub';
 import { AuthService } from '../services/auth';
 import { auditRequestMetadata, writeAuditEvent } from '../services/audit-events';
@@ -151,13 +152,15 @@ export async function handleRegisterDevice(request: Request, env: Env, userId: s
     const pushUuid = device?.pushUuid || generateUUID();
     const updated = await storage.updateDevicePushToken(userId, identifier, pushUuid, pushToken);
     if (updated) {
-      await registerMobilePushDevice(env, {
+      // 跨境调 Bitwarden push relay（实测 ~1.2 s）⇒ 不阻塞响应。
+      // 失败只影响「后台推送」，不影响设备已注册的事实 ⇒ 无需回滚。
+      waitUntil(registerMobilePushDevice(env, {
         userId,
         deviceIdentifier: identifier,
         type,
         pushUuid,
         pushToken,
-      });
+      }));
     }
   }
 
@@ -415,7 +418,8 @@ export async function handleDeleteDevice(
   await storage.deleteRefreshTokensByDevice(userId, normalized);
   const deleted = await storage.deleteDevice(userId, normalized);
   if (deleted) {
-    await unregisterMobilePushDevice(env, device?.pushUuid);
+    // 不阻塞响应（理由见 handleRegisterDevice）。
+    waitUntil(unregisterMobilePushDevice(env, device?.pushUuid));
     AuthService.invalidateDeviceCache(userId, normalized);
     notifyUserLogout(env, userId, normalized);
   }
@@ -658,7 +662,8 @@ export async function handleDeactivateDevice(
   await storage.deleteRefreshTokensByDevice(userId, normalized);
   const deleted = await storage.deleteDevice(userId, normalized);
   if (deleted) {
-    await unregisterMobilePushDevice(env, device?.pushUuid);
+    // 不阻塞响应（理由见 handleRegisterDevice）。
+    waitUntil(unregisterMobilePushDevice(env, device?.pushUuid));
     AuthService.invalidateDeviceCache(userId, normalized);
     notifyUserLogout(env, userId, normalized);
   }
@@ -696,13 +701,14 @@ export async function handleUpdateDeviceToken(
   const pushUuid = device.pushUuid || generateUUID();
   const updated = await storage.updateDevicePushToken(userId, normalized, pushUuid, pushToken);
   if (updated) {
-    await registerMobilePushDevice(env, {
+    // 不阻塞响应（理由见 handleRegisterDevice）。
+    waitUntil(registerMobilePushDevice(env, {
       userId,
       deviceIdentifier: normalized,
       type: device.type,
       pushUuid,
       pushToken,
-    });
+    }));
   }
 
   return new Response(null, { status: 200 });
@@ -736,7 +742,8 @@ export async function handleClearDeviceToken(
   const storage = new StorageService(env.DB);
   const cleared = await storage.clearDevicePushToken(userId, normalized);
   if (cleared?.pushUuid) {
-    await unregisterMobilePushDevice(env, cleared.pushUuid);
+    // 不阻塞响应（理由见 handleRegisterDevice）。
+    waitUntil(unregisterMobilePushDevice(env, cleared.pushUuid));
   }
 
   return new Response(null, { status: 200 });
