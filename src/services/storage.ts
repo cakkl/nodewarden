@@ -58,6 +58,7 @@ import {
   getCiphersByIds as listStoredCiphersByIds,
   getCiphersPage as listStoredCiphersPage,
   saveCipher as saveStoredCipher,
+  updateCipherIfUnchanged as updateStoredCipherIfUnchanged,
   deleteCipher as deleteStoredCipher,
 } from './storage-cipher-repo';
 import {
@@ -524,6 +525,10 @@ export class StorageService {
 
   async saveCipher(cipher: Cipher): Promise<void> {
     await saveStoredCipher(this.db, this.safeBind.bind(this), cipher);
+  }
+
+  async updateCipherIfUnchanged(cipher: Cipher, expectedUpdatedAt: string): Promise<boolean> {
+    return updateStoredCipherIfUnchanged(this.db, this.safeBind.bind(this), cipher, expectedUpdatedAt);
   }
 
   async deleteCipher(id: string, userId: string): Promise<void> {

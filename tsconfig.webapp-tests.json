@@ -15,5 +15,5 @@
     // webapp 配置里是 vite/client；补上 node 以便使用 node:test / node:assert
     "types": ["node", "vite/client"]
   },
-  "include": ["webapp/src/**/*", "shared/**/*", "scripts/webapp/**/*"]
+  "include": ["webapp/src/**/*", "shared/**/*", "scripts/webapp/**/*", "scripts/web-crypto-availability.test.ts"]
 }

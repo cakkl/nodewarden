@@ -1217,6 +1217,7 @@ const it: Record<string, string> = {
   "txt_remove_device_failed": "Impossibile rimuovere il dispositivo",
   "txt_remove_all_devices_failed": "Impossibile rimuovere tutti i dispositivi",
   "txt_update_item_failed": "Aggiornamento elemento fallito",
+  "txt_item_changed_elsewhere": "Questo elemento è stato modificato in un altro client. Le tue modifiche sono ancora nel modulo. Copia quelle necessarie, riapri questo elemento e salva.",
   "txt_update_send_failed": "Aggiornamento invio fallito",
   "txt_update_user_status_failed": "Aggiornamento stato utente fallito",
   "txt_use_your_one_time_recovery_code_to_disable_two_step_verification": "Usa il tuo codice di recupero monouso per disabilitare la verifica in due passaggi.",

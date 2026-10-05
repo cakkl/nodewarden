@@ -1,5 +1,3 @@
-@reference './tailwind.css';
-
 /* 1181–1400px 区间：三栏最小宽度之和（270 + 400 + 400 + 24）超过可用宽度，
    会把网格轨道顶出容器，导致详情面板被截断、「删除」等按钮无法点到。
    这里收窄侧栏并下调两栏最小宽度，保证三栏始终放得下。
@@ -140,12 +138,8 @@
   }
 
   .topbar-actions > .network-status-badge {
-    @apply inline-flex h-9 w-9 min-w-9 justify-center gap-0 rounded-xl p-0;
-    /* ⚠️ 必须显式写 font-size（不要用 @apply text-[0]）：Tailwind 4 对裸数字 `text-[0]`
-       无法判定是 font-size 还是 color ⇒ **不会生成 font-size 声明** ⇒ 徽标文字保持
-       基础规则的 text-xs（0.75rem，root 15px ⇒ 11.25px），在 33.75px 的方形徽标里
-       被挤成「逐字换行」（实测 .network-status-label 只有 18×23px ⇒ 看起来是竖排）。 */
-    font-size: 0;
+    /* ⚠️ 必须是 text-[0px]：Tailwind 4 对裸数字 `text-[0]` 无法判定 font-size/color，静默不生成声明。 */
+    @apply inline-flex h-9 w-9 min-w-9 justify-center gap-0 rounded-xl p-0 text-[0px];
     background: color-mix(in srgb, var(--panel) 88%, transparent);
     border-color: var(--line);
     box-shadow: none;
@@ -157,9 +151,7 @@
 
   .mobile-sidebar-toggle,
   .mobile-lock-btn {
-    @apply inline-flex h-9 w-9 min-w-9 justify-center gap-0 rounded-xl p-0;
-    /* 同 .network-status-badge：`@apply text-[0]` 不生成 font-size，必须显式写 */
-    font-size: 0;
+    @apply inline-flex h-9 w-9 min-w-9 justify-center gap-0 rounded-xl p-0 text-[0px];
     background: color-mix(in srgb, var(--panel) 88%, transparent);
     border-color: var(--line);
     box-shadow: none;
@@ -460,9 +452,7 @@
   }
 
   .mobile-fab-trigger {
-    @apply h-9 w-9 gap-0 rounded-full p-0;
-    /* 同上：显式 font-size，避免 `text-[0]` 静默失效 */
-    font-size: 0;
+    @apply h-9 w-9 gap-0 rounded-full p-0 text-[0px];
     box-shadow: 0 14px 30px rgba(37, 99, 235, 0.28);
     transition: transform 180ms var(--ease-spring), box-shadow var(--dur-fast) var(--ease-out-soft);
   }
