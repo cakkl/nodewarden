@@ -196,9 +196,12 @@ async function discoverDoDimensions(token) {
     });
     const types = data.__schema?.types ?? [];
     const find = (dataset) => {
-      // 类型名形如 AccountDurableObjectsInvocationsAdaptiveGroupsDimensions
-      const re = new RegExp(`^Account${dataset}Dimensions$`, 'i');
-      const t = types.find((x) => re.test(x.name));
+      // 类型名形如 AccountDurableObjectsInvocationsAdaptiveGroupsDimensions。
+      // 用全等比较而非 `new RegExp(...)`：原正则的 `^…$` 就是完全匹配，语义等价，
+      // 且避免 Semgrep 的 detect-non-literal-regexp 告警（动态拼正则）。
+      // ⚠️ 两侧都要转小写 —— 只转 `x.name` 会与未转小写的 `dataset` 对不上。
+      const expected = `account${dataset}dimensions`.toLowerCase();
+      const t = types.find((x) => x.name.toLowerCase() === expected);
       return t ? { typeName: t.name, fields: (t.fields ?? []).map((f) => f.name) } : null;
     };
     const result = {
