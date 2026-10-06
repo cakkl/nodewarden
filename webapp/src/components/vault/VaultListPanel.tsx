@@ -68,9 +68,9 @@ interface VaultListPanelProps {
   isMobileLayout: boolean;
   mobileFabVisible: boolean;
   createMenuOpen: boolean;
-  createMenuRef: RefObject<HTMLDivElement>;
-  sortMenuRef: RefObject<HTMLDivElement>;
-  listPanelRef: RefObject<HTMLDivElement>;
+  createMenuRef: RefObject<HTMLDivElement | null>;
+  sortMenuRef: RefObject<HTMLDivElement | null>;
+  listPanelRef: RefObject<HTMLDivElement | null>;
   onSearchInput: (value: string) => void;
   onClearSearch: () => void;
   onSearchCompositionStart: () => void;

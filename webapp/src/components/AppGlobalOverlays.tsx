@@ -257,7 +257,14 @@ export default function AppGlobalOverlays(props: AppGlobalOverlaysProps) {
             ) : (
               <label className="field">
                 <span>{isYubiKeyOtp ? t('txt_otp_from_yubikey') : isEmailOtp ? t('txt_email_verification_code') : t('txt_totp_code')}</span>
-                <input className="input" type={isYubiKeyOtp ? 'password' : 'text'} value={props.totpCode} autoComplete="one-time-code" onInput={(e) => props.onTotpCodeChange((e.currentTarget as HTMLInputElement).value)} />
+                {/* 同 AuthViews 的密码框：password / text 分属不同判别分支。 */}
+                <input
+                  className="input"
+                  {...(isYubiKeyOtp ? { type: 'password' as const } : { type: 'text' as const })}
+                  value={props.totpCode}
+                  autoComplete="one-time-code"
+                  onInput={(e) => props.onTotpCodeChange((e.currentTarget as HTMLInputElement).value)}
+                />
               </label>
             )}
             <label className="check-line check-line-compact">
