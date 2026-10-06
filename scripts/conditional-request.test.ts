@@ -50,7 +50,13 @@ test('GET /api/settings/domains：内容没变回 304，改了设置就必须重
   assert.match(cacheControl, /no-cache/, '必须让浏览器「存下来但每次校验」');
   assert.doesNotMatch(cacheControl, /no-store/, 'no-store 会让条件请求永不发生 —— 加了 ETag 也白做');
   const body = await first.text();
-  assert.ok(body.length > 5000, `响应应含全局等价域名表（实测 ≈10 KB），实际 ${body.length} B`);
+  // 断言「响应真的带上了全局等价域名表」—— 别用字节门槛：表会随上游同步增减
+  // （2026-10-05 那次同步把 91 组缩到 22 组，旧的 `> 5000 B` 会误红）。
+  const parsed = JSON.parse(body) as { globalEquivalentDomains?: { type: number; domains: string[] }[] };
+  const globalGroups = parsed.globalEquivalentDomains || [];
+  const globalDomainCount = globalGroups.reduce((total, group) => total + group.domains.length, 0);
+  assert.ok(globalGroups.length > 0, '响应必须含全局等价域名表');
+  assert.ok(globalDomainCount > 50, `全局域名表应成规模，实际 ${globalGroups.length} 组 / ${globalDomainCount} 域名`);
 
   const second = await handleGetDomains(withETag(etag), env, 'user-1');
   assert.equal(second.status, 304, '内容未变应回 304');
