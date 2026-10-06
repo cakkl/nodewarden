@@ -41,7 +41,7 @@ interface VaultEditorProps {
   removedAttachmentIds: Record<string, boolean>;
   removedAttachmentCount: number;
   attachmentQueue: File[];
-  attachmentInputRef: RefObject<HTMLInputElement>;
+  attachmentInputRef: RefObject<HTMLInputElement | null>;
   localError: string;
   downloadingAttachmentKey: string;
   attachmentDownloadPercent: number | null;

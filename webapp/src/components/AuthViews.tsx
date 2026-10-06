@@ -70,10 +70,12 @@ function PasswordField(props: {
     <label className="field">
       <span>{props.label}</span>
       <div className="password-wrap">
+        {/* preact 11 按 `type` 把 input 的 ARIA 类型判别成多个分支，password / text 分属不同分支 ⇒
+            传 `'text' | 'password'` 匹配不上任一分支。以判别联合展开可保持同一元素（勿改回三元表达式）。 */}
         <input
           className="input"
           aria-label={props.label}
-          type={show ? 'text' : 'password'}
+          {...(show ? { type: 'text' as const } : { type: 'password' as const })}
           value={props.value}
           onInput={(e) => props.onInput((e.currentTarget as HTMLInputElement).value)}
           autoFocus={props.autoFocus}
@@ -323,9 +325,10 @@ export default function AuthViews(props: AuthViewsProps) {
             <>
           <label className="field">
             <span>{t('txt_email')}</span>
+            {/* 同上：email / text 也分属不同判别分支。 */}
             <input
               className="input"
-              type={props.relaxedLoginInput ? 'text' : 'email'}
+              {...(props.relaxedLoginInput ? { type: 'text' as const } : { type: 'email' as const })}
               value={props.loginValues.email}
               autoComplete="username"
               placeholder={props.authPlaceholder}

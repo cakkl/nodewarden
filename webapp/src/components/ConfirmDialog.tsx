@@ -209,9 +209,14 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
   }
 
   if (!present || typeof document === 'undefined') return null;
+  // preact 11 按元素限定 ARIA 角色，`<form>` 不接受 dialog ⇒ 角色放到遮罩层（form 保留 onSubmit 支持回车确认）。
   return createPortal((
     <div
       className={`dialog-mask ${props.variant === 'warning' ? 'warning' : ''} ${props.open && !closing ? 'open' : ''} ${closing ? 'closing' : ''}`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={hasMessage ? messageId : undefined}
       onPointerDown={(event) => {
         maskPointerStartedRef.current = event.target === event.currentTarget;
       }}
@@ -223,10 +228,6 @@ export default function ConfirmDialog(props: ConfirmDialogProps) {
       <form
         ref={cardRef}
         className={`dialog-card ${props.variant === 'warning' ? 'warning' : ''} ${props.open && !closing ? 'open' : ''} ${closing ? 'closing' : ''}`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        aria-describedby={hasMessage ? messageId : undefined}
         tabIndex={-1}
         onKeyDown={handleDialogKeyDown}
         onSubmit={(e) => {

@@ -571,7 +571,14 @@ export default function SendsPage(props: SendsPageProps) {
                     </div>
                   ) : (
                     <div className="password-wrap">
-                      <input className="input" aria-label={t('txt_password')} type={showPassword ? 'text' : 'password'} value={draft.password} onInput={(e) => setDraft({ ...draft, password: (e.currentTarget as HTMLInputElement).value })} />
+                      {/* 同 AuthViews 的密码框。 */}
+                      <input
+                        className="input"
+                        aria-label={t('txt_password')}
+                        {...(showPassword ? { type: 'text' as const } : { type: 'password' as const })}
+                        value={draft.password}
+                        onInput={(e) => setDraft({ ...draft, password: (e.currentTarget as HTMLInputElement).value })}
+                      />
                       <button type="button" className="password-toggle" title={showPassword ? t('txt_hide') : t('txt_reveal')} aria-label={showPassword ? t('txt_hide') : t('txt_reveal')} onClick={() => setShowPassword((v) => !v)}>
                         {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                       </button>
