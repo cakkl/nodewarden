@@ -75,12 +75,14 @@ import useBackupActions from '@/hooks/useBackupActions';
 import { RESEND_COOLDOWN_SECONDS, useResendCountdown } from '@/hooks/useResendCountdown';
 import useI18nRevision from '@/hooks/useI18nRevision';
 import useVaultSendActions from '@/hooks/useVaultSendActions';
+import useSecretsManager from '@/hooks/useSecretsManager';
 import { useToastManager } from '@/hooks/useToastManager';
 import { detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
 import { shouldWarnUnverifiedEmail } from '@/lib/email-verification-warning';
 import { detectPreferences, savePreferences } from '@/lib/api/preferences';
 import { detectBrowserTimeZone } from '@/lib/datetime';
 import { APP_NOTIFY_EVENT, type AppNotifyDetail } from '@/lib/app-notify';
+import { emitSecretsManagerChange, getSecretsManagerTabId } from '@/lib/secrets-realtime';
 import { dispatchBackupProgress, type BackupProgressDetail } from '@/lib/backup-restore-progress';
 import { clearOfflineUnlockRecord } from '@/lib/offline-auth';
 import { clearPasswordSecurityCache } from '@/lib/password-security-cache';
@@ -146,6 +148,9 @@ const SIGNALR_UPDATE_TYPE_AUTH_REQUEST = 15;
 const SIGNALR_UPDATE_TYPE_AUTH_REQUEST_RESPONSE = 16;
 const SIGNALR_UPDATE_TYPE_DEVICE_STATUS = 101;
 const SIGNALR_UPDATE_TYPE_BACKUP_RESTORE_PROGRESS = 102;
+// 机密管理器（不是官方号段：官方 SM 没有推送，只有拉取式同步）
+const SIGNALR_UPDATE_TYPE_SM_SECRETS = 103;
+const SIGNALR_UPDATE_TYPE_SM_MACHINE_ACCOUNTS = 104;
 const TWO_FACTOR_PROVIDER_EMAIL = 1;
 const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
 const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
@@ -320,6 +325,7 @@ export default function App() {
   const pendingVaultCoreQueryRefreshRef = useRef<Promise<{ data?: VaultCoreSnapshot } | unknown> | null>(null);
   const pendingVaultCoreRefreshRef = useRef<Promise<unknown> | null>(null);
   const notificationRefreshTimerRef = useRef<number | null>(null);
+  const secretsManagerRefreshTimerRef = useRef<number | null>(null);
   const domainRulesSaveSeqRef = useRef(0);
   const loginEmailRef = useRef(loginValues.email);
   const loginHintRequestSeqRef = useRef(0);
@@ -2040,6 +2046,25 @@ export default function App() {
             continue;
           }
           if (contextId && contextId === getCurrentDeviceIdentifier()) continue;
+          if (
+            updateType === SIGNALR_UPDATE_TYPE_SM_SECRETS ||
+            updateType === SIGNALR_UPDATE_TYPE_SM_MACHINE_ACCOUNTS
+          ) {
+            // 自己这个**标签页**刚改的不用刷（CLI 那路没有这个字段 ⇒ 照常刷）。
+            // ⚠️ 不能拿设备标识比 —— 同设备的另一个标签页正是我们要刷新的对象。
+            if (contextId && contextId === getSecretsManagerTabId()) continue;
+            // CLI 一条命令往往连写好几条（建项目 → 建机密 → 改 → 读 → 删）⇒ 去抖成一次刷新。
+            if (secretsManagerRefreshTimerRef.current !== null) {
+              window.clearTimeout(secretsManagerRefreshTimerRef.current);
+            }
+            const kind =
+              updateType === SIGNALR_UPDATE_TYPE_SM_SECRETS ? 'secrets' : 'machine-accounts';
+            secretsManagerRefreshTimerRef.current = window.setTimeout(() => {
+              secretsManagerRefreshTimerRef.current = null;
+              emitSecretsManagerChange(kind);
+            }, 250);
+            continue;
+          }
           if (updateType === SIGNALR_UPDATE_TYPE_SYNC_CIPHERS || updateType === SIGNALR_UPDATE_TYPE_SYNC_VAULT) {
             if (notificationRefreshTimerRef.current !== null) {
               window.clearTimeout(notificationRefreshTimerRef.current);
@@ -2101,6 +2126,10 @@ export default function App() {
       if (notificationRefreshTimerRef.current !== null) {
         window.clearTimeout(notificationRefreshTimerRef.current);
         notificationRefreshTimerRef.current = null;
+      }
+      if (secretsManagerRefreshTimerRef.current !== null) {
+        window.clearTimeout(secretsManagerRefreshTimerRef.current);
+        secretsManagerRefreshTimerRef.current = null;
       }
       clearReconnectTimer();
       clearStableTimer();
@@ -2261,7 +2290,6 @@ export default function App() {
   const currentPageTitle = (() => {
     if (isUnknownRoute) return t('txt_page_not_found');
     if (location === ROUTES.secrets) return t('nav_secrets');
-    if (location === ROUTES.secretsProjects) return t('nav_secret_projects');
     if (location === ROUTES.secretsMachineAccounts) return t('nav_machine_accounts');
     if (location === ROUTES.passwordHealth) return t('txt_password_security');
     if (location === ROUTES.vaultTotp) return t('txt_verification_code');
@@ -2296,11 +2324,15 @@ export default function App() {
     }
   }, [phase, mobileLayout, location, navigate]);
 
+  const secretsManager = useSecretsManager({ authedFetch, session, onNotify: pushToast });
+
   const mainRoutesProps = {
     profile,
     profileLoading: profileQuery.isFetching && !profile,
     session,
     mobileLayout,
+    secretsManager,
+    authedFetch,
     themePreference,
     decryptedCiphers,
     decryptedFolders,

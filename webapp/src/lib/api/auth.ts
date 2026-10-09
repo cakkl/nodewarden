@@ -8,6 +8,7 @@ import {
   WebCryptoUnavailableError,
 } from '../crypto';
 import { t, translateServerError } from '../i18n';
+import { SECRETS_MANAGER_CONTEXT_HEADER, getSecretsManagerTabId } from '../secrets-realtime';
 import type { AuthorizedDevice } from '../types';
 import type {
   AccountPasskeyCredential,
@@ -576,6 +577,9 @@ export function createAuthedFetch(getSession: () => SessionState | null, setSess
     if (!session?.accessToken) throw new Error(t('txt_offline_vault_readonly'));
     const headers = new Headers(init.headers || {});
     headers.set('Authorization', `Bearer ${session.accessToken}`);
+    // 机密管理器的「标签页」上下文（服务端会回吐进推送的 `ContextId`）。必须按**标签页**而不是
+    // 设备：同设备的两个标签页要能互相看到对方的改动。
+    headers.set(SECRETS_MANAGER_CONTEXT_HEADER, getSecretsManagerTabId());
 
     let resp = await retryableRequest(headers);
     if (resp.status !== 401 || (!session.refreshToken && session.authMode !== 'web-cookie')) return resp;
@@ -584,6 +588,7 @@ export function createAuthedFetch(getSession: () => SessionState | null, setSess
     if (latest?.accessToken && latest.accessToken !== session.accessToken) {
       const latestHeaders = new Headers(init.headers || {});
       latestHeaders.set('Authorization', `Bearer ${latest.accessToken}`);
+      latestHeaders.set(SECRETS_MANAGER_CONTEXT_HEADER, getSecretsManagerTabId());
       resp = await retryableRequest(latestHeaders);
       if (resp.status !== 401) return resp;
     }

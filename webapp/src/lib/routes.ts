@@ -18,7 +18,6 @@ export const ROUTES = {
 
   // 机密管理器（独立产品；产品归属由路径派生，见下面的 isSecretsProductPath）
   secrets: '/secrets',
-  secretsProjects: '/secrets/projects',
   secretsMachineAccounts: '/secrets/machine-accounts',
 
   settings: '/settings',
@@ -67,7 +66,6 @@ export const SHELL_ROUTE_PATHS = [
   ROUTES.generator,
   ROUTES.passwordHealth,
   ROUTES.secrets,
-  ROUTES.secretsProjects,
   ROUTES.secretsMachineAccounts,
   ROUTES.settings,
   ROUTES.settingsAccount,
@@ -95,7 +93,6 @@ export function isKnownRoutePath(path: string): boolean {
 /** 机密管理器产品的全部页面路径。 */
 export const SECRETS_PRODUCT_PATHS = [
   ROUTES.secrets,
-  ROUTES.secretsProjects,
   ROUTES.secretsMachineAccounts,
 ] as const;
 

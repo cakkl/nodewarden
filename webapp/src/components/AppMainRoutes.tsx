@@ -13,6 +13,8 @@ import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { t } from '@/lib/i18n';
 import type { AccountPasskeyCredential, AdminInvite, AdminUser, AuditLogListResult, AuditLogSettings, AuthRequest, AuthorizedDevice, Cipher, CustomEquivalentDomain, DomainRules, Folder as VaultFolder, MailPreferences, MailPreferencesUpdate, MailSettings, MailSettingsInput, MailTestResult, Profile, Send, SendDraft, SessionState, TwoFactorPasskeySettings, VaultDraft, YubiKeyOtpSettings } from '@/lib/types';
 import type { ExportRequest } from '@/lib/export-formats';
+import type { AuthedFetch } from '@/lib/api/shared';
+import type { SecretsManagerProps } from '@/hooks/useSecretsManager';
 import { DEVICE_MANAGEMENT_ROUTE_PATHS, IMPORT_EXPORT_ROUTE_PATHS, ROUTES } from '@/lib/routes';
 
 const VaultPage = lazy(() => import('@/components/VaultPage'));
@@ -28,7 +30,6 @@ const LogCenterPage = lazy(() => import('@/components/LogCenterPage'));
 const BackupCenterPage = lazy(() => import('@/components/BackupCenterPage'));
 const ImportPage = lazy(() => import('@/components/ImportPage'));
 const SecretsPage = lazy(() => import('@/components/SecretsPage'));
-const SecretProjectsPage = lazy(() => import('@/components/SecretProjectsPage'));
 const MachineAccountsPage = lazy(() => import('@/components/MachineAccountsPage'));
 
 function RouteContentFallback() {
@@ -96,6 +97,10 @@ export interface AppMainRoutesProps {
   domainRules: DomainRules | null;
   domainRulesLoading: boolean;
   domainRulesError: string;
+  /** 机密管理器（三个 SM 页面共用同一份数据与操作，见 `useSecretsManager`）。 */
+  secretsManager: SecretsManagerProps;
+  /** 机器账号页需要自己访问端点（它的数据与机密/项目不共享）。 */
+  authedFetch: AuthedFetch;
   onNavigate: (path: string) => void;
   onLogout: () => void;
   onNotify: (type: 'success' | 'error' | 'warning', text: string) => void;
@@ -304,17 +309,17 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
       </Route>
       <Route path={ROUTES.secrets}>
         <Suspense fallback={<RouteContentFallback />}>
-          <SecretsPage mobileLayout={props.mobileLayout} />
-        </Suspense>
-      </Route>
-      <Route path={ROUTES.secretsProjects}>
-        <Suspense fallback={<RouteContentFallback />}>
-          <SecretProjectsPage />
+          <SecretsPage mobileLayout={props.mobileLayout} manager={props.secretsManager} />
         </Suspense>
       </Route>
       <Route path={ROUTES.secretsMachineAccounts}>
         <Suspense fallback={<RouteContentFallback />}>
-          <MachineAccountsPage />
+          <MachineAccountsPage
+            authedFetch={props.authedFetch}
+            session={props.session}
+            onNotify={props.onNotify}
+            mobileLayout={props.mobileLayout}
+          />
         </Suspense>
       </Route>
       <Route path={ROUTES.vaultTotp}>

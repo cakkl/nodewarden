@@ -1,4 +1,4 @@
-import { ChevronDown, Clock3, Folder as FolderIcon, KeyRound, Lock, LogOut, Send as SendIcon, Settings as SettingsIcon, ShieldUser, Sparkles } from 'lucide-preact';
+import { ChevronDown, Clock3, KeyRound, Lock, LogOut, Send as SendIcon, Settings as SettingsIcon, ShieldUser, Sparkles } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { Link } from 'wouter';
@@ -167,7 +167,6 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
   const secretsNav = (
     <>
       {renderSideLink(ROUTES.secrets, props.location === ROUTES.secrets, <KeyRound size={16} />, t('nav_secrets'))}
-      {renderSideLink(ROUTES.secretsProjects, props.location === ROUTES.secretsProjects, <FolderIcon size={16} />, t('nav_secret_projects'))}
       {renderSideLink(ROUTES.secretsMachineAccounts, props.location === ROUTES.secretsMachineAccounts, <ShieldUser size={16} />, t('nav_machine_accounts'))}
     </>
   );
@@ -239,10 +238,6 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
             <Link href={ROUTES.secrets} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.secrets ? 'active' : ''}`}>
               <KeyRound size={18} />
               <span>{t('nav_secrets')}</span>
-            </Link>
-            <Link href={ROUTES.secretsProjects} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.secretsProjects ? 'active' : ''}`}>
-              <FolderIcon size={18} />
-              <span>{t('nav_secret_projects')}</span>
             </Link>
             <Link href={ROUTES.secretsMachineAccounts} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.secretsMachineAccounts ? 'active' : ''}`}>
               <ShieldUser size={18} />
