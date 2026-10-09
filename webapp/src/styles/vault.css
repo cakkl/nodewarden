@@ -210,8 +210,17 @@
   @apply gap-2;
 }
 
-.list-head.selection-mode > .btn.small {
-  @apply min-w-0 flex-1 justify-center;
+/* 选择模式的批量按钮放进动作组（与「排序 / 同步 / 新建」同一个 `.head-actions-group`）：
+   独占第二行并等分铺满；`min-width: max-content` 防止极窄列把文字压叠。 */
+.list-head.selection-mode .head-actions-group > .btn.small {
+  flex: 1 1 0;
+  min-width: max-content;
+}
+
+/* 选择模式下搜索组独占一行（批量按钮整组落到第二行）—— 重复项模式的那个「完全相同」
+   下拉也在这一组里，同样不会跟批量按钮抢行。 */
+.list-head.selection-mode > .head-search-group {
+  flex: 1 0 100%;
 }
 
 /* 列表头的两个分组（桌面态）：避免 flex-wrap 逐个换行把按钮拆散 —— 组内 nowrap、整组换行。
@@ -819,14 +828,8 @@
   z-index: 1;
 }
 
-/* 批量操作条：全局规则按密码库的按钮数写死成 5 等分（`repeat(5, minmax(0, 1fr))`），
-   SM 的按钮数随视图变（非回收站 3 个、回收站 4 个）⇒ 改成「列数跟着按钮数走」，
-   否则右侧会留出空列。特异性 (0,3,0) 高于全局那条 (0,2,0)。 */
-.list-head.selection-mode.sm-selection-mode {
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
-  grid-template-columns: none;
-}
+/* 窄屏选择模式的列模板由 responsive.css + styles.css 打磨层统一决定（首项 1fr + 其余按内容宽）：
+   搜索框在选择模式下仍在第一项，这里若按按钮数等分出列，会把搜索框一并挤窄。 */
 
 /* 窄屏下 `.section-head` 会变成纵向、左对齐（见 responsive.css 的 ≤640px 段），
    但机器账号的卡只有「标题 + 操作按钮」⇒ 保持一行、按钮靠右。

@@ -275,9 +275,16 @@
     display: contents;
   }
 
+  /* 移动端选择模式：批量按钮**顶替整行**（搜索框与「排序 / 同步」一起让位）。
+     列数跟着按钮数走、等分铺满；不要写死列数 —— 按钮少于列数时会留下空列。 */
   .list-head.selection-mode {
-    @apply justify-stretch;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-template-columns: none;
+  }
+
+  .list-head.selection-mode > .head-search-group {
+    display: none;
   }
 
   .list-head .search-input-wrap {

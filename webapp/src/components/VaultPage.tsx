@@ -485,9 +485,10 @@ export default function VaultPage(props: VaultPageProps) {
     }
   }, [sidebarFilter.kind, sortMode]);
 
+  // 换筛选（分组 / 文件夹 / 类型 / 重复项模式）就清掉勾选：列表换了，旧勾选既看不见也不该参与批量操作。
   useEffect(() => {
-    if (sidebarFilter.kind === 'duplicates') setSelectedMap({});
-  }, [sidebarFilter.kind, duplicateMode]);
+    setSelectedMap({});
+  }, [sidebarFilterKey]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;

@@ -178,6 +178,11 @@ export default function SendsPage(props: SendsPageProps) {
   const selectedIds = useMemo(() => Object.keys(selectedMap).filter((id) => selectedMap[id]), [selectedMap]);
   const selectedCount = selectedIds.length;
 
+  // 换类型筛选就清掉勾选：列表换了，旧勾选既看不见也不该参与批量删除。
+  useEffect(() => {
+    setSelectedMap({});
+  }, [typeFilter]);
+
   async function saveDraft(): Promise<void> {
     if (!draft) return;
     if (!draft.name.trim()) {
@@ -316,9 +321,18 @@ export default function SendsPage(props: SendsPageProps) {
           <button type="button" className="btn btn-secondary small list-icon-btn mr-auto" disabled={busy || props.loading} onClick={() => void props.onRefresh()}>
             <RefreshCw size={14} className="btn-icon" /> {t('txt_refresh')}
           </button>
-          <button type="button" className="btn btn-danger small" disabled={!selectedCount || busy} onClick={() => void removeSelected()}>
-            <Trash2 size={14} className="btn-icon" /> {t('txt_delete_selected')}
-          </button>
+          {/* 删除 / 取消 只在多选时出现，且排在「全选」左边 —— 这样进出多选时「全选」不会移位 */}
+          {!!selectedCount && (
+            <>
+              <button type="button" className="btn btn-danger small" disabled={busy} onClick={() => void removeSelected()}>
+                <Trash2 size={14} className="btn-icon" /> {t('txt_delete_selected')}
+              </button>
+              <button type="button" className="btn btn-secondary small" onClick={() => setSelectedMap({})}>
+                <X size={14} className="btn-icon" />
+                {t('txt_cancel')}
+              </button>
+            </>
+          )}
           <button
             type="button"
             className="btn btn-secondary small"
@@ -332,12 +346,6 @@ export default function SendsPage(props: SendsPageProps) {
             <CheckCheck size={14} className="btn-icon" />
             {t('txt_select_all')}
           </button>
-          {!!selectedCount && (
-            <button type="button" className="btn btn-secondary small" onClick={() => setSelectedMap({})}>
-              <X size={14} className="btn-icon" />
-              {t('txt_cancel')}
-            </button>
-          )}
           <button
             type="button"
             className="btn btn-primary small mobile-fab-trigger"

@@ -153,6 +153,16 @@ export default function SecretsPage(props: SecretsPageProps) {
   const isMobileDetail = mobileLayout && mobilePanel === 'detail';
   const listItems = view === 'trash' ? manager.trash : visibleSecrets;
   const checkedCount = checkedIds.size;
+  // 换视图或换左侧筛选就清掉勾选：列表换了，旧勾选既看不见也不该参与批量操作。
+  const checkedScopeKey =
+    view === 'trash'
+      ? 'trash'
+      : projectFilter.kind === 'project'
+        ? `project:${projectFilter.projectId}`
+        : projectFilter.kind;
+  useEffect(() => {
+    setCheckedIds(new Set());
+  }, [checkedScopeKey]);
 
   /** 确认框里要写出「删的是什么」，否则用户只能看到一句笼统的「删除 / 确认」。 */
   function secretNameOf(id: string | null): string {
@@ -494,8 +504,36 @@ export default function SecretsPage(props: SecretsPageProps) {
       <section className="list-col">
         <div className="list-toolbar-stack">
           <div className={`list-head ${checkedCount > 0 ? 'selection-mode sm-selection-mode' : ''}`}>
+            {/* 搜索组常驻（含选择模式）：多选时只替换右侧的「排序 + 操作」一行 */}
+            {/* 搜索组：占位文案与密码库一致（「共 N 项中搜索…」） */}
+            <div className="head-search-group">
+              <div className="search-input-wrap">
+                <input
+                  type="search"
+                  className={`search-input${query ? ' has-clear' : ''}`}
+                  placeholder={t('txt_search_items_count', { count: listItems.length })}
+                  value={query}
+                  onInput={(event) => setQuery((event.currentTarget as HTMLInputElement).value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Escape' || !query) return;
+                    event.preventDefault();
+                    setQuery('');
+                  }}
+                />
+                {!!query && (
+                  <button
+                    type="button"
+                    className="search-clear-btn"
+                    aria-label={t('txt_clear_search')}
+                    onClick={() => setQuery('')}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
             {checkedCount > 0 ? (
-              <>
+              <div className="head-actions-group">
                 <button
                   type="button"
                   className="btn btn-secondary small"
@@ -525,77 +563,48 @@ export default function SecretsPage(props: SecretsPageProps) {
                   <Trash2 size={14} className="btn-icon" />{' '}
                   {view === 'trash' ? t('txt_delete_permanently') : t('txt_delete_selected')}
                 </button>
-              </>
+              </div>
             ) : (
-              <>
-                {/* 搜索组：占位文案与密码库一致（「共 N 项中搜索…」） */}
-                <div className="head-search-group">
-                  <div className="search-input-wrap">
-                    <input
-                      type="search"
-                      className={`search-input${query ? ' has-clear' : ''}`}
-                      placeholder={t('txt_search_items_count', { count: listItems.length })}
-                      value={query}
-                      onInput={(event) => setQuery((event.currentTarget as HTMLInputElement).value)}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'Escape' || !query) return;
-                        event.preventDefault();
-                        setQuery('');
-                      }}
-                    />
-                    {!!query && (
-                      <button
-                        type="button"
-                        className="search-clear-btn"
-                        aria-label={t('txt_clear_search')}
-                        onClick={() => setQuery('')}
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="head-actions-group">
-                  <div className="sort-menu-wrap" ref={sortMenuRef}>
-                    <button
-                      type="button"
-                      className={`btn btn-secondary small sort-trigger sort-trigger-labeled ${sortMenuOpen ? 'active' : ''}`}
-                      aria-label={t('txt_sort')}
-                      title={t('txt_sort')}
-                      onClick={() => setSortMenuOpen((open) => !open)}
-                    >
-                      <ArrowUpDown size={14} className="btn-icon" /> <span>{t('txt_sort')}</span>
-                    </button>
-                    {sortMenuOpen && (
-                      <div className="sort-menu">
-                        {sortOptions.map((option) => (
-                          <button
-                            key={option.value}
-                            type="button"
-                            className={`sort-menu-item ${sortMode === option.value ? 'active' : ''}`}
-                            onClick={() => {
-                              setSortMode(option.value);
-                              setSortMenuOpen(false);
-                            }}
-                          >
-                            <span>{option.label}</span>
-                            {sortMode === option.value ? <Check size={14} /> : <span className="sort-menu-check-placeholder" />}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+              <div className="head-actions-group">
+                <div className="sort-menu-wrap" ref={sortMenuRef}>
                   <button
                     type="button"
-                    className="btn btn-secondary small list-icon-btn"
-                    disabled={!manager.ready || manager.loading}
-                    onClick={() => void manager.onRefresh()}
+                    className={`btn btn-secondary small sort-trigger sort-trigger-labeled ${sortMenuOpen ? 'active' : ''}`}
+                    aria-label={t('txt_sort')}
+                    title={t('txt_sort')}
+                    onClick={() => setSortMenuOpen((open) => !open)}
                   >
-                    <RefreshCw size={14} className="btn-icon" /> {t('txt_sync_vault')}
+                    <ArrowUpDown size={14} className="btn-icon" /> <span>{t('txt_sort')}</span>
                   </button>
-                  {createMenu}
+                  {sortMenuOpen && (
+                    <div className="sort-menu">
+                      {sortOptions.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`sort-menu-item ${sortMode === option.value ? 'active' : ''}`}
+                          onClick={() => {
+                            setSortMode(option.value);
+                            setSortMenuOpen(false);
+                          }}
+                        >
+                          <span>{option.label}</span>
+                          {sortMode === option.value ? <Check size={14} /> : <span className="sort-menu-check-placeholder" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </>
+                <button
+                  type="button"
+                  className="btn btn-secondary small list-icon-btn"
+                  disabled={!manager.ready || manager.loading}
+                  onClick={() => void manager.onRefresh()}
+                >
+                  <RefreshCw size={14} className="btn-icon" /> {t('txt_sync_vault')}
+                </button>
+                {createMenu}
+              </div>
             )}
           </div>
 
