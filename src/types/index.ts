@@ -514,6 +514,12 @@ export interface JWTPayload {
   sstamp: string;   // security stamp - invalidates token when user changes password
   did?: string;     // device identifier - invalidates per-device sessions
   dstamp?: string;  // device session stamp
+  /**
+   * 机密管理器的访问令牌专用字段：`scope` 必须是**数组**（SDK 按数组解析），
+   * `organization` 是它定位组织所依赖的 claim。普通访问令牌不带这两项。
+   */
+  scope?: string[];
+  organization?: string;
   iat: number;
   exp: number;
   iss: string;

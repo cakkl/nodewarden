@@ -65,6 +65,11 @@ import {
   handleDeleteFolder,
 } from './handlers/folders';
 import {
+  handleGetSecretsOrganization,
+  handleGetSecretsOrganizationKey,
+  handlePutSecretsOrganizationKey,
+} from './handlers/secrets';
+import {
   handleGetSends,
   handleGetSend,
   handleCreateSend,
@@ -223,6 +228,18 @@ export async function handleAuthenticatedRoute(
   if (path === '/api/accounts/keys') {
     if (method === 'GET') return handleGetKeys(request, env, userId);
     if (method === 'POST') return handleSetKeys(request, env, userId);
+    return errorResponse('Method not allowed', 405);
+  }
+
+  // 机密管理器：隐式组织与组织密钥（Web 会话）。与官方端点**分开命名**：官方那套
+  // （`/api/organizations/...`）服务 `bws`，复用会把 Web 端字段泄露进官方线格式。
+  if (path === '/api/secrets/organization' && method === 'GET') {
+    return handleGetSecretsOrganization(request, env, userId);
+  }
+
+  if (path === '/api/secrets/organization-key') {
+    if (method === 'GET') return handleGetSecretsOrganizationKey(request, env, userId);
+    if (method === 'PUT' || method === 'POST') return handlePutSecretsOrganizationKey(request, env, userId);
     return errorResponse('Method not allowed', 405);
   }
 

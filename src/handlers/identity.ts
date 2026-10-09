@@ -11,6 +11,7 @@ import { readAuthRequestDeviceInfo } from '../utils/device';
 import { recoveryCodeEquals } from '../utils/recovery-code';
 import { generateUUID } from '../utils/uuid';
 import { issueSendAccessToken, sendAccessErrorBody, sendAccessErrorStatus } from './sends';
+import { handleSecretsClientCredentials } from './secrets-token';
 import { registerMobilePushDevice } from '../services/push-relay';
 import {
   buildAccountKeys,
@@ -813,6 +814,13 @@ export async function handleToken(request: Request, env: Env): Promise<Response>
     const clientSecret = body.client_secret;
     const scope = body.scope;
     const deviceInfo = readAuthRequestDeviceInfo(body, request);
+
+    // 机密管理器的程序取用与官方 API key 登录**共用同一个 grant**，只靠 scope 区分。
+    // 必须在这里分流：下面那条门控只认 `scope=api` + `user.` 前缀，会把 SM 请求直接判成
+    // invalid_request。
+    if (scope === 'api.secrets') {
+      return handleSecretsClientCredentials(request, env, clientId, clientSecret);
+    }
 
     const parmValid = checkClientCredentialsParam(clientId, clientSecret, scope);
     if (!parmValid) {
