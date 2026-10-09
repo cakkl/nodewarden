@@ -1286,6 +1286,7 @@ const sv: Record<string, string> = {
   "txt_uri_match_regular_expression": "Regex",
   "txt_users": "Användare",
   "txt_vault_synced": "Valvet synkroniserat",
+  "txt_secrets_synced": "Hemligheter synkroniserade",
   "txt_verification_code": "Verifieringskod",
   "txt_verify": "Verifiera",
   "txt_verify_totp": "Verifiera TOTP",

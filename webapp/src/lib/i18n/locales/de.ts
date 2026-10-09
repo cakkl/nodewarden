@@ -1286,6 +1286,7 @@ const de: Record<string, string> = {
   "txt_uri_match_regular_expression": "Regex",
   "txt_users": "Benutzer",
   "txt_vault_synced": "Tresor synchronisiert",
+  "txt_secrets_synced": "Secrets synchronisiert",
   "txt_verification_code": "Bestätigungscode",
   "txt_verify": "Verifizieren",
   "txt_verify_totp": "TOTP verifizieren",

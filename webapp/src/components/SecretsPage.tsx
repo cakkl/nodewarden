@@ -622,9 +622,11 @@ export default function SecretsPage(props: SecretsPageProps) {
         </div>
 
         <div className="list-panel">
-          {manager.loading ? (
+          {/* 加载 / 错误占位只在列表为空时出现：有数据时刷新（同步 / 实时推送）
+              要保持列表不动，否则会先闪一下「加载中」 */}
+          {manager.loading && !listItems.length ? (
             <div className="empty">{t('txt_loading')}</div>
-          ) : manager.error ? (
+          ) : manager.error && !listItems.length ? (
             <div className="empty">{manager.error}</div>
           ) : listItems.length === 0 ? (
             <div className="empty">{view === 'trash' ? t('txt_trash') : t('txt_secrets_empty')}</div>

@@ -1287,6 +1287,7 @@ const zhTW: Record<string, string> = {
   "txt_uri_match_regular_expression": "正則表達",
   "txt_users": "使用者",
   "txt_vault_synced": "密碼庫已同步",
+  "txt_secrets_synced": "機密已同步",
   "txt_verification_code": "驗證碼",
   "txt_verify": "驗證",
   "txt_verify_totp": "驗證 TOTP",

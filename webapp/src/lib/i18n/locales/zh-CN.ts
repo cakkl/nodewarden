@@ -1286,6 +1286,7 @@ const zhCN: Record<string, string> = {
   "txt_uri_match_regular_expression": "正则表达",
   "txt_users": "用户",
   "txt_vault_synced": "密码库已同步",
+  "txt_secrets_synced": "机密已同步",
   "txt_verification_code": "验证码",
   "txt_verify": "验证",
   "txt_verify_totp": "验证 TOTP",

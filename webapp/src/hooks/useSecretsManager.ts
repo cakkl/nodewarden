@@ -162,9 +162,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     [onNotify]
   );
 
-  const refresh = useCallback(async () => {
+  /** 返回失败文案；`null` = 成功 —— 是否给反馈由调用点决定（自动加载 / 实时推送不弹）。 */
+  const refresh = useCallback(async (): Promise<string | null> => {
     const current = sessionRef.current;
-    if (demoMode || !current) return;
+    if (demoMode || !current) return null;
     setLoading(true);
     setError('');
     try {
@@ -179,8 +180,11 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       if (selected && listed.secrets.some((secret) => secret.id === selected)) {
         await loadDetail(nextContext, selected, false);
       }
+      return null;
     } catch (err) {
-      setError(messageOf(err));
+      const message = messageOf(err);
+      setError(message);
+      return message;
     } finally {
       setLoading(false);
     }
@@ -200,6 +204,13 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       }),
     [refresh]
   );
+
+  /** 「同步」按钮：只在手动点击时给反馈（挂载加载与实时推送的刷新不弹）。 */
+  const syncNow = useCallback(async (): Promise<void> => {
+    const failure = await refresh();
+    if (failure) onNotify('error', failure);
+    else onNotify('success', t('txt_secrets_synced'));
+  }, [refresh, onNotify]);
 
   const projects = demoMode ? demoSources.projects : liveProjects;
   const secrets = demoMode ? demoSources.secrets : liveSecrets;
@@ -273,7 +284,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       setSelectedId(null);
       setLiveDetail(null);
     }, []),
-    onRefresh: refresh,
+    onRefresh: syncNow,
     onCreateProject: (name) =>
       runAction((ctx) => createSecretProject(fetcherRef.current, ctx, name), t('txt_saved')),
     onRenameProject: (id, name) =>

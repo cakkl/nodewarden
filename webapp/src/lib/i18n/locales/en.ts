@@ -1286,6 +1286,7 @@ const en: Record<string, string> = {
   "txt_uri_match_regular_expression": "Regex",
   "txt_users": "Users",
   "txt_vault_synced": "Vault synced",
+  "txt_secrets_synced": "Secrets synced",
   "txt_verification_code": "Verification Code",
   "txt_verify": "Verify",
   "txt_verify_totp": "Verify TOTP",

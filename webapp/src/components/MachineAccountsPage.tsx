@@ -204,9 +204,9 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
           ])
         )
       );
-      return;
+      return null;
     }
-    if (!session) return;
+    if (!session) return null;
     setLoading(true);
     setError('');
     try {
@@ -224,8 +224,11 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       setAccounts(nextAccounts);
       setProjects(nextProjects);
       setTokens(Object.fromEntries(withTokens));
+      return null;
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      return message;
     } finally {
       setLoading(false);
     }
@@ -300,6 +303,13 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
 
   /** 统一包装（成功提示 / 刷新 / 失败透出文案见 `useActionRunner`）。 */
   const run = useActionRunner({ onNotify, demoMode: IS_DEMO_MODE, reload: load, onBusyChange: setBusy });
+
+  /** 「同步」按钮：只在手动点击时给反馈（挂载加载与实时推送的刷新不弹）。 */
+  async function syncNow(): Promise<void> {
+    const failure = await load();
+    if (failure) onNotify('error', failure);
+    else onNotify('success', t('txt_secrets_synced'));
+  }
 
   function openCreate(): void {
     setCreatedToken(null);
@@ -429,7 +439,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
               type="button"
               className="btn btn-secondary small list-icon-btn"
               disabled={busy || loading}
-              onClick={() => void load()}
+              onClick={() => void syncNow()}
             >
               <RefreshCw size={14} className="btn-icon" /> {t('txt_sync_vault')}
             </button>
@@ -451,9 +461,11 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       </div>
 
       <div className="list-panel">
-        {loading ? (
+        {/* 加载 / 错误占位只在列表为空时出现：有数据时刷新（同步 / 实时推送）
+            要保持列表不动，否则会先闪一下「加载中」 */}
+        {loading && !accounts.length ? (
           <div className="empty">{t('txt_loading')}</div>
-        ) : error ? (
+        ) : error && !accounts.length ? (
           <div className="empty">{error}</div>
         ) : accounts.length === 0 ? (
           <div className="empty">{t('txt_machine_accounts_empty')}</div>

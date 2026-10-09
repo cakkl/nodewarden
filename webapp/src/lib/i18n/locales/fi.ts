@@ -1286,6 +1286,7 @@ const fi: Record<string, string> = {
   "txt_uri_match_regular_expression": "Säännöllinen lauseke (Regex)",
   "txt_users": "Käyttäjät",
   "txt_vault_synced": "Holvi synkronoitu",
+  "txt_secrets_synced": "Salaisuudet synkronoitu",
   "txt_verification_code": "Vahvistuskoodi",
   "txt_verify": "Vahvista",
   "txt_verify_totp": "Vahvista TOTP",
