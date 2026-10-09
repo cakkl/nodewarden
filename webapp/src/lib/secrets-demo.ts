@@ -126,6 +126,60 @@ export const SECRETS_DEMO_MACHINE_ACCOUNTS: DemoMachineAccount[] = [
   },
 ];
 
+/**
+ * 演示用的事件日志（与真实接口同一形状，但名称已是明文）。
+ * 真实接口回的是**密文**，由数据层解密后填进 `name`。
+ */
+export interface DemoMachineAccountEvent {
+  id: string;
+  actorType: 'user' | 'machine_account';
+  /** 官方的数字类型码。 */
+  typeCode: number;
+  secretId: string | null;
+  projectId: string | null;
+  name: string | null;
+  createdAt: string;
+}
+
+export const SECRETS_DEMO_MACHINE_ACCOUNT_EVENTS: DemoMachineAccountEvent[] = [
+  {
+    id: 'e1000000-0000-4000-8000-000000000001',
+    actorType: 'machine_account',
+    typeCode: 2100,
+    secretId: '11111111-1111-4111-8111-111111111111',
+    projectId: null,
+    name: 'DATABASE_URL',
+    createdAt: '2026-10-08T02:15:00.000Z',
+  },
+  {
+    id: 'e1000000-0000-4000-8000-000000000002',
+    actorType: 'machine_account',
+    typeCode: 2100,
+    secretId: '22222222-2222-4222-8222-222222222222',
+    projectId: null,
+    name: 'STRIPE_SECRET_KEY',
+    createdAt: '2026-10-07T18:40:00.000Z',
+  },
+  {
+    id: 'e1000000-0000-4000-8000-000000000003',
+    actorType: 'machine_account',
+    typeCode: 2102,
+    secretId: '11111111-1111-4111-8111-111111111111',
+    projectId: null,
+    name: 'DATABASE_URL',
+    createdAt: '2026-10-05T14:20:00.000Z',
+  },
+  {
+    id: 'e1000000-0000-4000-8000-000000000004',
+    actorType: 'user',
+    typeCode: 2304,
+    secretId: null,
+    projectId: null,
+    name: 'Deploy pipeline',
+    createdAt: '2026-04-20T09:00:00.000Z',
+  },
+];
+
 /** 按 project 取名称；未知 id 返回 `null`，由调用方决定占位文案。 */
 export function findDemoProjectName(projectId: string | null): string | null {
   if (!projectId) return null;

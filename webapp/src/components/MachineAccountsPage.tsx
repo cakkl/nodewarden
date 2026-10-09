@@ -7,6 +7,7 @@ import {
   createMachineAccountToken,
   deleteMachineAccount,
   ensureSecretsContext,
+  listMachineAccountEvents,
   listMachineAccountTokens,
   listMachineAccounts,
   listSecretProjects,
@@ -15,6 +16,7 @@ import {
   revokeMachineAccountToken,
   setMachineAccountGrant,
   type MachineAccountDetail,
+  type MachineAccountEvent,
   type MachineAccountGrant,
   type MachineAccountToken,
   type SecretProject,
@@ -22,34 +24,55 @@ import {
 } from '@/lib/api/secrets';
 import { IS_DEMO_MODE } from '@/lib/demo';
 import { t } from '@/lib/i18n';
-import { SECRETS_DEMO_MACHINE_ACCOUNTS, SECRETS_DEMO_PROJECTS } from '@/lib/secrets-demo';
+import { SECRETS_DEMO_MACHINE_ACCOUNTS, SECRETS_DEMO_MACHINE_ACCOUNT_EVENTS, SECRETS_DEMO_PROJECTS } from '@/lib/secrets-demo';
+import { onSecretsManagerChange } from '@/lib/secrets-realtime';
 import type { SessionState } from '@/lib/types';
-import { useActionRunner } from '@/hooks/useActionRunner';
+import { useActionRunner, type AppNotify } from '@/hooks/useActionRunner';
 
 /**
  * 机器账号（Machine accounts）：左侧账号列表、右侧详情。
  *
- * ⚠️ 详情是**只读**的：名称、项目权限、访问令牌的改动（连同新建账号）一律在「编辑」视图里完成
- * —— 只读页面堆满输入框与按钮既难读、又容易误触。
+ * ⚠️ 详情**只读**：名称、项目权限、访问令牌的改动（连同新建账号）一律在「编辑」视图里完成。
+ * 编辑视图里项目只列**已授予**的 —— 铺开全部项目会让真正关心的两三行淹没在里面。令牌同理。
  *
- * ⚠️ 编辑视图里项目只列**已授予**的（新增才出现）—— 项目多起来之后，把所有项目都铺成一张
- * 表格会让真正关心的两三行淹没在里面。令牌同理。
- *
- * ⚠️ 访问令牌的**明文只在创建那一刻返回一次**：服务端只存 `sha256(密钥)`。创建后必须立刻复制。
- * 因此令牌的增删**即时生效**（不像名称/项目那样等「保存」），否则明文无法跟随一次提交回吐。
- *
- * 审计事件（Event logs）尚未实现，等步骤 10。
+ * ⚠️ 访问令牌的**明文只在创建那一刻返回一次**（服务端只存 `sha256(密钥)`），创建后必须立刻
+ * 复制。因此令牌的增删**即时生效**（不像名称 / 项目那样等「保存」），否则明文无法跟随一次提交回吐。
  */
 export interface MachineAccountsPageProps {
   authedFetch: AuthedFetch;
   session: SessionState | null;
-  onNotify: (type: 'success' | 'error' | 'warning', text: string) => void;
+  onNotify: AppNotify;
   mobileLayout: boolean;
 }
 
 const day = (iso: string): string => (iso ? iso.slice(0, 10) : '—');
+/** 事件日志要精确到分钟（与 `day` 一样取 ISO 串自身的 UTC 部分）。 */
+const stamp = (iso: string): string => (iso ? `${iso.slice(0, 10)} ${iso.slice(11, 16)}` : '—');
 /** 令牌有效期的候选天数（发给程序用，太长不便于轮换）。 */
 const TOKEN_TTL_DAYS = [30, 90, 365];
+/** 事件日志每页条数（服务端上限 100）。 */
+const EVENT_PAGE_SIZE = 20;
+
+/** 事件类型码 → 文案键。数字码与 `src/services/secrets-events.ts` 保持一致。 */
+const EVENT_LABEL_KEYS: Record<number, string> = {
+  2100: 'txt_sm_event_secret_retrieved',
+  2101: 'txt_sm_event_secret_created',
+  2102: 'txt_sm_event_secret_edited',
+  2103: 'txt_sm_event_secret_deleted',
+  2104: 'txt_sm_event_secret_purged',
+  2105: 'txt_sm_event_secret_restored',
+  2201: 'txt_sm_event_project_created',
+  2202: 'txt_sm_event_project_edited',
+  2203: 'txt_sm_event_project_deleted',
+  2304: 'txt_sm_event_account_created',
+  2305: 'txt_sm_event_account_deleted',
+};
+
+/** 事件一行的人话。目标已不存在时用破折号占位 —— 事件本身仍要看得见。 */
+function eventLabel(event: MachineAccountEvent): string {
+  const key = EVENT_LABEL_KEYS[event.typeCode];
+  return key ? t(key, { name: event.name ?? '—' }) : `#${event.typeCode}`;
+}
 
 /**
  * 编辑视图的草稿。名称与项目授权**一次性保存**（取消即全部丢弃）；
@@ -135,6 +158,9 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
   const [createdToken, setCreatedToken] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState<{ id: string; name: string } | null>(null);
+  const [events, setEvents] = useState<MachineAccountEvent[]>([]);
+  const [eventsHasMore, setEventsHasMore] = useState(false);
+  const [eventsLoading, setEventsLoading] = useState(false);
 
   useEffect(() => {
     if (mobileLayout) return;
@@ -208,6 +234,51 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 别人（CLI / 其它设备）改了机器账号 / 授权 / 令牌 ⇒ 重新拉一次。
+  // 自己那次由 `App.tsx` 按标签页标识挡掉。
+  useEffect(
+    () =>
+      onSecretsManagerChange((kind) => {
+        if (kind !== 'machine-accounts') return;
+        void load();
+      }),
+    [load]
+  );
+
+  /** 事件日志：首屏取第一页，「加载更多」传上一页最后一条的 (时间, id) 复合游标。 */
+  async function loadEvents(accountId: string, cursor?: { creationDate: string; id: string }): Promise<void> {
+    if (IS_DEMO_MODE) {
+      setEvents(
+        SECRETS_DEMO_MACHINE_ACCOUNT_EVENTS.map((event) => ({
+          id: event.id,
+          actorType: event.actorType,
+          typeCode: event.typeCode,
+          secretId: event.secretId,
+          projectId: event.projectId,
+          name: event.name,
+          creationDate: event.createdAt,
+        }))
+      );
+      setEventsHasMore(false);
+      return;
+    }
+    if (!context) return;
+    setEventsLoading(true);
+    try {
+      const page = await listMachineAccountEvents(authedFetch, context, accountId, {
+        limit: EVENT_PAGE_SIZE,
+        before: cursor?.creationDate,
+        beforeId: cursor?.id,
+      });
+      setEvents((current) => (cursor ? [...current, ...page.events] : page.events));
+      setEventsHasMore(page.hasMore);
+    } catch (err) {
+      onNotify('error', err instanceof Error ? err.message : String(err));
+    } finally {
+      setEventsLoading(false);
+    }
+  }
 
   const selected = accounts.find((account) => account.id === selectedId) ?? null;
   const activeId = draft?.id ?? null;
@@ -291,6 +362,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       setTokenDraft(null);
       setSelectedId(accountId);
       await load();
+      await loadEvents(accountId);
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : String(err));
     } finally {
@@ -340,6 +412,8 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
   function selectAccount(id: string): void {
     setSelectedId(id);
     cancelEdit();
+    setEvents([]);
+    void loadEvents(id);
     if (mobileLayout) setMobilePanel('detail');
   }
 
@@ -359,15 +433,19 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
             >
               <RefreshCw size={14} className="btn-icon" /> {t('txt_sync_vault')}
             </button>
-            <button
-              type="button"
-              className="btn btn-primary small"
-              aria-label={t('txt_add')}
-              title={t('txt_add')}
-              onClick={openCreate}
+            <div
+              className={`create-menu-wrap ${mobileLayout ? 'mobile-fab-wrap' : 'desktop-create-menu-wrap'}`}
             >
-              <Plus size={14} className="btn-icon" />
-            </button>
+              <button
+                type="button"
+                className={`btn btn-primary small ${mobileLayout ? 'mobile-fab-trigger' : 'desktop-create-trigger'}`}
+                aria-label={t('txt_add')}
+                title={t('txt_add')}
+                onClick={openCreate}
+              >
+                <Plus size={14} className="btn-icon" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -679,6 +757,37 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
             <h4>{t('txt_machine_account_history')}</h4>
             <div className="detail-sub">{t('txt_last_edited_value', { value: day(selected.revisionDate) })}</div>
             <div className="detail-sub">{t('txt_created_value', { value: day(selected.creationDate) })}</div>
+          </div>
+
+          <div className="card">
+            <h4>{t('txt_sm_event_logs')}</h4>
+            {events.length === 0 ? (
+              <div className="detail-sub">{eventsLoading ? t('txt_loading') : '—'}</div>
+            ) : (
+              events.map((event) => (
+                <div key={event.id} className="kv-line">
+                  <span>{stamp(event.creationDate)}</span>
+                  <strong>{eventLabel(event)}</strong>
+                </div>
+              ))
+            )}
+            {eventsHasMore ? (
+              <div className="detail-actions">
+                <div className="actions">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    disabled={eventsLoading}
+                    onClick={() => {
+                      const last = events[events.length - 1];
+                      if (last) void loadEvents(selected.id, { creationDate: last.creationDate, id: last.id });
+                    }}
+                  >
+                    {t('txt_load_more')}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="detail-actions">
