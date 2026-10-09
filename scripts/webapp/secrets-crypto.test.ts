@@ -3,6 +3,9 @@
 // **不用被测代码自证**：① 派生参数钉在官方仓库的固定向量上（`fake-server` 与
 // `bootstrap.sh` 里的公开测试数据，官方 `bws` 真机解开过）；② 再用 `node:crypto` 独立实现
 // HMAC-SHA256 / HKDF-Expand 交叉验证（RFC 2104 / RFC 5869）。
+//
+// ⚠️ 下面三处高熵常量（`FAKE_ACCESS_TOKEN` / `FAKE_ORG_KEY` / `FAKE_SECRET_KEY`）就是上面说的官方公开测试数据：
+// 密钥扫描器（GitGuardian / gitleaks）会按「高熵凭据」报出来，属**已知误报** —— 没有可吊销的真实凭据。
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import test from 'node:test';
@@ -54,6 +57,8 @@ function rfc5869Expand(prk: Uint8Array, info: string, length: number): Uint8Arra
 
 test('令牌派生 = HMAC-SHA256("bitwarden-accesstoken") + HKDF-Expand("sm-access-token", 64)', async () => {
   const actual = await deriveAccessTokenKey(KEY_MATERIAL);
+  // `bitwarden-accesstoken` 是官方公开的派生标签（不是密钥），测试必须独立写一遍才能交叉验证
+  // nosemgrep: javascript.lang.security.audit.hardcoded-hmac-key.hardcoded-hmac-key
   const prk = new Uint8Array(createHmac('sha256', 'bitwarden-accesstoken').update(KEY_MATERIAL).digest());
   assert.deepEqual(actual, rfc5869Expand(prk, 'sm-access-token', 64), 'HMAC 名 / info / 长度 任一处不一致都会失败');
 });
