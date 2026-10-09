@@ -263,6 +263,87 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // 清理用：`DELETE FROM used_attachment_download_tokens WHERE expires_at < ?`
   'CREATE INDEX IF NOT EXISTS idx_used_attachment_download_tokens_expires ON used_attachment_download_tokens(expires_at)',
 
+  // ── 机密管理器（Secrets Manager，独立产品）────────────────────────────────
+  // 组织是**隐式**的：每个用户一个，只为满足「SM 是组织级产品」的契约形态
+  // —— 组织 id 要进 JWT 与 URL 路径。
+  'CREATE TABLE IF NOT EXISTS sm_organizations (' +
+    'id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, ' +
+    'FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE)',
+
+  // 组织密钥的用户侧包裹：用密码库已有的 user key 包住组织密钥（没有组织 RSA 密钥对）。
+  'CREATE TABLE IF NOT EXISTS sm_org_keys (' +
+    'org_id TEXT NOT NULL, user_id TEXT NOT NULL, wrapped_org_key TEXT NOT NULL, created_at TEXT NOT NULL, ' +
+    'PRIMARY KEY (org_id, user_id), ' +
+    'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE, ' +
+    'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)',
+
+  // project 是**授权单位**（不是分组标签）；名称按官方线格式加密。
+  'CREATE TABLE IF NOT EXISTS sm_projects (' +
+    'id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name_encrypted TEXT NOT NULL, ' +
+    'created_at TEXT NOT NULL, revision_date TEXT NOT NULL, ' +
+    'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
+  'CREATE INDEX IF NOT EXISTS idx_sm_projects_org ON sm_projects(org_id)',
+
+  // secret：key/value/note 三个字段**都用同一把组织密钥**加密（没有每密文 DEK）。
+  // ⚠️ secret ↔ project 是**多对多**（官方线格式是 `projectIds[]` / 内层 `projects[]`），
+  // 关联放 sm_secret_projects，本表上**没有** project 列。
+  // `deleted_at` 非空 = 在 Trash 里（保留 30 天，由已有的每 5 分钟 scheduled 清理）。
+  'CREATE TABLE IF NOT EXISTS sm_secrets (' +
+    'id TEXT PRIMARY KEY, org_id TEXT NOT NULL, ' +
+    'key_encrypted TEXT NOT NULL, value_encrypted TEXT NOT NULL, note_encrypted TEXT NOT NULL, ' +
+    'created_at TEXT NOT NULL, revision_date TEXT NOT NULL, deleted_at TEXT, ' +
+    'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
+  'CREATE INDEX IF NOT EXISTS idx_sm_secrets_org_deleted ON sm_secrets(org_id, deleted_at)',
+  // secret ↔ project 关联。删 project 只断开关联（CASCADE 删关联行），secret 本体留下。
+  'CREATE TABLE IF NOT EXISTS sm_secret_projects (' +
+    'secret_id TEXT NOT NULL, project_id TEXT NOT NULL, ' +
+    'PRIMARY KEY (secret_id, project_id), ' +
+    'FOREIGN KEY (secret_id) REFERENCES sm_secrets(id) ON DELETE CASCADE, ' +
+    'FOREIGN KEY (project_id) REFERENCES sm_projects(id) ON DELETE CASCADE)',
+  'CREATE INDEX IF NOT EXISTS idx_sm_secret_projects_project ON sm_secret_projects(project_id)',
+  // Trash 清理是**纯 deleted_at** 过滤，(org_id, deleted_at) 用不上
+  // —— 同 login_attempts_ip 的教训：过滤侧没索引就退化成全表扫。
+  'CREATE INDEX IF NOT EXISTS idx_sm_secrets_deleted_at ON sm_secrets(deleted_at)',
+
+  // 机器账号（非人类用户）。名称是明文（官方同款），凭据走 access token。
+  'CREATE TABLE IF NOT EXISTS sm_machine_accounts (' +
+    'id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, ' +
+    'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
+  'CREATE INDEX IF NOT EXISTS idx_sm_machine_accounts_org ON sm_machine_accounts(org_id)',
+
+  // 机器账号 × project 的授权，两档（read / write）—— 这是程序侧唯一的权限来源。
+  'CREATE TABLE IF NOT EXISTS sm_machine_account_projects (' +
+    'machine_account_id TEXT NOT NULL, project_id TEXT NOT NULL, permission TEXT NOT NULL, ' +
+    'PRIMARY KEY (machine_account_id, project_id), ' +
+    'FOREIGN KEY (machine_account_id) REFERENCES sm_machine_accounts(id) ON DELETE CASCADE, ' +
+    'FOREIGN KEY (project_id) REFERENCES sm_projects(id) ON DELETE CASCADE)',
+  'CREATE INDEX IF NOT EXISTS idx_sm_machine_account_projects_project ON sm_machine_account_projects(project_id)',
+
+  // secret 级的**直接授权**。隐式组织只有 owner 一个成员，所以 `principal_type = 'user'`
+  // 目前不产生行 —— 字段保留：将来做共享不必改表。
+  'CREATE TABLE IF NOT EXISTS sm_secret_access (' +
+    'secret_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, permission TEXT NOT NULL, ' +
+    'PRIMARY KEY (secret_id, principal_type, principal_id), ' +
+    'FOREIGN KEY (secret_id) REFERENCES sm_secrets(id) ON DELETE CASCADE)',
+  'CREATE INDEX IF NOT EXISTS idx_sm_secret_access_principal ON sm_secret_access(principal_type, principal_id)',
+
+  // access token：只存 SHA-256(client_secret)，不存明文；encrypted_payload 换令牌时原样回吐。
+  'CREATE TABLE IF NOT EXISTS sm_access_tokens (' +
+    'id TEXT PRIMARY KEY, machine_account_id TEXT NOT NULL, org_id TEXT NOT NULL, name TEXT NOT NULL, ' +
+    'secret_hash TEXT NOT NULL, encrypted_payload TEXT NOT NULL, ' +
+    'expires_at TEXT, revoked_at TEXT, last_used_at TEXT, created_at TEXT NOT NULL, ' +
+    'FOREIGN KEY (machine_account_id) REFERENCES sm_machine_accounts(id) ON DELETE CASCADE, ' +
+    'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
+  'CREATE INDEX IF NOT EXISTS idx_sm_access_tokens_machine ON sm_access_tokens(machine_account_id)',
+
+  // 事件日志：用官方的**数字类型码**（2100 = 访问 secret、2300–2305 = 机器账号相关…），
+  // 而不是自定字符串 —— 将来接 Public API / 导出 CSV 不必再映射一次。
+  'CREATE TABLE IF NOT EXISTS sm_events (' +
+    'id TEXT PRIMARY KEY, org_id TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT, ' +
+    'type_code INTEGER NOT NULL, secret_id TEXT, machine_account_id TEXT, ip TEXT, created_at TEXT NOT NULL, ' +
+    'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
+  'CREATE INDEX IF NOT EXISTS idx_sm_events_org_created ON sm_events(org_id, created_at)',
+
   // ── 一次性数据迁移（必须放在所有 ALTER 之后）────────────────────────────────
   // 把管理员真实设定过的全局邮件语言/时区落到已有用户行（兼顾从未登录过的用户）。
   // `EXISTS` 是关键：只有 config 里确实存在该键时才迁移，否则会把「未设定」变成

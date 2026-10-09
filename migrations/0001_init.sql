@@ -408,3 +408,125 @@ CREATE TABLE IF NOT EXISTS rate_limit_buckets (
 );
 CREATE INDEX IF NOT EXISTS idx_rate_limit_buckets_expires
   ON rate_limit_buckets(expires_at);
+
+-- ── 机密管理器（Secrets Manager，独立产品）────────────────────────────────
+-- 组织是**隐式**的：每个用户一个（owner_user_id UNIQUE），只为满足「SM 是组织级产品」的
+-- 契约形态 —— 组织 id 要进 JWT 与 URL 路径。
+CREATE TABLE IF NOT EXISTS sm_organizations (
+  id TEXT PRIMARY KEY,
+  owner_user_id TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS sm_org_keys (
+  org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  -- 用密码库已有的 user key 包裹的组织密钥（没有组织 RSA 密钥对）
+  wrapped_org_key TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, user_id),
+  FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS sm_projects (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  name_encrypted TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revision_date TEXT NOT NULL,
+  FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sm_projects_org ON sm_projects(org_id);
+
+CREATE TABLE IF NOT EXISTS sm_secrets (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  key_encrypted TEXT NOT NULL,
+  value_encrypted TEXT NOT NULL,
+  note_encrypted TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  revision_date TEXT NOT NULL,
+  -- 非空 = 在 Trash 里（保留 30 天）
+  deleted_at TEXT,
+  FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sm_secrets_org_deleted ON sm_secrets(org_id, deleted_at);
+-- Trash 清理是纯 deleted_at 过滤，(org_id, deleted_at) 用不上
+CREATE INDEX IF NOT EXISTS idx_sm_secrets_deleted_at ON sm_secrets(deleted_at);
+
+-- secret ↔ project 是多对多（官方线格式是 projectIds[] / 内层 projects[]）。
+-- 删 project 只断开关联，secret 本体留下。
+CREATE TABLE IF NOT EXISTS sm_secret_projects (
+  secret_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  PRIMARY KEY (secret_id, project_id),
+  FOREIGN KEY (secret_id) REFERENCES sm_secrets(id) ON DELETE CASCADE,
+  FOREIGN KEY (project_id) REFERENCES sm_projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sm_secret_projects_project ON sm_secret_projects(project_id);
+
+CREATE TABLE IF NOT EXISTS sm_machine_accounts (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sm_machine_accounts_org ON sm_machine_accounts(org_id);
+
+CREATE TABLE IF NOT EXISTS sm_machine_account_projects (
+  machine_account_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  permission TEXT NOT NULL,
+  PRIMARY KEY (machine_account_id, project_id),
+  FOREIGN KEY (machine_account_id) REFERENCES sm_machine_accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (project_id) REFERENCES sm_projects(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sm_machine_account_projects_project
+  ON sm_machine_account_projects(project_id);
+
+CREATE TABLE IF NOT EXISTS sm_secret_access (
+  secret_id TEXT NOT NULL,
+  principal_type TEXT NOT NULL,
+  principal_id TEXT NOT NULL,
+  permission TEXT NOT NULL,
+  PRIMARY KEY (secret_id, principal_type, principal_id),
+  FOREIGN KEY (secret_id) REFERENCES sm_secrets(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sm_secret_access_principal
+  ON sm_secret_access(principal_type, principal_id);
+
+CREATE TABLE IF NOT EXISTS sm_access_tokens (
+  id TEXT PRIMARY KEY,
+  machine_account_id TEXT NOT NULL,
+  org_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  -- SHA-256(client_secret)，不存明文
+  secret_hash TEXT NOT NULL,
+  -- 换令牌时原样回吐
+  encrypted_payload TEXT NOT NULL,
+  expires_at TEXT,
+  revoked_at TEXT,
+  last_used_at TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (machine_account_id) REFERENCES sm_machine_accounts(id) ON DELETE CASCADE,
+  FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sm_access_tokens_machine ON sm_access_tokens(machine_account_id);
+
+CREATE TABLE IF NOT EXISTS sm_events (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_id TEXT,
+  -- 官方的数字类型码
+  type_code INTEGER NOT NULL,
+  secret_id TEXT,
+  machine_account_id TEXT,
+  ip TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_sm_events_org_created ON sm_events(org_id, created_at);
