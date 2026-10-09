@@ -1,6 +1,7 @@
 import type { Env } from '../types';
 import { ensureImplicitOrganization, getImplicitOrganization, getOrgKey, saveOrgKey } from '../services/storage-secrets-repo';
 import { errorResponse, jsonResponse } from '../utils/response';
+import { isEncString } from './secrets-shared';
 
 /**
  * 机密管理器的 Web 会话端点。
@@ -10,9 +11,6 @@ import { errorResponse, jsonResponse } from '../utils/response';
  *
  * 程序侧（access token）端点不在此，见 `/api/tokens/*` 与官方形态的 `/api/organizations/...`。
  */
-
-/** EncString type 2 的形状：`2.<b64 iv>|<b64 ct>|<b64 mac>`。 */
-const ENC_STRING_PATTERN = /^2\.[A-Za-z0-9+/=]+\|[A-Za-z0-9+/=]+\|[A-Za-z0-9+/=]+$/;
 
 /** 包裹后的组织密钥只有几百字节；上限防的是「拿超大字符串撑着行」。 */
 const MAX_WRAPPED_ORG_KEY_LENGTH = 1024;
@@ -42,7 +40,7 @@ export async function handlePutSecretsOrganizationKey(request: Request, env: Env
   }
 
   const wrappedOrgKey = typeof body.wrappedOrgKey === 'string' ? body.wrappedOrgKey.trim() : '';
-  if (wrappedOrgKey.length > MAX_WRAPPED_ORG_KEY_LENGTH || !ENC_STRING_PATTERN.test(wrappedOrgKey)) {
+  if (!isEncString(wrappedOrgKey, MAX_WRAPPED_ORG_KEY_LENGTH)) {
     return errorResponse('wrappedOrgKey must be an EncString of type 2', 400);
   }
 

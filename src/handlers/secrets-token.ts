@@ -1,5 +1,6 @@
 import type { Env } from '../types';
 import { LIMITS } from '../config/limits';
+import { SECRETS_ACCESS_TOKEN_STAMP } from '../services/secrets-access';
 import { getAccessTokenById, touchAccessTokenLastUsed } from '../services/storage-secrets-token-repo';
 import { verifyApiKey } from '../utils/api-key';
 import { createJWT } from '../utils/jwt';
@@ -12,15 +13,6 @@ import { identityErrorResponse, jsonResponse } from '../utils/response';
  * 线格式：请求 `client_id=<令牌 id>` + `client_secret=<令牌密钥>`；响应除 access token 外
  * 还要**原样回吐 `encrypted_payload`** —— 客户端用令牌密钥自己解出组织密钥，服务端不参与。
  */
-
-/**
- * SM 令牌的 `sstamp` 标记。
- *
- * ⚠️ 这是**刻意的用途隔离**：SM 令牌的 `sub` 是机器账号 id，而 `verifyAccessTokenWithUser`
- * 会把 `sub` 当用户 id 去查、再比对 security stamp。用一个永不可能等于真实 security stamp
- * 的常量，等于给「SM 令牌不得用于普通端点」加了第二道锁（第一道是查不到对应用户）。
- */
-export const SECRETS_ACCESS_TOKEN_STAMP = 'sm.access-token';
 
 /** 参数不合法（缺 id / 缺密钥）——与官方那套 API key 登录同形。 */
 function invalidRequest(): Response {

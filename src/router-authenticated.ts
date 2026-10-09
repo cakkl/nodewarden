@@ -69,6 +69,7 @@ import {
   handleGetSecretsOrganizationKey,
   handlePutSecretsOrganizationKey,
 } from './handlers/secrets';
+import { handleSecretsMachineAccountRoute } from './handlers/secrets-machine';
 import {
   handleGetSends,
   handleGetSend,
@@ -241,6 +242,11 @@ export async function handleAuthenticatedRoute(
     if (method === 'GET') return handleGetSecretsOrganizationKey(request, env, userId);
     if (method === 'PUT' || method === 'POST') return handlePutSecretsOrganizationKey(request, env, userId);
     return errorResponse('Method not allowed', 405);
+  }
+
+  // 机器账号与访问令牌（仅自家 Web UI）：路径带 id 段，整棵子树交给同一个处理器解析。
+  if (path.startsWith('/api/secrets/machine-accounts') || path.startsWith('/api/secrets/tokens')) {
+    return handleSecretsMachineAccountRoute(request, env, userId, path, method);
   }
 
   if (path === '/api/accounts/totp') {

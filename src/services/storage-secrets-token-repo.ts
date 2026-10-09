@@ -36,12 +36,10 @@ function mapAccessTokenRow(row: any): SmAccessToken {
 /**
  * 按令牌 id 取令牌（请求里的 `client_id` 就是它，走主键）。
  *
- * ⚠️ **故意不过滤 `revoked_at` / `expires_at`**：调用方需要区分「不存在」「已吊销」「已过期」
- * 以便写审计事件，而 SQL 里过滤会把三者压成同一个「查不到」。调用方在签发前**必须**自行
- * 检查这两个字段（对外的错误码则应统一，不要泄露是哪一种）。
+ * ⚠️ **故意不过滤 `revoked_at` / `expires_at`**：调用方要区分「不存在」「已吊销」「已过期」，
+ * SQL 里过滤会把三者压成同一个「查不到」。调用方在签发前**必须**自行检查这两列。
  *
- * ⚠️ 拿到行之后**必须**用 `verifyApiKey(clientSecret, row.secretHash)` 比对密钥（常量时间），
- * 不要自己写字符串相等比较。
+ * ⚠️ 拿到行之后**必须**用 `verifyApiKey(clientSecret, row.secretHash)` 比对密钥（常量时间）。
  */
 export async function getAccessTokenById(db: D1Database, tokenId: string): Promise<SmAccessToken | null> {
   const row = await db
@@ -65,5 +63,47 @@ export async function revokeAccessToken(db: D1Database, tokenId: string, orgId: 
   await db
     .prepare('UPDATE sm_access_tokens SET revoked_at = ? WHERE id = ? AND org_id = ? AND revoked_at IS NULL')
     .bind(revokedAt, tokenId, orgId)
+    .run();
+}
+/** 列出某个机器账号名下的令牌（Web UI 用）。 */
+export async function listAccessTokensByMachineAccount(
+  db: D1Database,
+  machineAccountId: string
+): Promise<SmAccessToken[]> {
+  const result = await db
+    .prepare(
+      'SELECT id, machine_account_id, org_id, name, secret_hash, encrypted_payload, ' +
+        'expires_at, revoked_at, last_used_at, created_at ' +
+        'FROM sm_access_tokens WHERE machine_account_id = ? ORDER BY created_at'
+    )
+    .bind(machineAccountId)
+    .all<any>();
+  return (result.results ?? []).map(mapAccessTokenRow);
+}
+
+/**
+ * 创建令牌。
+ *
+ * ⚠️ `secretHash` 来自**客户端**（它自己算 `SHA-256(client_secret)`）—— 明文密钥不进服务端，
+ * 换来的是「库被读走也无法用它登录」（哈希不可逆）。格式必须与 `verifyApiKey` 认的一致。
+ */
+export async function createAccessToken(db: D1Database, token: SmAccessToken): Promise<void> {
+  await db
+    .prepare(
+      'INSERT INTO sm_access_tokens(id, machine_account_id, org_id, name, secret_hash, encrypted_payload, ' +
+        'expires_at, revoked_at, last_used_at, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    )
+    .bind(
+      token.id,
+      token.machineAccountId,
+      token.orgId,
+      token.name,
+      token.secretHash,
+      token.encryptedPayload,
+      token.expiresAt,
+      token.revokedAt,
+      token.lastUsedAt,
+      token.createdAt
+    )
     .run();
 }
