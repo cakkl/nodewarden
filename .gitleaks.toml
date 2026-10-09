@@ -13,6 +13,9 @@
 #   - `scripts/webapp/secrets-crypto.test.ts` 的 `FAKE_ORG_KEY`：解开 `encrypted_payload` 得到的
 #     假组织密钥（64 字节 base64，变量名含 "KEY"、熵值 5.51 ⇒ `generic-api-key` 必然命中）。
 #     它只用来验证「同一把组织密钥能解开机密」，不是凭据（2026-10-09 首次报出）。
+#   - `webapp/src/lib/secrets-crypto.ts` 的 `TOKEN_SECRET_ALPHABET`：base62 字母表，公开常量、
+#     并非密钥；但变量名含 "TOKEN"/"SECRET" 且熵值 5.954 ⇒ 8.24.3 的 `generic-api-key` 命中
+#     （8.30.x 阈值已不再命中 —— 不要因此删掉本条，CI 用的是 8.24.3）。
 #   - gitleaks 的扫描单位是「**本次 push 范围内新增的行**」（日志可见它执行的是
 #     `git log -p -U0 --no-merges --first-parent <range>`）。因此即使后续提交删掉
 #     或改写这些行，只要 8efe2a6 仍在该范围内（例如合并进 main 的那次 push），
@@ -33,4 +36,5 @@ regexes = [
   '''test-jwt-secret-at-least-32-characters-long''',
   '''DEMO-PRIVATE-KEY''',
   '''k/6PcwG7Hm/eZfvvOvP6EqGx1JKgbzYrWwpOIHsxbJHQMpIMg5Ud94AQHduSR\+XMMaFiSB\+nszbO4JPXj04YwA==''',
+  '''ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789''',
 ]
