@@ -22,6 +22,8 @@ import {
 // - Runtime authentication state (devices, sessions, auth requests, remembered
 //   2FA devices, and one-time tokens) must never enter an instance backup.
 // - users.api_key is intentionally not exported.
+// - Secrets Manager tables (sm_*) are out of scope: never exported, and a
+//   restore must leave them untouched (see the keep-back in backup-import.ts).
 // - backup.settings.v1 is exported as portable-only; the current server runtime
 //   envelope must not leave the instance.
 type SqlRow = Record<string, string | number | null>;

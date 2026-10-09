@@ -472,6 +472,8 @@ CREATE TABLE IF NOT EXISTS sm_machine_accounts (
   org_id TEXT NOT NULL,
   name TEXT NOT NULL,
   created_at TEXT NOT NULL,
+  -- 名称 / 项目授权的最后变更时间（详情卡片展示用）
+  revision_date TEXT,
   FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_sm_machine_accounts_org ON sm_machine_accounts(org_id);
@@ -524,6 +526,7 @@ CREATE TABLE IF NOT EXISTS sm_events (
   -- 官方的数字类型码
   type_code INTEGER NOT NULL,
   secret_id TEXT,
+  project_id TEXT,
   machine_account_id TEXT,
   ip TEXT,
   created_at TEXT NOT NULL,

@@ -144,18 +144,91 @@ async function validateShadowTableCounts(
   }));
 }
 
-async function swapShadowTablesIntoPlace(db: D1Database): Promise<void> {
+/**
+ * 机密管理器（独立产品）的表，外键序：父在前。实例备份**不包含它们**，恢复也不该波及 —— 但换库那步
+ * 的 `DELETE FROM users` 会级联删光，所以先寄存到 `*__keep`、换库后按「属主仍在」写回。过滤列即各自
+ * 的直接外键：父行没写回，子行也不能写回。
+ */
+const SECRETS_MANAGER_KEEP_TABLES: ReadonlyArray<readonly [table: string, keepFilter: string]> = [
+  ['sm_organizations', 'owner_user_id IN (SELECT id FROM users)'],
+  ['sm_org_keys', 'org_id IN (SELECT id FROM sm_organizations) AND user_id IN (SELECT id FROM users)'],
+  ['sm_projects', 'org_id IN (SELECT id FROM sm_organizations)'],
+  ['sm_machine_accounts', 'org_id IN (SELECT id FROM sm_organizations)'],
+  ['sm_secrets', 'org_id IN (SELECT id FROM sm_organizations)'],
+  ['sm_secret_projects', 'secret_id IN (SELECT id FROM sm_secrets) AND project_id IN (SELECT id FROM sm_projects)'],
+  ['sm_secret_access', 'secret_id IN (SELECT id FROM sm_secrets)'],
+  [
+    'sm_machine_account_projects',
+    'machine_account_id IN (SELECT id FROM sm_machine_accounts) AND project_id IN (SELECT id FROM sm_projects)',
+  ],
+  [
+    'sm_access_tokens',
+    'machine_account_id IN (SELECT id FROM sm_machine_accounts) AND org_id IN (SELECT id FROM sm_organizations)',
+  ],
+  ['sm_events', 'org_id IN (SELECT id FROM sm_organizations)'],
+];
+
+function keepTableName(table: string): string {
+  return `${table}__keep`;
+}
+
+/**
+ * 换库前寄存机密管理器的行；本来就没数据（新实例）时只清掉可能残留的 `__keep` 并返回 false。
+ * ⚠️ 计数查询失败要让恢复整体失败 —— 不能默默跳过，那等于默默把机密数据交给级联删掉。
+ */
+async function stashSecretsManagerRows(db: D1Database): Promise<boolean> {
+  const countRow = await db.prepare('SELECT COUNT(*) AS count FROM sm_organizations').first<{ count: number }>();
+  const hasRows = Number(countRow?.count || 0) > 0;
   const statements: D1PreparedStatement[] = [];
-  // Commit by replacing live table contents from validated shadow tables.
-  // This avoids D1 schema-rename edge cases while keeping current data intact
-  // until the final batch succeeds.
-  for (const sql of buildResetImportTargetStatements(db)) {
-    statements.push(sql);
+  for (const [table] of SECRETS_MANAGER_KEEP_TABLES) {
+    statements.push(db.prepare(`DROP TABLE IF EXISTS ${keepTableName(table)}`));
   }
-  for (const table of BACKUP_TABLES) {
-    statements.push(db.prepare(`INSERT INTO ${table} SELECT * FROM ${shadowTableName(table)}`));
+  if (hasRows) {
+    for (const [table] of SECRETS_MANAGER_KEEP_TABLES) {
+      statements.push(db.prepare(`CREATE TABLE ${keepTableName(table)} AS SELECT * FROM ${table}`));
+    }
   }
   await db.batch(statements);
+  return hasRows;
+}
+
+/** 换库后写回寄存的行（只保留属主仍在的）。 */
+function buildSecretsManagerKeepBackStatements(db: D1Database): D1PreparedStatement[] {
+  return SECRETS_MANAGER_KEEP_TABLES.map(([table, keepFilter]) =>
+    db.prepare(`INSERT INTO ${table} SELECT * FROM ${keepTableName(table)} WHERE ${keepFilter}`)
+  );
+}
+
+async function dropSecretsManagerKeepTables(db: D1Database): Promise<void> {
+  await db.batch(
+    SECRETS_MANAGER_KEEP_TABLES.slice()
+      .reverse()
+      .map(([table]) => db.prepare(`DROP TABLE IF EXISTS ${keepTableName(table)}`))
+  );
+}
+
+async function swapShadowTablesIntoPlace(db: D1Database): Promise<void> {
+  // 机密管理器与密码管理器是两套产品：恢复不该动它。而换库里的 `DELETE FROM users` 会级联删光，
+  // 所以先寄存、再与换库放同一批写回 —— 同一批提交，不会出现「机密短暂消失」的窗口。
+  const stashed = await stashSecretsManagerRows(db);
+  try {
+    const statements: D1PreparedStatement[] = [];
+    // Commit by replacing live table contents from validated shadow tables.
+    // This avoids D1 schema-rename edge cases while keeping current data intact
+    // until the final batch succeeds.
+    for (const sql of buildResetImportTargetStatements(db)) {
+      statements.push(sql);
+    }
+    for (const table of BACKUP_TABLES) {
+      statements.push(db.prepare(`INSERT INTO ${table} SELECT * FROM ${shadowTableName(table)}`));
+    }
+    for (const statement of stashed ? buildSecretsManagerKeepBackStatements(db) : []) {
+      statements.push(statement);
+    }
+    await db.batch(statements);
+  } finally {
+    if (stashed) await dropSecretsManagerKeepTables(db).catch(() => undefined);
+  }
 }
 
 async function ensureImportTargetIsFresh(db: D1Database): Promise<void> {

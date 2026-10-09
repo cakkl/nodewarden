@@ -132,6 +132,65 @@ function seedSource(handle: Handle): void {
   ).run('send-1', 'user-1', 0, 'enc-send-name', 'enc-send-data', 'send-key', NOW, NOW, NOW);
 }
 
+/** 机密管理器的表（外键序，父在前）—— 备份里没有它们，恢复也不该波及。 */
+const SECRETS_MANAGER_TABLES = [
+  'sm_organizations',
+  'sm_org_keys',
+  'sm_projects',
+  'sm_machine_accounts',
+  'sm_secrets',
+  'sm_secret_projects',
+  'sm_secret_access',
+  'sm_machine_account_projects',
+  'sm_access_tokens',
+  'sm_events',
+] as const;
+
+/** 机密管理器的最小数据集：每张表一行，用来验证「备份 / 恢复不波及它」。 */
+function seedSecretsManager(handle: Handle, userId: string, suffix = '1'): void {
+  const db = handle.connection;
+  const org = `org-${suffix}`;
+  const project = `project-${suffix}`;
+  const secret = `secret-${suffix}`;
+  const machine = `machine-${suffix}`;
+  db.prepare('INSERT INTO sm_organizations (id, owner_user_id, created_at) VALUES (?,?,?)').run(org, userId, NOW);
+  db.prepare('INSERT INTO sm_org_keys (org_id, user_id, wrapped_org_key, created_at) VALUES (?,?,?,?)').run(
+    org, userId, 'wrapped-org-key', NOW
+  );
+  db.prepare('INSERT INTO sm_projects (id, org_id, name_encrypted, created_at, revision_date) VALUES (?,?,?,?,?)').run(
+    project, org, 'enc-project-name', NOW, NOW
+  );
+  db.prepare(
+    'INSERT INTO sm_secrets (id, org_id, key_encrypted, value_encrypted, note_encrypted, created_at, revision_date, deleted_at) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(secret, org, 'enc-key', 'enc-value', 'enc-note', NOW, NOW, null);
+  db.prepare('INSERT INTO sm_secret_projects (secret_id, project_id) VALUES (?,?)').run(secret, project);
+  db.prepare('INSERT INTO sm_secret_access (secret_id, principal_type, principal_id, permission) VALUES (?,?,?,?)').run(
+    secret, 'machine', machine, 'read'
+  );
+  db.prepare('INSERT INTO sm_machine_accounts (id, org_id, name, created_at, revision_date) VALUES (?,?,?,?,?)').run(
+    machine, org, 'ci-bot', NOW, NOW
+  );
+  db.prepare('INSERT INTO sm_machine_account_projects (machine_account_id, project_id, permission) VALUES (?,?,?)').run(
+    machine, project, 'write'
+  );
+  db.prepare(
+    'INSERT INTO sm_access_tokens (id, machine_account_id, org_id, name, secret_hash, encrypted_payload, expires_at, revoked_at, last_used_at, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(`token-${suffix}`, machine, org, 'default', 'sha256-hash', 'enc-payload', null, null, null, NOW);
+  db.prepare(
+    'INSERT INTO sm_events (id, org_id, actor_type, actor_id, type_code, secret_id, project_id, machine_account_id, ip, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(`event-${suffix}`, org, 'machine', machine, 2100, secret, project, machine, '127.0.0.1', NOW);
+}
+
+/** 逐表取出行（每表一行，不依赖顺序）。 */
+function secretsManagerRows(handle: Handle): Record<string, Row[]> {
+  return Object.fromEntries(
+    SECRETS_MANAGER_TABLES.map((table) => [
+      table,
+      handle.connection.prepare(`SELECT * FROM ${table}`).all() as Row[],
+    ])
+  );
+}
+
 async function exportBytes(handle: Handle, includeAttachments = false): Promise<Uint8Array> {
   const bundle = await buildBackupArchive(envFor(handle), new Date(NOW), { includeAttachments });
   return bundle.bytes;
@@ -236,7 +295,7 @@ test('二次导出与首次导出等价，未知字段仍然保留', async () =>
   target.close();
 });
 
-// -------------------------------------------------- 四处「有意不对称」（预期行为）
+// -------------------------------------------------- 五处「有意不对称」（预期行为）
 
 test('不对称 1：Send 记录不参与备份，恢复后为空', async () => {
   const { source, target } = await roundTrip();
@@ -283,6 +342,60 @@ test('不对称 4：恢复会强制把实例标记为 registered', async () => {
 
   assert.ok(!('registered' in configMap(source)), '源库无需 registered 标记');
   assert.equal(configMap(target).registered, 'true', '恢复后必须标记为已注册，避免首用户提权逻辑误触发');
+
+  source.close();
+  target.close();
+});
+
+test('不对称 5：机密管理器不参与备份，恢复也不波及它', async () => {
+  const source = freshDatabase();
+  seedSource(source);
+  const bytes = await exportBytes(source);
+
+  const exported = parseBackupArchive(bytes).payload.db as unknown as Record<string, unknown>;
+  for (const table of SECRETS_MANAGER_TABLES) {
+    assert.ok(!(table in exported), `导出的 db.json 不应含 ${table}`);
+  }
+
+  const target = freshDatabase();
+  seedSource(target);
+  // 机密挂在 `user-1` 上 —— 与备份里的那个 user id 相同，恢复后应当原样仍在
+  seedSecretsManager(target, 'user-1');
+  const before = secretsManagerRows(target);
+
+  await importBackupArchiveBytes(bytes, envFor(target), 'actor-1', true);
+
+  assert.deepStrictEqual(secretsManagerRows(target), before, '恢复不该动机密管理器的数据');
+  assert.equal(
+    selectAll(target, 'ciphers', 'id').length,
+    CIPHER_TYPES.length,
+    '密码库照旧被备份替换（只有机密管理器例外）'
+  );
+
+  source.close();
+  target.close();
+});
+
+test('不对称 5b：属主不在备份里时，该组织的机密随之消失且不留孤儿', async () => {
+  const source = freshDatabase();
+  seedSource(source);
+  const bytes = await exportBytes(source);
+
+  const target = freshDatabase();
+  seedSource(target);
+  // 复制出一个「备份里没有的」用户，把机密挂在它名下
+  target.connection.exec('CREATE TEMP TABLE users_copy AS SELECT * FROM users');
+  target.connection.exec("UPDATE users_copy SET id = 'user-2', email = 'bob@example.test'");
+  target.connection.exec('INSERT INTO users SELECT * FROM users_copy');
+  target.connection.exec('DROP TABLE users_copy');
+  seedSecretsManager(target, 'user-2', '2');
+
+  await importBackupArchiveBytes(bytes, envFor(target), 'actor-1', true);
+
+  for (const table of SECRETS_MANAGER_TABLES) {
+    const row = target.connection.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as Row;
+    assert.equal(Number(row.count), 0, `${table} 不该留下无主的数据（属主已被备份移除）`);
+  }
 
   source.close();
   target.close();
