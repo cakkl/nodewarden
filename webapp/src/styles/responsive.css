@@ -364,7 +364,9 @@
     gap: var(--actions-gap);
   }
 
-  .toolbar.actions .btn.small {
+  /* ⚠️ 必须排除 FAB：它的尺寸由 `.mobile-fab-trigger` 定，本条（权重 0,3,0）会把它盖成
+     工具条按钮的尺寸 —— Send 页的 FAB 正好在工具条里，不排除就会比别的页面明显偏大。 */
+  .toolbar.actions .btn.small:not(.mobile-fab-trigger) {
     @apply h-[34px] w-auto min-w-0 gap-1.5 whitespace-nowrap rounded-full px-3 py-0 text-[13px];
   }
 

@@ -346,22 +346,26 @@ export default function SendsPage(props: SendsPageProps) {
             <CheckCheck size={14} className="btn-icon" />
             {t('txt_select_all')}
           </button>
-          <button
-            type="button"
-            className="btn btn-primary small mobile-fab-trigger"
-            disabled={busy}
-            aria-label={t('txt_add')}
-            title={t('txt_add')}
-            onClick={() => {
-              setIsCreating(true);
-              setIsEditing(true);
-              setDraft(buildDefaultDraft());
-              setShowPassword(false);
-              if (isMobileLayout) setMobilePanel('edit');
-            }}
+          <div
+            className={`create-menu-wrap ${isMobileLayout ? 'mobile-fab-wrap' : 'desktop-create-menu-wrap'}`}
           >
-            <Plus size={14} className="btn-icon" />
-          </button>
+            <button
+              type="button"
+              className={`btn btn-primary small ${isMobileLayout ? 'mobile-fab-trigger' : 'desktop-create-trigger'}`}
+              disabled={busy}
+              aria-label={t('txt_add')}
+              title={t('txt_add')}
+              onClick={() => {
+                setIsCreating(true);
+                setIsEditing(true);
+                setDraft(buildDefaultDraft());
+                setShowPassword(false);
+                if (isMobileLayout) setMobilePanel('edit');
+              }}
+            >
+              <Plus size={14} className="btn-icon" />
+            </button>
+          </div>
         </div>
         <div className="list-panel">
           {props.loading && !filteredSends.length && <LoadingState lines={6} compact />}
