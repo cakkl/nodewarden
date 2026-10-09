@@ -13,6 +13,8 @@ export interface SmMachineAccount {
   orgId: string;
   name: string;
   createdAt: string;
+  /** 名称 / 项目授权的最后变更时间（令牌不算）。 */
+  revisionDate: string;
 }
 
 export interface SmMachineAccountGrant {
@@ -22,7 +24,14 @@ export interface SmMachineAccountGrant {
 }
 
 function mapMachineAccountRow(row: any): SmMachineAccount {
-  return { id: row.id, orgId: row.org_id, name: row.name, createdAt: row.created_at };
+  return {
+    id: row.id,
+    orgId: row.org_id,
+    name: row.name,
+    createdAt: row.created_at,
+    // 补列前写入的行 `revision_date` 为 NULL ⇒ 退回 created_at（详情卡片始终有值）
+    revisionDate: row.revision_date ?? row.created_at,
+  };
 }
 
 function mapGrantRow(row: any): SmMachineAccountGrant {
@@ -35,7 +44,7 @@ function mapGrantRow(row: any): SmMachineAccountGrant {
 
 export async function listMachineAccounts(db: D1Database, orgId: string): Promise<SmMachineAccount[]> {
   const result = await db
-    .prepare('SELECT id, org_id, name, created_at FROM sm_machine_accounts WHERE org_id = ? ORDER BY created_at')
+    .prepare('SELECT id, org_id, name, created_at, revision_date FROM sm_machine_accounts WHERE org_id = ? ORDER BY created_at')
     .bind(orgId)
     .all<any>();
   return (result.results ?? []).map(mapMachineAccountRow);
@@ -43,7 +52,7 @@ export async function listMachineAccounts(db: D1Database, orgId: string): Promis
 
 export async function getMachineAccount(db: D1Database, orgId: string, id: string): Promise<SmMachineAccount | null> {
   const row = await db
-    .prepare('SELECT id, org_id, name, created_at FROM sm_machine_accounts WHERE org_id = ? AND id = ?')
+    .prepare('SELECT id, org_id, name, created_at, revision_date FROM sm_machine_accounts WHERE org_id = ? AND id = ?')
     .bind(orgId, id)
     .first<any>();
   return row ? mapMachineAccountRow(row) : null;
@@ -51,8 +60,24 @@ export async function getMachineAccount(db: D1Database, orgId: string, id: strin
 
 export async function createMachineAccount(db: D1Database, account: SmMachineAccount): Promise<void> {
   await db
-    .prepare('INSERT INTO sm_machine_accounts(id, org_id, name, created_at) VALUES(?, ?, ?, ?)')
-    .bind(account.id, account.orgId, account.name, account.createdAt)
+    .prepare('INSERT INTO sm_machine_accounts(id, org_id, name, created_at, revision_date) VALUES(?, ?, ?, ?, ?)')
+    .bind(account.id, account.orgId, account.name, account.createdAt, account.createdAt)
+    .run();
+}
+
+/** 改名，并记下这次变更时间。名字是明文（与官方一致），授权与令牌不受影响。 */
+export async function renameMachineAccount(db: D1Database, orgId: string, id: string, name: string): Promise<void> {
+  await db
+    .prepare('UPDATE sm_machine_accounts SET name = ?, revision_date = ? WHERE org_id = ? AND id = ?')
+    .bind(name, new Date().toISOString(), orgId, id)
+    .run();
+}
+
+/** 记下账号自身的最后变更时间（名称 / 项目授权的改动都算，令牌另行管理）。 */
+async function touchMachineAccount(db: D1Database, id: string): Promise<void> {
+  await db
+    .prepare('UPDATE sm_machine_accounts SET revision_date = ? WHERE id = ?')
+    .bind(new Date().toISOString(), id)
     .run();
 }
 
@@ -92,6 +117,7 @@ export async function setMachineAccountGrant(
     )
     .bind(machineAccountId, projectId, permission)
     .run();
+  await touchMachineAccount(db, machineAccountId);
 }
 
 export async function removeMachineAccountGrant(
@@ -103,4 +129,5 @@ export async function removeMachineAccountGrant(
     .prepare('DELETE FROM sm_machine_account_projects WHERE machine_account_id = ? AND project_id = ?')
     .bind(machineAccountId, projectId)
     .run();
+  await touchMachineAccount(db, machineAccountId);
 }

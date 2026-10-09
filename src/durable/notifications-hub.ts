@@ -19,6 +19,9 @@ const SIGNALR_UPDATE_TYPE_SYNC_SEND_DELETE = 14;
 const SIGNALR_UPDATE_TYPE_AUTH_REQUEST = 15;
 const SIGNALR_UPDATE_TYPE_AUTH_REQUEST_RESPONSE = 16;
 const SIGNALR_UPDATE_TYPE_BACKUP_RESTORE_PROGRESS = 102;
+// 机密管理器：官方客户端不听这两个（官方 SM 只有拉取式同步）⇒ 不占官方号段，从 103 起。
+const SIGNALR_UPDATE_TYPE_SM_SECRETS = 103;
+const SIGNALR_UPDATE_TYPE_SM_MACHINE_ACCOUNTS = 104;
 const WEBSOCKET_CONNECTION_TOKEN_PREFIX = 'ws-token:';
 const WEBSOCKET_CONNECTION_TOKEN_TTL_MS = 60 * 1000;
 
@@ -511,6 +514,26 @@ export function notifyUserVaultSync(
   waitUntil(notifyUserUpdate(env, userId, SIGNALR_UPDATE_TYPE_SYNC_VAULT, revisionDate, contextId ?? null, null));
 }
 
+/**
+ * 机密管理器：数据变了 ⇒ 让同一用户的 Web 页面整页刷新。
+ *
+ * ⚠️ `Type` 必须显式给：前端把缺失的 `Type` 当成 `0`（＝ `CipherUpdate`），会被误判成保险库增量更新。
+ * ⚠️ 跳过移动推送：SM 没有移动端界面，发过去只白花一次中继调用。
+ */
+export function notifyUserSecretsManagerUpdate(
+  env: Env,
+  userId: string,
+  kind: 'secrets' | 'machine-accounts',
+  revisionDate: string,
+  contextId?: string | null
+): void {
+  const updateType =
+    kind === 'secrets' ? SIGNALR_UPDATE_TYPE_SM_SECRETS : SIGNALR_UPDATE_TYPE_SM_MACHINE_ACCOUNTS;
+  waitUntil(
+    notifyUserUpdate(env, userId, updateType, revisionDate, contextId ?? null, null, null, true)
+  );
+}
+
 export function notifyUserCiphersSync(
   env: Env,
   userId: string,
@@ -821,7 +844,9 @@ async function notifyUserUpdate(
   revisionDate: string,
   contextId: string | null,
   targetDeviceIdentifier: string | null,
-  payloadOverride?: Record<string, unknown> | null
+  payloadOverride?: Record<string, unknown> | null,
+  // 机密管理器那两个类型没有移动端消费者 ⇒ 跳过中继调用
+  skipMobilePush = false
 ): Promise<void> {
   try {
     const id = env.NOTIFICATIONS_HUB.idFromName(userId);
@@ -843,16 +868,18 @@ async function notifyUserUpdate(
         },
       }),
     });
-    await notifyMobilePush(env, {
-      userId,
-      updateType,
-      revisionDate,
-      contextId,
-      payload: payloadOverride || {
-        UserId: userId,
-        Date: revisionDate,
-      },
-    });
+    if (!skipMobilePush) {
+      await notifyMobilePush(env, {
+        userId,
+        updateType,
+        revisionDate,
+        contextId,
+        payload: payloadOverride || {
+          UserId: userId,
+          Date: revisionDate,
+        },
+      });
+    }
   } catch (error) {
     console.error('Failed to broadcast realtime notification:', error);
   }

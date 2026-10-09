@@ -68,8 +68,10 @@ import {
   handleGetSecretsOrganization,
   handleGetSecretsOrganizationKey,
   handlePutSecretsOrganizationKey,
+  handleSecretsTrashRoute,
 } from './handlers/secrets';
 import { handleSecretsMachineAccountRoute } from './handlers/secrets-machine';
+import { handleSecretsApiRouteForUser, isSecretsApiPath } from './handlers/secrets-api';
 import {
   handleGetSends,
   handleGetSend,
@@ -247,6 +249,23 @@ export async function handleAuthenticatedRoute(
   // 机器账号与访问令牌（仅自家 Web UI）：路径带 id 段，整棵子树交给同一个处理器解析。
   if (path.startsWith('/api/secrets/machine-accounts') || path.startsWith('/api/secrets/tokens')) {
     return handleSecretsMachineAccountRoute(request, env, userId, path, method);
+  }
+
+  // 回收站（仅自家 Web UI）：`/api/secrets/trash` 也会被官方形态那套的「单段就是 secret id」
+  // 规则匹配到 ⇒ 必须排在下面它之前。
+  if (
+    path === '/api/secrets/trash' ||
+    path.startsWith('/api/secrets/trash/')
+  ) {
+    return handleSecretsTrashRoute(request, env, userId, path, method);
+  }
+
+  // 官方形态的端点（`bws` 那套）对 Web 会话同样开放，权限判定与机器账号共用一套（§二.2）。
+  // ⚠️ 必须排在上面那几条 Web 会话分支之后：`/api/secrets/organization*`、
+  // `/api/secrets/machine-accounts*`、`/api/secrets/trash` 都会被「单段就是 secret id」的规则
+  // 匹配到，先判它们才不会被官方那套吞掉。
+  if (isSecretsApiPath(path)) {
+    return handleSecretsApiRouteForUser(request, env, userId, path, method);
   }
 
   if (path === '/api/accounts/totp') {

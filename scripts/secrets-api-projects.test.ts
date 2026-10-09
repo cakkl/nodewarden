@@ -23,8 +23,8 @@ const USER_ID = 'user-1';
 const MACHINE_ID = 'machine-1';
 const OTHER_MACHINE_ID = 'machine-2';
 const TOKEN_SECRET = 'client-secret-value';
-const ENC = '2.aaaaaaaaaaaaaaaaaaaaaa==|bbbbbbbbbbbbbbbbbbbbbb==|cccccccccccccccccccccc==';
-const ENC_NAME = '2.dddddddddddddddddddddd==|eeeeeeeeeeeeeeeeeeeeee==|ffffffffffffffffffffff==';
+const ENC = '2.aaaaaaaaaaaaaaaaaaaaaa==|bbbbbbbbbbbbbbbbbbbbbb==|ccccccccccccccccccccccccccccccccccccccccccc=';
+const ENC_NAME = '2.dddddddddddddddddddddd==|eeeeeeeeeeeeeeeeeeeeee==|fffffffffffffffffffffffffffffffffffffffffff=';
 const CLIENT_IP = '203.0.113.7';
 
 interface Harness {
@@ -39,8 +39,8 @@ async function createHarness(): Promise<Harness> {
   insertUser(handle.connection, USER_ID);
   const env = { DB: handle.db, JWT_SECRET: TEST_JWT_SECRET } as unknown as Env;
   const organization = await ensureImplicitOrganization(env.DB, USER_ID);
-  await createMachineAccount(env.DB, { id: MACHINE_ID, orgId: organization.id, name: 'ci-bot', createdAt: '2026-01-01T00:00:00.000Z' });
-  await createMachineAccount(env.DB, { id: OTHER_MACHINE_ID, orgId: organization.id, name: 'other-bot', createdAt: '2026-01-01T00:00:00.000Z' });
+  await createMachineAccount(env.DB, { id: MACHINE_ID, orgId: organization.id, name: 'ci-bot', createdAt: '2026-01-01T00:00:00.000Z', revisionDate: '2026-01-01T00:00:00.000Z' });
+  await createMachineAccount(env.DB, { id: OTHER_MACHINE_ID, orgId: organization.id, name: 'other-bot', createdAt: '2026-01-01T00:00:00.000Z', revisionDate: '2026-01-01T00:00:00.000Z' });
   return { handle, connection: handle.connection, env, orgId: organization.id };
 }
 
@@ -105,15 +105,16 @@ async function createProjectViaApi(h: Harness, token: string, name = ENC_NAME): 
   return String((await readJson(response as Response)).id);
 }
 
-test('鉴权：无令牌 / 坏令牌 / 用户令牌一律 401', async () => {
+test('鉴权：非 SM 令牌一律放行给用户令牌闸门（401 由那道闸门给出）', async () => {
   const h = await createHarness();
   try {
     const path = `/api/organizations/${h.orgId}/projects`;
-    assert.equal((await call(h, path, 'GET', { token: null }))?.status, 401, '无令牌');
-    assert.equal((await call(h, path, 'GET', { token: 'not-a-jwt' }))?.status, 401, '坏令牌');
-    // 用户令牌（走普通登录流程的那套）不能当 SM 令牌用
-    const userToken = 'header.payload.signature';
-    assert.equal((await call(h, path, 'GET', { token: userToken }))?.status, 401, '用户令牌');
+    // ⚠️ 本模块**不能**吞掉非 SM 令牌：「单段就是 secret id」的规则会匹配到 Web 会话自有的
+    // `/api/secrets/organization*` 等路径，吞掉它们就全成了死路。会话令牌走的是下面这条
+    // 放行路径，拿到的是 owner 主体（而不是这里解析出的机器账号）。
+    assert.equal(await call(h, path, 'GET', { token: null }), null, '无令牌');
+    assert.equal(await call(h, path, 'GET', { token: 'not-a-jwt' }), null, '坏令牌');
+    assert.equal(await call(h, path, 'GET', { token: 'header.payload.signature' }), null, '用户令牌');
   } finally {
     h.handle.close();
   }
@@ -191,7 +192,7 @@ test('改名：name 与 revisionDate 一起更新', async () => {
     const past = '2020-01-01T00:00:00.000Z';
     h.connection.prepare('UPDATE sm_projects SET created_at = ?, revision_date = ? WHERE id = ?').run(past, past, id);
 
-    const renamed = '2.gggggggggggggggggggggg==|hhhhhhhhhhhhhhhhhhhhhh==|iiiiiiiiiiiiiiiiiiiiii==';
+    const renamed = '2.gggggggggggggggggggggg==|hhhhhhhhhhhhhhhhhhhhhh==|iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii=';
     const response = await call(h, `/api/projects/${id}`, 'PUT', { token, body: { name: renamed } });
     assert.equal(response?.status, 200);
     const body = await readJson<{ name: string; revisionDate: string; creationDate: string }>(response as Response);
@@ -229,7 +230,7 @@ test('批量删：返回 [{id, error}]，无权/不存在给 error，成功给 n
       body: [id, 'no-such-project', ''],
     });
     assert.equal(response?.status, 200);
-    const results = await readJson<Array<{ id: string; error: string | null }>>(response as Response);
+    const { data: results } = await readJson<{ data: Array<{ id: string; error: string | null }> }>(response as Response);
     assert.equal(results.length, 3);
     assert.deepEqual(results[0], { id, error: null });
     assert.equal(results[1].error, 'Not found');

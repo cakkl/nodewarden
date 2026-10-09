@@ -306,10 +306,12 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'CREATE INDEX IF NOT EXISTS idx_sm_secrets_deleted_at ON sm_secrets(deleted_at)',
 
   // 机器账号（非人类用户）。名称是明文（官方同款），凭据走 access token。
+  // `revision_date` = 名称 / 项目授权的最后变更时间（详情卡片展示用）。
   'CREATE TABLE IF NOT EXISTS sm_machine_accounts (' +
-    'id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, ' +
+    'id TEXT PRIMARY KEY, org_id TEXT NOT NULL, name TEXT NOT NULL, created_at TEXT NOT NULL, revision_date TEXT, ' +
     'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
   'CREATE INDEX IF NOT EXISTS idx_sm_machine_accounts_org ON sm_machine_accounts(org_id)',
+  'ALTER TABLE sm_machine_accounts ADD COLUMN revision_date TEXT',
 
   // 机器账号 × project 的授权，两档（read / write）—— 这是程序侧唯一的权限来源。
   'CREATE TABLE IF NOT EXISTS sm_machine_account_projects (' +
@@ -336,13 +338,18 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
   'CREATE INDEX IF NOT EXISTS idx_sm_access_tokens_machine ON sm_access_tokens(machine_account_id)',
 
-  // 事件日志：用官方的**数字类型码**（2100 = 访问 secret、2300–2305 = 机器账号相关…），
+  // 事件日志：用官方的**数字类型码**（2100–2105 机密、2200–2203 项目、2304/2305 机器账号），
   // 而不是自定字符串 —— 将来接 Public API / 导出 CSV 不必再映射一次。
+  // `actor_type`/`actor_id` = **谁**干的；`machine_account_id` = 事件**所属**的机器账号
+  // （机器账号自己操作时两者相同，用户对该账号的操作则只有后者）。
   'CREATE TABLE IF NOT EXISTS sm_events (' +
     'id TEXT PRIMARY KEY, org_id TEXT NOT NULL, actor_type TEXT NOT NULL, actor_id TEXT, ' +
-    'type_code INTEGER NOT NULL, secret_id TEXT, machine_account_id TEXT, ip TEXT, created_at TEXT NOT NULL, ' +
+    'type_code INTEGER NOT NULL, secret_id TEXT, project_id TEXT, machine_account_id TEXT, ip TEXT, created_at TEXT NOT NULL, ' +
     'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
   'CREATE INDEX IF NOT EXISTS idx_sm_events_org_created ON sm_events(org_id, created_at)',
+  'ALTER TABLE sm_events ADD COLUMN project_id TEXT',
+  // 机器账号详情的「事件日志」按这一列取
+  'CREATE INDEX IF NOT EXISTS idx_sm_events_machine_created ON sm_events(machine_account_id, created_at)',
 
   // ── 一次性数据迁移（必须放在所有 ALTER 之后）────────────────────────────────
   // 把管理员真实设定过的全局邮件语言/时区落到已有用户行（兼顾从未登录过的用户）。

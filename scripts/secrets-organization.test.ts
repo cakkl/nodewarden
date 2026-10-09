@@ -3,7 +3,8 @@
 // 三个容易在改动中悄悄坏掉的点：
 //   ① 隐式组织的创建是**幂等**的 —— 重复请求必须拿到同一个 id（靠 UNIQUE 约束，不是先查再插）
 //   ② 用户之间**互相看不到**对方的组织与组织密钥
-//   ③ 组织密钥是 **upsert**：换密钥只覆盖密文、保留 created_at；非法 EncString 必须被拒
+//   ③ 组织密钥是**首次写入胜出**：重复 PUT 不得覆盖已有密钥，且回吐的必须是实际存储的那把
+//      （并发首次初始化会各自生成一把，覆盖会让先写那方的密文永久解不开）
 import assert from 'node:assert/strict';
 import type { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
@@ -19,7 +20,7 @@ import { createSchemaDatabase, insertUser } from './lib/test-harness';
 const OWNER = 'owner-1';
 const STRANGER = 'stranger-1';
 /** 形状合法的 EncString type 2（内容无所谓：服务端零知识，不解密）。 */
-const ENC = '2.aaaaaaaaaaaaaaaaaaaaaa==|bbbbbbbbbbbbbbbbbbbbbb==|cccccccccccccccccccccc==';
+const ENC = '2.aaaaaaaaaaaaaaaaaaaaaa==|bbbbbbbbbbbbbbbbbbbbbb==|ccccccccccccccccccccccccccccccccccccccccccc=';
 
 interface Harness {
   handle: Awaited<ReturnType<typeof createSchemaDatabase>>;
@@ -94,26 +95,30 @@ test('隔离：不同用户各自一个组织，且读不到对方的组织密�
   }
 });
 
-test('组织密钥：重复写入是 upsert（保留 created_at），非法 EncString 一律 400', async () => {
+test('组织密钥：首次写入胜出（重复 PUT 不覆盖），回吐实际存储的那把；非法 EncString 一律 400', async () => {
   const h = await createHarness();
   try {
-    await handlePutSecretsOrganizationKey(jsonRequest(ORG_KEY_URL, { wrappedOrgKey: ENC }, 'PUT'), h.env, OWNER);
+    const firstPut = await handlePutSecretsOrganizationKey(jsonRequest(ORG_KEY_URL, { wrappedOrgKey: ENC }, 'PUT'), h.env, OWNER);
+    assert.equal((await readJson(firstPut)).wrappedOrgKey, ENC, '首次写入应回吐自己的包裹');
     const first = h.connection.prepare('SELECT org_id, wrapped_org_key, created_at FROM sm_org_keys').get() as {
       org_id: string; wrapped_org_key: string; created_at: string;
     };
 
-    const rotated = `${ENC.slice(0, -4)}zzzz`;
-    await handlePutSecretsOrganizationKey(jsonRequest(ORG_KEY_URL, { wrappedOrgKey: rotated }, 'PUT'), h.env, OWNER);
+    // 模拟另一个标签页稍后带着自己生成的那把密钥打进来（只改密文段首字符 ⇒ 长度合法、内容不同）
+    const other = ENC.replace('b', 'q');
+    const secondPut = await handlePutSecretsOrganizationKey(jsonRequest(ORG_KEY_URL, { wrappedOrgKey: other }, 'PUT'), h.env, OWNER);
+    const secondBody = await readJson(secondPut);
+
+    assert.equal(secondBody.wrappedOrgKey, ENC, '回吐的必须是已存的那把，不能是刚提交的');
     const second = h.connection.prepare('SELECT org_id, wrapped_org_key, created_at FROM sm_org_keys').get() as {
       org_id: string; wrapped_org_key: string; created_at: string;
     };
-
-    assert.equal(second.wrapped_org_key, rotated, '应当覆盖密文');
+    assert.equal(second.wrapped_org_key, ENC, '不得覆盖已存在的组织密钥');
     assert.equal(second.org_id, first.org_id);
-    assert.equal(second.created_at, first.created_at, '换密钥不应改写 created_at');
+    assert.equal(second.created_at, first.created_at);
     assert.equal(countRows(h, 'sm_org_keys'), 1, '不得写成两行');
 
-    // 最后一条刻意**形状合法但超长** —— 只有长度上限能拦下它
+    // 最后一条：base64 形状合法，但 iv 不是 16 字节、整体也远超长度上限 ⇒ 两道闸都该拦下它
     const oversized = `2.${'a'.repeat(600)}|${'b'.repeat(600)}|c`;
     for (const bad of ['', 'plain-text', '1.aa|bb|cc', '2.aa|bb', '2.a b|c|d', oversized]) {
       const response = await handlePutSecretsOrganizationKey(jsonRequest(ORG_KEY_URL, { wrappedOrgKey: bad }, 'PUT'), h.env, OWNER);

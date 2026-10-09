@@ -44,7 +44,7 @@ const EXISTING_DEVICE_ID = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 /** 又一台陌生设备（既不在 devices 表里，也不是本次请求的标识）—— 用来验「码绑设备」 */
 const OTHER_NEW_DEVICE_ID = 'cccccccc-3333-4333-8333-cccccccccccc';
 const SCHEMA_VERSION_KEY = 'schema.version';
-const CURRENT_SCHEMA_VERSION = '2026-10-09-secrets-manager-projects';
+const CURRENT_SCHEMA_VERSION = '2026-10-09-secrets-events';
 
 interface Harness {
   handle: Awaited<ReturnType<typeof createSchemaDatabase>>;

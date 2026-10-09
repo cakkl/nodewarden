@@ -5,6 +5,7 @@
 //   ② **级联删除**：删机器账号要连带清掉授权与令牌（靠外键，不手写删除）
 //   ③ 令牌响应**不泄漏 `secret_hash`**
 //   ④ ⭐ 闭环：这里创建出来的令牌，必须能真的在换令牌端点（`scope=api.secrets`）登录成功
+//   ⑤ 改名只动名字，不碰授权
 import assert from 'node:assert/strict';
 import type { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
@@ -18,7 +19,7 @@ import { createSchemaDatabase, insertUser } from './lib/test-harness';
 
 const USER_A = 'user-a';
 const USER_B = 'user-b';
-const ENC = '2.aaaaaaaaaaaaaaaaaaaaaa==|bbbbbbbbbbbbbbbbbbbbbb==|cccccccccccccccccccccc==';
+const ENC = '2.aaaaaaaaaaaaaaaaaaaaaa==|bbbbbbbbbbbbbbbbbbbbbb==|ccccccccccccccccccccccccccccccccccccccccccc=';
 const TOKEN_SECRET = 'client-secret-value';
 /** ⚠️ 缺这个头 `handleToken` 会直接 503（不是 400）。 */
 const CLIENT_IP = '203.0.113.7';
@@ -105,6 +106,46 @@ test('机器账号：创建后出现在列表里，名字是明文', async () =>
   }
 });
 
+test('机器账号：改名只动名字，授权不受影响；空名拒绝', async () => {
+  const h = await createHarness();
+  try {
+    const orgA = await orgIdOf(h, USER_A);
+    await seedProject(h, orgA);
+    const id = await createMachine(h, USER_A, 'old-name');
+    await call(h, USER_A, `/api/secrets/machine-accounts/${id}/grants`, 'PUT', { projectId: 'project-1', permission: 'write' });
+
+    const renamed = await call(h, USER_A, `/api/secrets/machine-accounts/${id}`, 'PUT', { name: 'new-name' });
+    assert.equal(renamed?.status, 200);
+
+    const list = await readJson<{ data: Array<{ id: string; name: string; grants: Array<{ projectId: string; permission: string }> }> }>(
+      (await call(h, USER_A, '/api/secrets/machine-accounts', 'GET')) as Response
+    );
+    assert.equal(list.data[0].name, 'new-name');
+    assert.deepEqual(
+      list.data[0].grants.map((grant) => ({ projectId: grant.projectId, permission: grant.permission })),
+      [{ projectId: 'project-1', permission: 'write' }]
+    );
+
+    const blank = await call(h, USER_A, `/api/secrets/machine-accounts/${id}`, 'PUT', { name: '   ' });
+    assert.equal(blank?.status, 400, '空名必须拒绝');
+    const untouched = h.connection.prepare('SELECT name FROM sm_machine_accounts WHERE id = ?').get(id) as { name: string };
+    assert.equal(untouched.name, 'new-name', '拒绝后名字不该被改');
+
+    // 编辑时间：改名会推进 revision_date，而 created_at 不动
+    h.connection
+      .prepare("UPDATE sm_machine_accounts SET created_at = '2026-01-01T00:00:00.000Z' WHERE id = ?")
+      .run(id);
+    await call(h, USER_A, `/api/secrets/machine-accounts/${id}`, 'PUT', { name: 'later-name' });
+    const stamps = h.connection
+      .prepare('SELECT created_at, revision_date FROM sm_machine_accounts WHERE id = ?')
+      .get(id) as { created_at: string; revision_date: string };
+    assert.equal(stamps.created_at, '2026-01-01T00:00:00.000Z', '创建时间不该被改名影响');
+    assert.ok(stamps.revision_date > stamps.created_at, '改名必须推进编辑时间');
+  } finally {
+    h.handle.close();
+  }
+});
+
 test('横向越权：别人的机器账号一律 404，且原数据分毫不动', async () => {
   const h = await createHarness();
   try {
@@ -116,6 +157,7 @@ test('横向越权：别人的机器账号一律 404，且原数据分毫不动'
     // B 拿 A 的 id 做四种操作
     for (const [method, path] of [
       ['GET', `/api/secrets/machine-accounts/${id}`],
+      ['PUT', `/api/secrets/machine-accounts/${id}`],
       ['DELETE', `/api/secrets/machine-accounts/${id}`],
       ['PUT', `/api/secrets/machine-accounts/${id}/grants`],
       ['GET', `/api/secrets/machine-accounts/${id}/tokens`],

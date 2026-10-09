@@ -21,7 +21,7 @@ const ORG_ID = 'org-1';
 const MACHINE_ID = 'machine-1';
 const TOKEN_ID = 'token-1';
 const TOKEN_SECRET = 'token-secret-value';
-const ENC_PAYLOAD = '2.aaaaaaaaaaaaaaaaaaaaaa==|bbbbbbbbbbbbbbbbbbbbbb==|cccccccccccccccccccccc==';
+const ENC_PAYLOAD = '2.aaaaaaaaaaaaaaaaaaaaaa==|bbbbbbbbbbbbbbbbbbbbbb==|ccccccccccccccccccccccccccccccccccccccccccc=';
 const JWT_SECRET = 'test-jwt-secret-at-least-32-characters-long';
 
 interface Harness {
