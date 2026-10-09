@@ -268,3 +268,24 @@ test('删掉机器账号后，它已签发的 JWT 立刻失效', async () => {
     h.handle.close();
   }
 });
+
+test('属主被封禁后，已签发的 JWT 立刻失效；解除封禁即恢复', async () => {
+  const h = await createHarness();
+  try {
+    const token = await issueToken(h);
+    const path = `/api/organizations/${h.orgId}/projects`;
+    assert.equal((await call(h, path, 'GET', { token }))?.status, 200, '封禁前可用');
+
+    h.connection.prepare("UPDATE users SET status = 'banned' WHERE id = ?").run(USER_ID);
+    assert.equal(
+      (await call(h, path, 'GET', { token }))?.status,
+      401,
+      '封号后不留任何形式的访问：已签发的令牌也得当场失效'
+    );
+
+    h.connection.prepare("UPDATE users SET status = 'active' WHERE id = ?").run(USER_ID);
+    assert.equal((await call(h, path, 'GET', { token }))?.status, 200, '解除封禁后恢复');
+  } finally {
+    h.handle.close();
+  }
+});

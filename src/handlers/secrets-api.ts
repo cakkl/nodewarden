@@ -549,7 +549,7 @@ export async function handleSecretsApiRoute(
 
   const resolved = await resolveSecretsPrincipal(env, request.headers.get('Authorization'));
   if (resolved.kind === 'none') return null;
-  // SM 令牌但已不可用（账号被删）—— 必须在这里拒掉，不能放行给与 SM 无关的用户令牌闸门
+  // SM 令牌但已不可用（机器账号被删 / 属主被封禁）—— 必须在这里拒掉，不能放行给与 SM 无关的用户令牌闸门
   if (resolved.kind === 'invalid') return errorResponse('Unauthorized', 401);
 
   return handleSecretsApiRouteWithPrincipal(request, env, resolved.principal, path, method);

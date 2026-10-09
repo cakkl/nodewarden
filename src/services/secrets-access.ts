@@ -1,7 +1,7 @@
 import type { Env } from '../types';
 import { verifyJWT } from '../utils/jwt';
 import { getMachineAccount, listMachineAccountGrants, type SmMachineAccountGrant } from './storage-secrets-machine-repo';
-import { getImplicitOrganization } from './storage-secrets-repo';
+import { getImplicitOrganization, getOrganizationOwnerStatus } from './storage-secrets-repo';
 
 /**
  * 机密管理器访问令牌（`bws` 用的那种）的 JWT 标记。
@@ -56,7 +56,7 @@ type SmTokenResolution =
  * 解析 `Authorization: Bearer <SM JWT>`，得到程序侧主体。
  *
  * ⚠️ 每次都**回查机器账号是否还存在**：删账号时级联删掉的是令牌行，而 JWT 自身在过期前
- * 仍然可验签 —— 不回查就会留下最长一小时的可用窗口。
+ * 仍然可验签 —— 不回查就会留下最长一小时的可用窗口。属主被封禁同理，也必须当场拒掉。
  */
 export async function resolveSecretsPrincipal(env: Env, authHeader: string | null): Promise<SmTokenResolution> {
   if (!authHeader) return { kind: 'none' };
@@ -72,6 +72,8 @@ export async function resolveSecretsPrincipal(env: Env, authHeader: string | nul
 
   const account = await getMachineAccount(env.DB, organizationId, payload.sub);
   if (!account) return { kind: 'invalid' };
+  // 封禁属主 ⇒ 停掉他名下所有机器账号（自动化也不例外）
+  if ((await getOrganizationOwnerStatus(env.DB, organizationId)) !== 'active') return { kind: 'invalid' };
 
   return {
     kind: 'ok',

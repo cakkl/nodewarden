@@ -48,6 +48,19 @@ export async function getOrganizationById(db: D1Database, orgId: string): Promis
 }
 
 /**
+ * 组织属主的账号状态；`null` = 组织不存在。
+ * ⚠️ 程序侧每次认证都看它：封禁属主 = 停掉他名下所有机器账号（与 Web 侧 403 同口径）。
+ */
+export async function getOrganizationOwnerStatus(db: D1Database, orgId: string): Promise<'active' | 'banned' | null> {
+  const row = await db
+    .prepare('SELECT u.status FROM sm_organizations o INNER JOIN users u ON u.id = o.owner_user_id WHERE o.id = ?')
+    .bind(orgId)
+    .first<{ status: string }>();
+  if (!row) return null;
+  return row.status === 'banned' ? 'banned' : 'active';
+}
+
+/**
  * 取回（必要时创建）隐式组织。
  *
  * ⚠️ 并发安全靠 `owner_user_id` 的 UNIQUE 约束 + `INSERT OR IGNORE`：同时打进来的两个

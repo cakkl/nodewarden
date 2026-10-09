@@ -1,6 +1,7 @@
 import type { Env } from '../types';
 import { LIMITS } from '../config/limits';
 import { SECRETS_ACCESS_TOKEN_STAMP } from '../services/secrets-access';
+import { getOrganizationOwnerStatus } from '../services/storage-secrets-repo';
 import { getAccessTokenById, touchAccessTokenLastUsed } from '../services/storage-secrets-token-repo';
 import { verifyApiKey } from '../utils/api-key';
 import { createJWT } from '../utils/jwt';
@@ -42,6 +43,8 @@ export async function handleSecretsClientCredentials(
   if (!(await verifyApiKey(secret, token.secretHash))) return invalidGrant();
   if (token.revokedAt) return invalidGrant();
   if (token.expiresAt && Date.parse(token.expiresAt) <= Date.now()) return invalidGrant();
+  // 属主被封禁 ⇒ 连新令牌都不给换（否则封号只是「等一小时」的事）
+  if ((await getOrganizationOwnerStatus(env.DB, token.orgId)) !== 'active') return invalidGrant();
 
   const ttlSeconds = LIMITS.auth.accessTokenTtlSeconds;
   const accessToken = await createJWT(

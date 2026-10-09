@@ -146,6 +146,18 @@ test('凭据无效的四种情况响应完全一致（不给枚举线索）', as
   }
 });
 
+test('属主被封禁：凭据正确也不签发（封号即停掉名下所有自动化）', async () => {
+  const h = await createHarness();
+  try {
+    h.connection.prepare("UPDATE users SET status = 'banned' WHERE id = ?").run(USER_ID);
+    const response = await handleToken(credentials(), h.env);
+    assert.equal(response.status, 400, '封号后不给换新令牌');
+    assert.equal(((await response.json()) as { error: string }).error, 'invalid_grant');
+  } finally {
+    h.handle.close();
+  }
+});
+
 test('缺参数：invalid_request（与官方 API key 登录同形）', async () => {
   const h = await createHarness();
   try {
