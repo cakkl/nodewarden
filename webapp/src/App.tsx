@@ -91,6 +91,7 @@ import {
   PUBLIC_SEND_PATH_PATTERN,
   ROUTES,
   isKnownRoutePath,
+  isSecretsProductPath,
   normalizeRoutePath,
 } from '@/lib/routes';
 import { decryptSends, decryptVaultCore } from '@/lib/vault-decrypt';
@@ -293,7 +294,6 @@ export default function App() {
 
   const [confirm, setConfirm] = useState<AppConfirmState | null>(null);
   const [mobileLayout, setMobileLayout] = useState(false);
-  const [mobileSidebarToggleKey, setMobileSidebarToggleKey] = useState(0);
   const [decryptedFolders, setDecryptedFolders] = useState<VaultFolder[]>([]);
   const [decryptedCiphers, setDecryptedCiphers] = useState<Cipher[]>([]);
   const [decryptedSends, setDecryptedSends] = useState<Send[]>([]);
@@ -2226,8 +2226,6 @@ export default function App() {
   const isKnownRoute = isKnownRoutePath(routeLocation);
   const isUnknownRoute = isMalformedSendRoute || !isKnownRoute;
   const isImportRoute = routeLocation === ROUTES.importExport || IMPORT_EXPORT_ROUTE_ALIASES.has(routeLocation);
-  const showSidebarToggle = mobileLayout && location === ROUTES.sends;
-  const sidebarToggleTitle = location === ROUTES.vault ? t('txt_folders') : t('txt_type');
   const demoDomainRules = useMemo<DomainRules>(() => ({
     equivalentDomains: [
       ['nodewarden.example', 'nw.example'],
@@ -2246,19 +2244,25 @@ export default function App() {
     object: 'domains',
   }), []);
   // 未知路径不高亮任何 tab（否则底部会错误地亮着「设置」）。
+  // 机密管理器有自己那套 tab，直接回落到当前路径。
   const mobilePrimaryRoute = isUnknownRoute
     ? ''
-    : location === ROUTES.sends
-      ? ROUTES.sends
-      : location === ROUTES.generator
-        ? ROUTES.generator
-      : location === ROUTES.vaultTotp
-        ? ROUTES.vaultTotp
-        : location === ROUTES.vault
-          ? ROUTES.vault
-          : ROUTES.settings;
+    : isSecretsProductPath(location)
+      ? location
+      : location === ROUTES.sends
+        ? ROUTES.sends
+        : location === ROUTES.generator
+          ? ROUTES.generator
+          : location === ROUTES.vaultTotp
+            ? ROUTES.vaultTotp
+            : location === ROUTES.vault
+              ? ROUTES.vault
+              : ROUTES.settings;
   const currentPageTitle = (() => {
     if (isUnknownRoute) return t('txt_page_not_found');
+    if (location === ROUTES.secrets) return t('nav_secrets');
+    if (location === ROUTES.secretsProjects) return t('nav_secret_projects');
+    if (location === ROUTES.secretsMachineAccounts) return t('nav_machine_accounts');
     if (location === ROUTES.passwordHealth) return t('txt_password_security');
     if (location === ROUTES.vaultTotp) return t('txt_verification_code');
     if (location === ROUTES.generator) return t('txt_password_generator');
@@ -2297,7 +2301,6 @@ export default function App() {
     profileLoading: profileQuery.isFetching && !profile,
     session,
     mobileLayout,
-    mobileSidebarToggleKey,
     themePreference,
     decryptedCiphers,
     decryptedFolders,
@@ -2666,15 +2669,12 @@ export default function App() {
         location={location}
         mobilePrimaryRoute={mobilePrimaryRoute}
         currentPageTitle={currentPageTitle}
-        showSidebarToggle={showSidebarToggle}
-        sidebarToggleTitle={sidebarToggleTitle}
         isImportRoute={isImportRoute}
         darkMode={resolvedTheme === 'dark'}
         themeToggleTitle={resolvedTheme === 'dark' ? t('txt_switch_to_light_mode') : t('txt_switch_to_dark_mode')}
         onLock={handleLock}
         onLogout={handleLogout}
         onToggleTheme={handleToggleTheme}
-        onToggleMobileSidebar={() => setMobileSidebarToggleKey((key) => key + 1)}
         mainRoutesProps={effectiveMainRoutesProps}
       />
 

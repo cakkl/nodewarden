@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { CheckCheck, ChevronLeft, Copy, Eye, EyeOff, File, FileText, LayoutGrid, Lock, Pencil, Plus, RefreshCw, Save, Send as SendIcon, Trash2, X } from 'lucide-preact';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import LoadingState from '@/components/LoadingState';
@@ -17,7 +17,6 @@ interface SendsPageProps {
   onBulkDelete: (ids: string[]) => Promise<void>;
   uploadingSendFileName: string;
   sendUploadPercent: number | null;
-  mobileSidebarToggleKey: number;
   onNotify: (type: 'success' | 'error', text: string) => void;
   /** 服务端**确定**没配发信（未知不算）：此时「指定邮箱」保存会被拒，先给提示 */
   mailDeliveryUnavailable?: boolean;
@@ -91,8 +90,6 @@ export default function SendsPage(props: SendsPageProps) {
   const [selectedMap, setSelectedMap] = useState<Record<string, boolean>>({});
   const [isMobileLayout, setIsMobileLayout] = useState(getInitialIsMobileLayout);
   const [mobilePanel, setMobilePanel] = useState<'list' | 'detail' | 'edit'>('list');
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const mobileSidebarToggleKeyRef = useRef(props.mobileSidebarToggleKey);
   const [autoCopyLink, setAutoCopyLink] = useState<boolean>(() => {
     try {
       return localStorage.getItem(AUTO_COPY_KEY) === '1';
@@ -122,12 +119,6 @@ export default function SendsPage(props: SendsPageProps) {
   }, []);
 
   useEffect(() => {
-    if (props.mobileSidebarToggleKey === mobileSidebarToggleKeyRef.current) return;
-    mobileSidebarToggleKeyRef.current = props.mobileSidebarToggleKey;
-    setMobileSidebarOpen((open) => !open);
-  }, [props.mobileSidebarToggleKey]);
-
-  useEffect(() => {
     try {
       localStorage.setItem(AUTO_COPY_KEY, autoCopyLink ? '1' : '0');
     } catch {
@@ -138,7 +129,6 @@ export default function SendsPage(props: SendsPageProps) {
   useEffect(() => {
     if (!isMobileLayout) {
       setMobilePanel('list');
-      setMobileSidebarOpen(false);
       return;
     }
     if (isEditing) {
@@ -269,24 +259,7 @@ export default function SendsPage(props: SendsPageProps) {
 
   return (
     <div className={`vault-grid ${isMobileLayout ? `mobile-panel-${mobilePanel}` : ''}`}>
-      {isMobileLayout && (
-        <div
-          className={`mobile-sidebar-mask ${mobileSidebarOpen ? 'open' : ''}`}
-          onClick={() => {
-            if (!mobileSidebarOpen) return;
-            setMobileSidebarOpen(false);
-          }}
-        />
-      )}
-      <aside className={`sidebar ${isMobileLayout ? 'mobile-sidebar-sheet' : ''} ${isMobileLayout && mobileSidebarOpen ? 'open' : ''}`}>
-        {isMobileLayout && (
-          <div className="mobile-sidebar-head">
-            <div className="mobile-sidebar-title">{t('txt_all_sends')}</div>
-            <button type="button" className="mobile-sidebar-close" onClick={() => setMobileSidebarOpen(false)} aria-label={t('txt_close')}>
-              <X size={16} />
-            </button>
-          </div>
-        )}
+      <aside className="sidebar">
         <div className="sidebar-block">
           <button type="button" className={`tree-btn ${typeFilter === 'all' ? 'active' : ''}`} onClick={() => setTypeFilter('all')}>
             <LayoutGrid size={14} className="tree-icon" />
@@ -377,7 +350,6 @@ export default function SendsPage(props: SendsPageProps) {
               setDraft(buildDefaultDraft());
               setShowPassword(false);
               if (isMobileLayout) setMobilePanel('edit');
-              setMobileSidebarOpen(false);
             }}
           >
             <Plus size={14} className="btn-icon" />
@@ -397,7 +369,6 @@ export default function SendsPage(props: SendsPageProps) {
                 setIsCreating(false);
                 setDraft(null);
                 if (isMobileLayout) setMobilePanel('detail');
-                setMobileSidebarOpen(false);
               }}
             >
               <label className="check-hit" onClick={(event) => event.stopPropagation()}>
@@ -423,7 +394,6 @@ export default function SendsPage(props: SendsPageProps) {
                   setIsCreating(false);
                   setDraft(null);
                   if (isMobileLayout) setMobilePanel('detail');
-                  setMobileSidebarOpen(false);
                 }}
               >
                 <div className="list-icon-wrap">

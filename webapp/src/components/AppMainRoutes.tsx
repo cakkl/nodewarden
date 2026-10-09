@@ -27,6 +27,9 @@ const AdminPage = lazy(() => import('@/components/AdminPage'));
 const LogCenterPage = lazy(() => import('@/components/LogCenterPage'));
 const BackupCenterPage = lazy(() => import('@/components/BackupCenterPage'));
 const ImportPage = lazy(() => import('@/components/ImportPage'));
+const SecretsPage = lazy(() => import('@/components/SecretsPage'));
+const SecretProjectsPage = lazy(() => import('@/components/SecretProjectsPage'));
+const MachineAccountsPage = lazy(() => import('@/components/MachineAccountsPage'));
 
 function RouteContentFallback() {
   return <LoadingState card lines={5} />;
@@ -68,7 +71,7 @@ export interface AppMainRoutesProps {
   profileLoading: boolean;
   session: SessionState | null;
   mobileLayout: boolean;
-  mobileSidebarToggleKey: number;
+  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   themePreference: 'system' | 'light' | 'dark';
   decryptedCiphers: Cipher[];
   decryptedFolders: VaultFolder[];
@@ -294,10 +297,24 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
             onBulkDelete={props.onBulkDeleteSends}
             uploadingSendFileName={props.uploadingSendFileName}
             sendUploadPercent={props.sendUploadPercent}
-            mobileSidebarToggleKey={props.mobileSidebarToggleKey}
             mailDeliveryUnavailable={props.mailDeliveryUnavailable}
             onNotify={props.onNotify}
           />
+        </Suspense>
+      </Route>
+      <Route path={ROUTES.secrets}>
+        <Suspense fallback={<RouteContentFallback />}>
+          <SecretsPage mobileLayout={props.mobileLayout} />
+        </Suspense>
+      </Route>
+      <Route path={ROUTES.secretsProjects}>
+        <Suspense fallback={<RouteContentFallback />}>
+          <SecretProjectsPage />
+        </Suspense>
+      </Route>
+      <Route path={ROUTES.secretsMachineAccounts}>
+        <Suspense fallback={<RouteContentFallback />}>
+          <MachineAccountsPage />
         </Suspense>
       </Route>
       <Route path={ROUTES.vaultTotp}>
@@ -336,7 +353,6 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
             attachmentDownloadPercent={props.attachmentDownloadPercent}
             uploadingAttachmentName={props.uploadingAttachmentName}
             attachmentUploadPercent={props.attachmentUploadPercent}
-            mobileSidebarToggleKey={props.mobileSidebarToggleKey}
           />
         </Suspense>
       </Route>

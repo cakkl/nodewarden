@@ -267,8 +267,10 @@
   margin-bottom: 5px;
 }
 
-/* Send 只有「类型」一个下拉，沿用上面的 `repeat(3, 1fr)` 会让它只占三分之一宽。 */
-.mobile-vault-filter-row.mobile-sends-filter-row {
+/* 只有一个下拉时不要沿用上面的 `repeat(3, 1fr)`（否则只占三分之一宽）。
+   Send = 类型，机密 = 项目。 */
+.mobile-vault-filter-row.mobile-sends-filter-row,
+.mobile-vault-filter-row.mobile-secrets-filter-row {
   grid-template-columns: minmax(0, 1fr);
 }
 

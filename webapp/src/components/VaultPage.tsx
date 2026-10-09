@@ -67,7 +67,6 @@ interface VaultPageProps {
   attachmentDownloadPercent: number | null;
   uploadingAttachmentName: string;
   attachmentUploadPercent: number | null;
-  mobileSidebarToggleKey: number;
 }
 
 
@@ -120,13 +119,11 @@ export default function VaultPage(props: VaultPageProps) {
   const [pendingDeletePasskeyIndex, setPendingDeletePasskeyIndex] = useState<number | null>(null);
   const [isMobileLayout, setIsMobileLayout] = useState(getInitialIsMobileLayout);
   const [mobilePanel, setMobilePanel] = useState<'list' | 'detail' | 'edit'>('list');
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const folderSortMenuRef = useRef<HTMLDivElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const listPanelRef = useRef<HTMLDivElement | null>(null);
-  const mobileSidebarToggleKeyRef = useRef(props.mobileSidebarToggleKey);
 
   const sshSeedTicketRef = useRef(0);
   const sshFingerprintTicketRef = useRef(0);
@@ -146,12 +143,6 @@ export default function VaultPage(props: VaultPageProps) {
     media.addListener(sync);
     return () => media.removeListener(sync);
   }, []);
-
-  useEffect(() => {
-    if (props.mobileSidebarToggleKey === mobileSidebarToggleKeyRef.current) return;
-    mobileSidebarToggleKeyRef.current = props.mobileSidebarToggleKey;
-    setMobileSidebarOpen((open) => !open);
-  }, [props.mobileSidebarToggleKey]);
 
   useEffect(() => {
     const onQuickAdd = () => {
@@ -277,7 +268,6 @@ export default function VaultPage(props: VaultPageProps) {
   useEffect(() => {
     if (!isMobileLayout) {
       setMobilePanel('list');
-      setMobileSidebarOpen(false);
       return;
     }
     if (isEditing) {
@@ -539,7 +529,6 @@ export default function VaultPage(props: VaultPageProps) {
       setShowPassword(false);
       setHiddenFieldVisibleMap({});
       if (isMobileLayout) setMobilePanel('detail');
-      setMobileSidebarOpen(false);
       pendingFocusCipherIdRef.current = null;
       if (typeof window !== 'undefined' && typeof window.history?.replaceState === 'function') {
         const url = new URL(window.location.href);
@@ -663,7 +652,6 @@ const folderName = useCallback((id: string | null | undefined): string => {
     setAttachmentQueue([]);
     setRemovedAttachmentIds({});
     if (isMobileLayout) setMobilePanel('edit');
-    setMobileSidebarOpen(false);
     if (type === 5) void seedSshDefaults();
   }, [isMobileLayout]);
 
@@ -678,7 +666,6 @@ const folderName = useCallback((id: string | null | undefined): string => {
     setAttachmentQueue([]);
     setRemovedAttachmentIds({});
     if (isMobileLayout) setMobilePanel('edit');
-    setMobileSidebarOpen(false);
   }, [selectedCipher, isMobileLayout]);
 
   const cancelEdit = useCallback((): void => {
@@ -1168,9 +1155,7 @@ const folderName = useCallback((id: string | null | undefined): string => {
     setShowPassword(false);
     setHiddenFieldVisibleMap({});
     if (isMobileLayout) setMobilePanel('detail');
-    setMobileSidebarOpen(false);
   }, [isEditing, isCreating, cancelEdit, isMobileLayout]);
-  const handleCloseMobileSidebar = useCallback(() => setMobileSidebarOpen(false), []);
   const handleOpenCreateFolder = useCallback(() => setCreateFolderOpen(true), []);
   const handleOpenRenameFolder = useCallback((folder: Folder) => {
     setPendingRenameFolder(folder);
@@ -1181,30 +1166,18 @@ const folderName = useCallback((id: string | null | undefined): string => {
     setFolderSortMode(value);
     setFolderSortMenuOpen(false);
   }, []);
-  const handleMobileSidebarMaskClick = useCallback(() => {
-    if (!mobileSidebarOpen) return;
-    setMobileSidebarOpen(false);
-  }, [mobileSidebarOpen]);
 
   return (
     <>
       <div className={`vault-grid ${isMobileLayout ? `mobile-panel-${mobilePanel}` : ''}`}>
-        {isMobileLayout && (
-          <div
-            className={`mobile-sidebar-mask ${mobileSidebarOpen ? 'open' : ''}`}
-            onClick={handleMobileSidebarMaskClick}
-          />
-        )}
         <VaultSidebar
           folders={props.folders}
           sidebarFilter={sidebarFilter}
           busy={busy}
           isMobileLayout={isMobileLayout}
-          mobileSidebarOpen={mobileSidebarOpen}
           folderSortMode={folderSortMode}
           folderSortMenuOpen={folderSortMenuOpen}
           folderSortMenuRef={folderSortMenuRef}
-          onCloseMobileSidebar={handleCloseMobileSidebar}
           onChangeFilter={setSidebarFilter}
           onOpenCreateFolder={handleOpenCreateFolder}
           onOpenRenameFolder={handleOpenRenameFolder}

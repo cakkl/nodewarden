@@ -48,8 +48,8 @@
 :root[data-theme='dark'] .mobile-tab,
 :root[data-theme='dark'] .side-link,
 :root[data-theme='dark'] .side-group-trigger,
-:root[data-theme='dark'] .side-sub-link
-:root[data-theme='dark'] .user-chip
+:root[data-theme='dark'] .side-sub-link,
+:root[data-theme='dark'] .user-chip,
 :root[data-theme='dark'] .totp-code-username,
 :root[data-theme='dark'] .backup-destination-meta,
 :root[data-theme='dark'] .backup-browser-meta,
@@ -121,7 +121,6 @@
   color: color-mix(in srgb, var(--muted) 62%, transparent);
 }
 
-:root[data-theme='dark'] .mobile-sidebar-mask,
 :root[data-theme='dark'] .dialog-mask {
   background: var(--overlay-strong);
 }
@@ -203,8 +202,7 @@
 /* ── dark mode depth ── */
 :root[data-theme='dark'] .card,
 :root[data-theme='dark'] .list-panel,
-:root[data-theme='dark'] .sidebar-block,
-:root[data-theme='dark'] .mobile-sidebar-sheet {
+:root[data-theme='dark'] .sidebar-block {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.20), 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 
@@ -248,9 +246,7 @@
   color: #f8fafc;
 }
 
-:root[data-theme='dark'] .mobile-sidebar-sheet,
-:root[data-theme='dark'] .mobile-sidebar-close
-:root[data-theme='dark'] .table tr
+:root[data-theme='dark'] .table tr,
 :root[data-theme='dark'] .import-summary-table-wrap,
 :root[data-theme='dark'] .backup-help-bubble,
 :root[data-theme='dark'] .backup-recommendation-card,
@@ -266,7 +262,6 @@
   color: var(--text);
 }
 
-:root[data-theme='dark'] .mobile-sidebar-title,
 :root[data-theme='dark'] .import-summary-close,
 :root[data-theme='dark'] .backup-recommendation-group-title,
 :root[data-theme='dark'] .backup-browser-path strong,
@@ -281,11 +276,9 @@
   border-color: var(--line);
 }
 
-:root[data-theme='dark'] .mobile-sidebar-close:hover,
 :root[data-theme='dark'] .side-link:hover,
 :root[data-theme='dark'] .side-group-trigger:hover,
-:root[data-theme='dark'] .side-sub-link:hover
-:root[data-theme='dark'] .mobile-sidebar-sheet .tree-btn.active,
+:root[data-theme='dark'] .side-sub-link:hover,
 :root[data-theme='dark'] .mobile-settings-link.active,
 :root[data-theme='dark'] .backup-destination-item.active,
 :root[data-theme='dark'] .backup-interval-preset.active {
