@@ -1,4 +1,4 @@
-import { ChevronDown, Clock3, Folder as FolderIcon, KeyRound, Lock, LogOut, Send as SendIcon, Settings as SettingsIcon, ShieldUser, Sparkles } from 'lucide-preact';
+import { ChevronDown, Clock3, KeyRound, Lock, LogOut, Send as SendIcon, Settings as SettingsIcon, ShieldUser, Sparkles } from 'lucide-preact';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { Link } from 'wouter';
@@ -7,7 +7,7 @@ import NetworkStatusBadge from '@/components/NetworkStatusBadge';
 import ThemeSwitch from '@/components/ThemeSwitch';
 import type { AppMainRoutesProps } from '@/components/AppMainRoutes';
 import { t } from '@/lib/i18n';
-import { DIRECT_ALIASES, ROUTES } from '@/lib/routes';
+import { DIRECT_ALIASES, ROUTES, isSecretsProductPath } from '@/lib/routes';
 import type { Profile } from '@/lib/types';
 
 interface AppAuthenticatedShellProps {
@@ -15,15 +15,12 @@ interface AppAuthenticatedShellProps {
   location: string;
   mobilePrimaryRoute: string;
   currentPageTitle: string;
-  showSidebarToggle: boolean;
-  sidebarToggleTitle: string;
   isImportRoute: boolean;
   darkMode: boolean;
   themeToggleTitle: string;
   onLock: () => void;
   onLogout: () => void;
   onToggleTheme: () => void;
-  onToggleMobileSidebar: () => void;
   mainRoutesProps: AppMainRoutesProps;
 }
 
@@ -66,6 +63,8 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
   const isAdmin = isAdminProfile(props.profile);
   const deviceManagementActive = props.location === ROUTES.deviceManagement
     || props.location === DIRECT_ALIASES.deviceManagementLegacy;
+  // 产品归属由路径派生（不存开关状态）—— 见 `isSecretsProductPath` 的说明。
+  const isSecretsProduct = isSecretsProductPath(props.location);
   const [expandedGroups, setExpandedGroups] = useState<ExpandedGroups>(readExpandedGroups);
 
   function toggleGroup(group: NavGroup): void {
@@ -164,6 +163,14 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
     </>
   );
 
+  // 机密管理器产品的导航（与密码管理器的那套互斥渲染）
+  const secretsNav = (
+    <>
+      {renderSideLink(ROUTES.secrets, props.location === ROUTES.secrets, <KeyRound size={16} />, t('nav_secrets'))}
+      {renderSideLink(ROUTES.secretsMachineAccounts, props.location === ROUTES.secretsMachineAccounts, <ShieldUser size={16} />, t('nav_machine_accounts'))}
+    </>
+  );
+
   return (
     <div className="app-page">
       <div className="app-shell">
@@ -174,6 +181,15 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
             <span className="mobile-page-title">{props.currentPageTitle}</span>
           </div>
           <div className="topbar-actions">
+            {/* ≤1180px 时应用侧栏整体隐藏，顶栏这份紧凑切换器是手机上唯一的入口。 */}
+            <nav className="product-switch product-switch-mobile" aria-label={t('txt_switch_product')}>
+              <Link href={ROUTES.vault} className={`product-switch-option ${isSecretsProduct ? '' : 'active'}`}>
+                {t('nav_password_manager_short')}
+              </Link>
+              <Link href={ROUTES.secrets} className={`product-switch-option ${isSecretsProduct ? 'active' : ''}`}>
+                {t('nav_secrets_manager_short')}
+              </Link>
+            </nav>
             <NetworkStatusBadge />
             <div className="user-chip">
               <ShieldUser size={16} />
@@ -183,17 +199,6 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
             <button type="button" className="btn btn-secondary small" onClick={props.onLock}>
               <Lock size={14} className="btn-icon" /> {t('txt_lock')}
             </button>
-            {props.showSidebarToggle && (
-              <button
-                type="button"
-                className="btn btn-secondary small mobile-sidebar-toggle"
-                aria-label={props.sidebarToggleTitle}
-                title={props.sidebarToggleTitle}
-                onClick={props.onToggleMobileSidebar}
-              >
-                <FolderIcon size={16} className="btn-icon" />
-              </button>
-            )}
             <div className="mobile-theme-btn">
               <ThemeSwitch checked={props.darkMode} title={props.themeToggleTitle} onToggle={props.onToggleTheme} />
             </div>
@@ -208,8 +213,16 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
 
         <div className="app-main">
           <aside className="app-side">
+            <nav className="product-switch" aria-label={t('txt_switch_product')}>
+              <Link href={ROUTES.vault} className={`product-switch-option ${isSecretsProduct ? '' : 'active'}`}>
+                {t('nav_password_manager')}
+              </Link>
+              <Link href={ROUTES.secrets} className={`product-switch-option ${isSecretsProduct ? 'active' : ''}`}>
+                {t('nav_secrets_manager')}
+              </Link>
+            </nav>
             <div className="side-nav-main">
-              {groupedNav}
+              {isSecretsProduct ? secretsNav : groupedNav}
             </div>
           </aside>
           <main className="content">
@@ -219,28 +232,42 @@ export default function AppAuthenticatedShell(props: AppAuthenticatedShellProps)
           </main>
         </div>
 
-        <nav className="mobile-tabbar" aria-label={t('txt_menu')}>
-          <Link href={ROUTES.vault} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.vault ? 'active' : ''}`}>
-            <KeyRound size={18} />
-            <span>{t('nav_my_vault')}</span>
-          </Link>
-          <Link href={ROUTES.vaultTotp} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.vaultTotp ? 'active' : ''}`}>
-            <Clock3 size={18} />
-            <span>{t('txt_verification_code')}</span>
-          </Link>
-          <Link href={ROUTES.generator} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.generator ? 'active' : ''}`}>
-            <Sparkles size={18} />
-            <span>{t('nav_generator')}</span>
-          </Link>
-          <Link href={ROUTES.sends} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.sends ? 'active' : ''}`}>
-            <SendIcon size={18} />
-            <span>{t('nav_sends')}</span>
-          </Link>
-          <Link href={ROUTES.settings} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.settings ? 'active' : ''}`}>
-            <SettingsIcon size={18} />
-            <span>{t('txt_settings')}</span>
-          </Link>
-        </nav>
+        {/* 底部 tab 按产品分两套：机密管理器有自己的四个（不是在第 5 个后面再加一个） */}
+        {isSecretsProduct ? (
+          <nav className="mobile-tabbar" aria-label={t('txt_menu')}>
+            <Link href={ROUTES.secrets} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.secrets ? 'active' : ''}`}>
+              <KeyRound size={18} />
+              <span>{t('nav_secrets')}</span>
+            </Link>
+            <Link href={ROUTES.secretsMachineAccounts} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.secretsMachineAccounts ? 'active' : ''}`}>
+              <ShieldUser size={18} />
+              <span>{t('nav_machine_accounts')}</span>
+            </Link>
+          </nav>
+        ) : (
+          <nav className="mobile-tabbar" aria-label={t('txt_menu')}>
+            <Link href={ROUTES.vault} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.vault ? 'active' : ''}`}>
+              <KeyRound size={18} />
+              <span>{t('nav_my_vault')}</span>
+            </Link>
+            <Link href={ROUTES.vaultTotp} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.vaultTotp ? 'active' : ''}`}>
+              <Clock3 size={18} />
+              <span>{t('txt_verification_code')}</span>
+            </Link>
+            <Link href={ROUTES.generator} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.generator ? 'active' : ''}`}>
+              <Sparkles size={18} />
+              <span>{t('nav_generator')}</span>
+            </Link>
+            <Link href={ROUTES.sends} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.sends ? 'active' : ''}`}>
+              <SendIcon size={18} />
+              <span>{t('nav_sends')}</span>
+            </Link>
+            <Link href={ROUTES.settings} className={`mobile-tab ${props.mobilePrimaryRoute === ROUTES.settings ? 'active' : ''}`}>
+              <SettingsIcon size={18} />
+              <span>{t('txt_settings')}</span>
+            </Link>
+          </nav>
+        )}
       </div>
     </div>
   );

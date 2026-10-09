@@ -31,11 +31,9 @@ interface VaultSidebarProps {
   sidebarFilter: SidebarFilter;
   busy: boolean;
   isMobileLayout: boolean;
-  mobileSidebarOpen: boolean;
   folderSortMode: VaultSortMode;
   folderSortMenuOpen: boolean;
   folderSortMenuRef: RefObject<HTMLDivElement | null>;
-  onCloseMobileSidebar: () => void;
   onChangeFilter: (filter: SidebarFilter) => void;
   onOpenCreateFolder: () => void;
   onOpenRenameFolder: (folder: Folder) => void;
@@ -84,15 +82,7 @@ export default function VaultSidebar(props: VaultSidebarProps) {
   }, [props.folders, props.folderSortMode, nameCollator]);
 
   return (
-    <aside className={`sidebar ${props.isMobileLayout ? 'mobile-sidebar-sheet' : ''} ${props.isMobileLayout && props.mobileSidebarOpen ? 'open' : ''}`}>
-      {props.isMobileLayout && (
-        <div className="mobile-sidebar-head">
-          <div className="mobile-sidebar-title">{t('txt_folders')}</div>
-          <button type="button" className="mobile-sidebar-close" onClick={props.onCloseMobileSidebar} aria-label={t('txt_close')}>
-            <X size={16} />
-          </button>
-        </div>
-      )}
+    <aside className="sidebar">
       <div className="sidebar-block">
         <button type="button" className={`tree-btn ${props.sidebarFilter.kind === 'all' ? 'active' : ''}`} onClick={() => props.onChangeFilter({ kind: 'all' })}>
           <LayoutGrid size={14} className="tree-icon" /> <span className="tree-label">{t('txt_all_items')}</span>

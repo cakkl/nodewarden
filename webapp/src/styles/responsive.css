@@ -132,7 +132,7 @@
   }
 
   .topbar-actions .user-chip,
-  .topbar-actions > .btn:not(.mobile-sidebar-toggle):not(.mobile-lock-btn),
+  .topbar-actions > .btn:not(.mobile-lock-btn),
   .topbar-actions > .theme-switch-wrap {
     @apply hidden;
   }
@@ -149,7 +149,6 @@
     @apply m-0;
   }
 
-  .mobile-sidebar-toggle,
   .mobile-lock-btn {
     @apply inline-flex h-9 w-9 min-w-9 justify-center gap-0 rounded-xl p-0 text-[0px];
     background: color-mix(in srgb, var(--panel) 88%, transparent);
@@ -157,7 +156,6 @@
     box-shadow: none;
   }
 
-  .mobile-sidebar-toggle .btn-icon,
   .mobile-lock-btn .btn-icon {
     @apply m-0;
   }
@@ -200,7 +198,6 @@
   }
 
   .topbar-actions > .network-status-badge:hover,
-  .mobile-sidebar-toggle:hover,
   .mobile-lock-btn:hover,
   .mobile-theme-btn .theme-switch:hover {
     background: var(--panel-subtle);
@@ -222,7 +219,9 @@
 
   .mobile-tabbar {
     @apply grid items-center gap-1.5;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    /* auto-fit：按实际 tab 数量平分宽度（密码管理器 5 个、机密管理器 3 个）。
+       写死 5 列会让项少的产品靠左留空。 */
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     min-height: var(--mobile-tabbar-height);
     padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--line);
@@ -261,90 +260,6 @@
     @apply hidden;
   }
 
-  .mobile-sidebar-sheet {
-    @apply fixed left-2.5 right-2.5 z-[55] block overflow-auto rounded-[18px] p-3 opacity-0;
-    top: calc(var(--mobile-topbar-height) + 10px);
-    bottom: auto;
-    max-height: calc(100dvh - 145px);
-    border: 1px solid #d8dee8;
-    background: #fff;
-    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
-    visibility: hidden;
-    pointer-events: none;
-    transform: translate3d(0, 12px, 0) scale(0.97);
-    transition:
-      opacity 200ms var(--ease-out-expo),
-      transform 260ms var(--ease-spring),
-      visibility 200ms var(--ease-out-expo);
-  }
-
-  .mobile-sidebar-sheet.open {
-    @apply opacity-100;
-    visibility: visible;
-    pointer-events: auto;
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-
-  .mobile-sidebar-head {
-    @apply mb-2.5 flex items-center justify-between gap-2.5;
-  }
-
-  .mobile-sidebar-title {
-    @apply text-base font-extrabold;
-    color: #0f172a;
-  }
-
-  .mobile-sidebar-close {
-    @apply inline-grid h-[34px] w-[34px] cursor-pointer place-items-center rounded-full p-0;
-    border: 1px solid #d7dde6;
-    background: #fff;
-    color: #0f172a;
-    transition:
-      transform var(--dur-fast) var(--ease-out-soft),
-      background-color var(--dur-fast) var(--ease-smooth),
-      border-color var(--dur-fast) var(--ease-smooth);
-  }
-
-  .mobile-sidebar-close:hover {
-    transform: scale(1.05);
-  }
-
-  .mobile-sidebar-sheet .sidebar-block {
-    @apply m-0 rounded-none border-0 p-0;
-    border: none;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  .mobile-sidebar-sheet .tree-btn {
-    @apply mb-0.5;
-  }
-
-  .mobile-sidebar-sheet .folder-row {
-    @apply items-stretch gap-1;
-  }
-
-  .mobile-sidebar-sheet .folder-row .tree-btn {
-    @apply min-h-[42px];
-  }
-
-  .mobile-sidebar-sheet .sidebar-title,
-  .mobile-sidebar-sheet .sidebar-title-row {
-    @apply mb-0 pb-1.5;
-  }
-
-  .mobile-sidebar-sheet .tree-btn {
-    @apply rounded-[10px] px-2;
-  }
-
-  .mobile-sidebar-sheet .tree-btn.active {
-    background: #eef4ff;
-  }
-
-  .mobile-sidebar-sheet .folder-delete-btn {
-    @apply h-[42px] w-7 rounded-lg;
-  }
-
   .list-col {
     @apply max-w-none;
   }
@@ -360,9 +275,16 @@
     display: contents;
   }
 
+  /* 移动端选择模式：批量按钮**顶替整行**（搜索框与「排序 / 同步」一起让位）。
+     列数跟着按钮数走、等分铺满；不要写死列数 —— 按钮少于列数时会留下空列。 */
   .list-head.selection-mode {
-    @apply justify-stretch;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-template-columns: none;
+  }
+
+  .list-head.selection-mode > .head-search-group {
+    display: none;
   }
 
   .list-head .search-input-wrap {
@@ -442,7 +364,9 @@
     gap: var(--actions-gap);
   }
 
-  .toolbar.actions .btn.small {
+  /* ⚠️ 必须排除 FAB：它的尺寸由 `.mobile-fab-trigger` 定，本条（权重 0,3,0）会把它盖成
+     工具条按钮的尺寸 —— Send 页的 FAB 正好在工具条里，不排除就会比别的页面明显偏大。 */
+  .toolbar.actions .btn.small:not(.mobile-fab-trigger) {
     @apply h-[34px] w-auto min-w-0 gap-1.5 whitespace-nowrap rounded-full px-3 py-0 text-[13px];
   }
 

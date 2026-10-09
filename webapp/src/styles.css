@@ -5,6 +5,7 @@
 @import './styles/generator.css';
 @import './styles/password-security.css';
 @import './styles/shell.css';
+@import './styles/secrets.css';
 @import './styles/vault.css';
 @import './styles/management.css';
 @import './styles/overlays.css';
@@ -105,7 +106,7 @@
 :root[data-theme='dark'] .auth-card,
 :root[data-theme='dark'] .dialog-card,
 :root[data-theme='dark'] .card,
-:root[data-theme='dark'] .list-panel
+:root[data-theme='dark'] .list-panel,
 :root[data-theme='dark'] .backup-operations-sidebar,
 :root[data-theme='dark'] .backup-destination-sidebar,
 :root[data-theme='dark'] .backup-detail-panel,
@@ -398,7 +399,7 @@ h4 {
 .auth-card,
 .dialog-card,
 .card,
-.list-panel
+.list-panel,
 .backup-operations-sidebar,
 .backup-destination-sidebar,
 .backup-detail-panel,
@@ -941,8 +942,7 @@ textarea {
 .section-head h4,
 .detail-title,
 .totp-code-name,
-.backup-destination-name,
-.mobile-sidebar-title {
+.backup-destination-name {
   font-weight: 700;
   letter-spacing: 0;
 }
@@ -964,7 +964,7 @@ textarea {
 :root[data-theme='dark'] .auth-card,
 :root[data-theme='dark'] .dialog-card,
 :root[data-theme='dark'] .card,
-:root[data-theme='dark'] .list-panel
+:root[data-theme='dark'] .list-panel,
 :root[data-theme='dark'] .backup-operations-sidebar,
 :root[data-theme='dark'] .backup-destination-sidebar,
 :root[data-theme='dark'] .backup-detail-panel,
@@ -1092,15 +1092,6 @@ textarea {
     background: var(--panel-soft);
   }
 
-  .mobile-sidebar-sheet {
-    left: 8px;
-    right: 8px;
-    border-radius: var(--radius-lg);
-    border-color: var(--line);
-    background: var(--panel);
-    box-shadow: var(--shadow-lg);
-  }
-
   /* 按子项数生成列，不要写死列数：子项少于列数时会留下空 track，
      空 track 仍占一份 `gap`，整行右缘就比下方整行宽的 `.mobile-vault-filter-row` 缩进一截。
      ⚠️ 必须写在打磨层：`responsive.css` 里的同名规则会被本层压掉。 */
@@ -1134,7 +1125,7 @@ textarea {
 
   .detail-actions .actions .btn,
   .detail-delete-btn,
-  .import-export-panel .actions .btn
+  .import-export-panel .actions .btn,
   .section-head .actions .btn {
     min-height: 42px;
   }

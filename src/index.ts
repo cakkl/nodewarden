@@ -4,6 +4,7 @@ import { BackupTransferRunner } from './durable/backup-transfer-runner';
 import { handleRequest } from './router';
 import { StorageService } from './services/storage';
 import { trackAppVersionOnce } from './services/app-version-log';
+import { purgeSecretsTrash } from './services/secrets-trash';
 import { applyCors, jsonResponse } from './utils/response';
 import { runScheduledBackupIfDue } from './handlers/backup';
 import {
@@ -139,7 +140,7 @@ export default {
     void controller;
     await ensureDatabaseInitialized(env);
     if (dbInitError) {
-      console.error('Skipping scheduled backup because DB init failed:', dbInitError);
+      console.error('Skipping scheduled tasks because DB init failed:', dbInitError);
       return;
     }
     // 与请求路径共用同一个“每 isolate 一次”入口：部署后即使零流量，
@@ -148,6 +149,16 @@ export default {
     ctx.waitUntil(runScheduledBackupIfDue(env).catch((error) => {
       console.error('Scheduled backup failed:', error);
     }));
+    // 机密管理器的 Trash：软删只是标记，不清就永久留库 —— 满 30 天在这里物理删除
+    ctx.waitUntil(
+      purgeSecretsTrash(env)
+        .then((purged) => {
+          if (purged > 0) console.log(`Purged ${purged} expired secret(s) from trash`);
+        })
+        .catch((error) => {
+          console.error('Secrets trash purge failed:', error);
+        })
+    );
   },
 };
 

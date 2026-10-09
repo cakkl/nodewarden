@@ -576,6 +576,12 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+/* `.detail-title` 是 `m-0`、`.field-grid` 也没有 `mt`，间距一向由包裹层给（见 `.section-head`）；
+   Send 编辑器的标题直接跟字段网格 ⇒ 这里按同一量级补上。 */
+.detail-title + .field-grid {
+  @apply mt-2.5;
+}
+
 .field-span-2 {
   grid-column: 1 / -1;
 }

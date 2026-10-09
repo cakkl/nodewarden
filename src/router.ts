@@ -5,6 +5,7 @@ import { handleCors, errorResponse } from './utils/response';
 import { LIMITS } from './config/limits';
 import { handleAuthenticatedRoute } from './router-authenticated';
 import { handlePublicRoute } from './router-public';
+import { handleSecretsApiRoute } from './handlers/secrets-api';
 
 function jwtSecretUnsafeReason(env: Env): 'missing' | 'too_short' | null {
   const secret = (env.JWT_SECRET || '').trim();
@@ -165,6 +166,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
 
     const publicResponse = await handlePublicRoute(request, env, path, method, enforcePublicRateLimit);
     if (publicResponse) return publicResponse;
+
+    // 机密管理器的官方形态端点：机器账号令牌这一路必须在这道用户令牌闸门**之前**试，否则
+    // SM 令牌会先被当成坏的用户令牌 401 掉；令牌不是 SM 令牌时它返回 `null` 放行，Web 会话
+    // 因此能在闸门之后（有限流）走同一套端点。
+    const secretsApiResponse = await handleSecretsApiRoute(request, env, path, method);
+    if (secretsApiResponse) return secretsApiResponse;
 
     const auth = new AuthService(env);
     const authHeader = request.headers.get('Authorization');

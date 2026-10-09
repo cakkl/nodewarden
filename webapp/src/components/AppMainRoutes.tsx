@@ -13,6 +13,8 @@ import type { EmailVerificationStatus } from '@/lib/api/auth';
 import { t } from '@/lib/i18n';
 import type { AccountPasskeyCredential, AdminInvite, AdminUser, AuditLogListResult, AuditLogSettings, AuthRequest, AuthorizedDevice, Cipher, CustomEquivalentDomain, DomainRules, Folder as VaultFolder, MailPreferences, MailPreferencesUpdate, MailSettings, MailSettingsInput, MailTestResult, Profile, Send, SendDraft, SessionState, TwoFactorPasskeySettings, VaultDraft, YubiKeyOtpSettings } from '@/lib/types';
 import type { ExportRequest } from '@/lib/export-formats';
+import type { AuthedFetch } from '@/lib/api/shared';
+import type { SecretsManagerProps } from '@/hooks/useSecretsManager';
 import { DEVICE_MANAGEMENT_ROUTE_PATHS, IMPORT_EXPORT_ROUTE_PATHS, ROUTES } from '@/lib/routes';
 
 const VaultPage = lazy(() => import('@/components/VaultPage'));
@@ -27,6 +29,8 @@ const AdminPage = lazy(() => import('@/components/AdminPage'));
 const LogCenterPage = lazy(() => import('@/components/LogCenterPage'));
 const BackupCenterPage = lazy(() => import('@/components/BackupCenterPage'));
 const ImportPage = lazy(() => import('@/components/ImportPage'));
+const SecretsPage = lazy(() => import('@/components/SecretsPage'));
+const MachineAccountsPage = lazy(() => import('@/components/MachineAccountsPage'));
 
 function RouteContentFallback() {
   return <LoadingState card lines={5} />;
@@ -68,7 +72,7 @@ export interface AppMainRoutesProps {
   profileLoading: boolean;
   session: SessionState | null;
   mobileLayout: boolean;
-  mobileSidebarToggleKey: number;
+  /** 服务端能发信（来自 `/api/config`）⇒ 主密码提示的说明文案改为「会发送到您的邮箱」。 */
   themePreference: 'system' | 'light' | 'dark';
   decryptedCiphers: Cipher[];
   decryptedFolders: VaultFolder[];
@@ -93,6 +97,10 @@ export interface AppMainRoutesProps {
   domainRules: DomainRules | null;
   domainRulesLoading: boolean;
   domainRulesError: string;
+  /** 机密管理器（三个 SM 页面共用同一份数据与操作，见 `useSecretsManager`）。 */
+  secretsManager: SecretsManagerProps;
+  /** 机器账号页需要自己访问端点（它的数据与机密/项目不共享）。 */
+  authedFetch: AuthedFetch;
   onNavigate: (path: string) => void;
   onLogout: () => void;
   onNotify: (type: 'success' | 'error' | 'warning', text: string) => void;
@@ -294,9 +302,23 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
             onBulkDelete={props.onBulkDeleteSends}
             uploadingSendFileName={props.uploadingSendFileName}
             sendUploadPercent={props.sendUploadPercent}
-            mobileSidebarToggleKey={props.mobileSidebarToggleKey}
             mailDeliveryUnavailable={props.mailDeliveryUnavailable}
             onNotify={props.onNotify}
+          />
+        </Suspense>
+      </Route>
+      <Route path={ROUTES.secrets}>
+        <Suspense fallback={<RouteContentFallback />}>
+          <SecretsPage mobileLayout={props.mobileLayout} manager={props.secretsManager} />
+        </Suspense>
+      </Route>
+      <Route path={ROUTES.secretsMachineAccounts}>
+        <Suspense fallback={<RouteContentFallback />}>
+          <MachineAccountsPage
+            authedFetch={props.authedFetch}
+            session={props.session}
+            onNotify={props.onNotify}
+            mobileLayout={props.mobileLayout}
           />
         </Suspense>
       </Route>
@@ -336,7 +358,6 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
             attachmentDownloadPercent={props.attachmentDownloadPercent}
             uploadingAttachmentName={props.uploadingAttachmentName}
             attachmentUploadPercent={props.attachmentUploadPercent}
-            mobileSidebarToggleKey={props.mobileSidebarToggleKey}
           />
         </Suspense>
       </Route>

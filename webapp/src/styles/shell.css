@@ -72,10 +72,6 @@
   @apply hidden;
 }
 
-.mobile-sidebar-toggle {
-  @apply hidden;
-}
-
 .mobile-lock-btn {
   @apply hidden;
 }
@@ -314,23 +310,6 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
-}
-
-.mobile-sidebar-mask {
-  @apply pointer-events-none invisible fixed inset-0 opacity-0;
-  background: rgba(15, 23, 42, 0.36);
-  z-index: 54;
-  transition:
-    opacity 220ms var(--ease-smooth),
-    visibility 220ms var(--ease-smooth);
-}
-
-.mobile-sidebar-mask.open {
-  @apply pointer-events-auto visible opacity-100;
-}
-
-.mobile-sidebar-head {
-  @apply hidden;
 }
 
 .auth-request-details {

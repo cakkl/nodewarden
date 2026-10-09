@@ -173,7 +173,7 @@ export async function hkdf(
   return new Uint8Array(bits);
 }
 
-async function hmacSha256(keyBytes: Uint8Array, dataBytes: Uint8Array): Promise<Uint8Array> {
+export async function hmacSha256(keyBytes: Uint8Array, dataBytes: Uint8Array): Promise<Uint8Array> {
   const key = await getHmacSha256Key(keyBytes);
   return new Uint8Array(await requireWebCrypto().subtle.sign('HMAC', key, toBufferSource(dataBytes)));
 }

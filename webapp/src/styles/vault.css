@@ -210,8 +210,17 @@
   @apply gap-2;
 }
 
-.list-head.selection-mode > .btn.small {
-  @apply min-w-0 flex-1 justify-center;
+/* 选择模式的批量按钮放进动作组（与「排序 / 同步 / 新建」同一个 `.head-actions-group`）：
+   独占第二行并等分铺满；`min-width: max-content` 防止极窄列把文字压叠。 */
+.list-head.selection-mode .head-actions-group > .btn.small {
+  flex: 1 1 0;
+  min-width: max-content;
+}
+
+/* 选择模式下搜索组独占一行（批量按钮整组落到第二行）—— 重复项模式的那个「完全相同」
+   下拉也在这一组里，同样不会跟批量按钮抢行。 */
+.list-head.selection-mode > .head-search-group {
+  flex: 1 0 100%;
 }
 
 /* 列表头的两个分组（桌面态）：避免 flex-wrap 逐个换行把按钮拆散 —— 组内 nowrap、整组换行。
@@ -267,8 +276,10 @@
   margin-bottom: 5px;
 }
 
-/* Send 只有「类型」一个下拉，沿用上面的 `repeat(3, 1fr)` 会让它只占三分之一宽。 */
-.mobile-vault-filter-row.mobile-sends-filter-row {
+/* 只有一个下拉时不要沿用上面的 `repeat(3, 1fr)`（否则只占三分之一宽）。
+   Send = 类型，机密 = 项目。 */
+.mobile-vault-filter-row.mobile-sends-filter-row,
+.mobile-vault-filter-row.mobile-secrets-filter-row {
   grid-template-columns: minmax(0, 1fr);
 }
 
@@ -807,6 +818,123 @@
 
 .detail-switch-stage > .card {
   animation: surface-enter 280ms var(--ease-out-soft) both;
+}
+
+/* ⚠️ `surface-enter` 的终态是 `transform: translateY(0)`（**不是** `none`），又带 fill-mode: both
+   ⇒ 每张卡片都自成一个 stacking context：里面的 `.sort-menu`（z-30）盖不过后面的兄弟卡片。
+   展开下拉时给所在卡片加这个类把它抬起来。 */
+.card-menu-open {
+  position: relative;
+  z-index: 1;
+}
+
+/* 窄屏选择模式的列模板由 responsive.css + styles.css 打磨层统一决定（首项 1fr + 其余按内容宽）：
+   搜索框在选择模式下仍在第一项，这里若按按钮数等分出列，会把搜索框一并挤窄。 */
+
+/* 窄屏下 `.section-head` 会变成纵向、左对齐（见 responsive.css 的 ≤640px 段），
+   但机器账号的卡只有「标题 + 操作按钮」⇒ 保持一行、按钮靠右。
+   特异性 (0,2,0) 高于媒体查询里那条 (0,1,0)。 */
+.section-head.machine-accounts-head {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+/* 机器账号页只要两栅（列表 + 详情）：`.vault-grid` 的三栅是给密码库/机密的「侧栏 + 列表 + 详情」
+   用的。这里**复用它的全部响应式行为**（窄屏单列 + `mobile-panel-*` 面板切换），只改列数。
+   特异性 (0,2,0) 高于 `.vault-grid` (0,1,0)，所以下面几条不必写进 responsive.css。 */
+.vault-grid.machine-accounts-grid {
+  grid-template-columns: minmax(240px, 32%) minmax(0, 1fr);
+}
+
+@media (max-width: 1400px) {
+  .vault-grid.machine-accounts-grid {
+    grid-template-columns: minmax(220px, 32%) minmax(240px, 1fr);
+  }
+}
+
+@media (max-width: 1180px) {
+  .vault-grid.machine-accounts-grid {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+}
+
+/* 机器账号编辑视图的「行内新增」表单 —— 输入框可收缩、按钮不被压缩、行内控件与按钮等高。
+   ⚠️ 三条都要抬到 (0,4,0)：`.input` 默认 42px、`.mobile-detail-sheet .input` 也是 42px、
+   `.input.small` 是 120px，而 `.mobile-detail-sheet .input.small` 在窄屏还会变成 100%。
+   ⚠️ `.btn` 的 `min-width: 38px` 允许按钮一路缩到 38px ⇒ 「确认」两字被裁、整行越出卡片。 */
+.vault-grid.machine-accounts-grid .machine-inline-row {
+  display: flex;
+  /* 窄屏放不下时整条换行 —— 否则「名称」会被有效期下拉挤到只剩几十像素 */
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  /* 与上一条令牌之间留出间隔（上方是 .kv-row 的底边框，本身没有外边距） */
+  margin-top: 10px;
+}
+
+/* basis 220px：手机宽度下名称输入框先换到独占一整行，有效期 + 两个按钮留在下一行；
+   桌面宽度（行宽 ≈ 600px）一行放得下全部 ⇒ 不换行。 */
+.vault-grid.machine-accounts-grid .machine-inline-row > .input {
+  flex: 1 1 220px;
+  width: auto;
+  min-width: 0;
+  height: 38px;
+}
+
+/* 有效期下拉：**按最长选项自适应宽度**。定宽 120px 时「90 天后过期」
+   （英文 "Expires in 365 days" 更宽）会被裁掉半截 —— 移动端还要再留 30px 给箭头。 */
+.vault-grid.machine-accounts-grid .machine-inline-row > .input.small {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 120px;
+}
+
+.vault-grid.machine-accounts-grid .machine-inline-row > .btn {
+  /* 伸展：换行后这些按钮独占一行，要一起把整行填满（固定宽会右侧留空） */
+  flex: 1 1 auto;
+  white-space: nowrap;
+  height: 38px;
+}
+
+/* 行内项目权限下拉：与同行按钮等高、同样按内容自适应（英文 "Can read, write" 也放得下） */
+.vault-grid.machine-accounts-grid .kv-actions .input.small {
+  height: 38px;
+  width: auto;
+  min-width: 120px;
+}
+
+/* 「一个条目两个时间」（创建 + 过期）：**能一行就一行**，放不下才整体换到下一行。
+   ⚠️ 每个时间是 `nowrap`，所以不会出现「2026-04-」/「20」这种从中间断开的折行。
+   ⚠️ 必须抬到 (0,4,0)：`vault.css` 更靠后的 `.kv-main` 是 `display: flex`，同权重会压掉这里的规则。 */
+.vault-grid.machine-accounts-grid .kv-main.machine-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 20px;
+  font-size: var(--font-sm);
+  line-height: var(--leading-snug);
+  color: var(--muted);
+}
+
+.vault-grid.machine-accounts-grid .kv-main.machine-meta > span {
+  white-space: nowrap;
+}
+
+/* 列表头：标题与按钮必须同一行。`.head-search-group` 默认 `flex: 1 1 220px; min-width: 200px`
+   ⇒ 在 ~320px 宽的列表列里会把动作组挤到第二行（实测 `.list-head` 变成 63px 高）。 */
+.list-head.machine-accounts-list-head .head-search-group {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* 详情列里的下拉浮层：`.sort-menu` 默认 `right: 0`，而「新增项目」按钮在卡片左侧、
+   浮层宽 156px > 按钮宽 ⇒ 会向**左**溢出卡片。改成左对齐、向右展开。 */
+.vault-grid.machine-accounts-grid .sort-menu-wrap .sort-menu {
+  left: 0;
+  right: auto;
+  transform-origin: top left;
 }
 
 .card h4 {

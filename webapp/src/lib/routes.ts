@@ -16,6 +16,10 @@ export const ROUTES = {
   generator: '/generator',
   passwordHealth: '/security/password-health',
 
+  // 机密管理器（独立产品；产品归属由路径派生，见下面的 isSecretsProductPath）
+  secrets: '/secrets',
+  secretsMachineAccounts: '/secrets/machine-accounts',
+
   settings: '/settings',
   settingsAccount: '/settings/account',
   settingsDomainRules: '/settings/domain-rules',
@@ -61,6 +65,8 @@ export const SHELL_ROUTE_PATHS = [
   ROUTES.sends,
   ROUTES.generator,
   ROUTES.passwordHealth,
+  ROUTES.secrets,
+  ROUTES.secretsMachineAccounts,
   ROUTES.settings,
   ROUTES.settingsAccount,
   ROUTES.settingsDomainRules,
@@ -82,6 +88,22 @@ export const PUBLIC_SEND_PATH_PATTERN = /^\/send(?:\/|$)/i;
 /** 判定「这个路径是已知入口吗」，用于决定渲染 404 还是继续走路由。 */
 export function isKnownRoutePath(path: string): boolean {
   return AUTH_ROUTES.has(path) || SHELL_ROUTES.has(path) || PUBLIC_SEND_PATH_PATTERN.test(path);
+}
+
+/** 机密管理器产品的全部页面路径。 */
+export const SECRETS_PRODUCT_PATHS = [
+  ROUTES.secrets,
+  ROUTES.secretsMachineAccounts,
+] as const;
+
+/**
+ * 该路径是否属于**机密管理器**产品。
+ *
+ * 产品归属由路径派生（`/vault…` = 密码管理器、`/secrets…` = 机密管理器），**不存独立的
+ * 开关状态**：开关与 URL 一旦能互相矛盾，刷新 / 深链 / 书签 / 后退都会出问题。
+ */
+export function isSecretsProductPath(path: string): boolean {
+  return (SECRETS_PRODUCT_PATHS as readonly string[]).includes(normalizeRoutePath(path));
 }
 
 /** 规范化路径：去 query / hash 片段、补前导斜杠、去尾部斜杠（`/` 除外）。 */
