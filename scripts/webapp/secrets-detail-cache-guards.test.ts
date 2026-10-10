@@ -76,7 +76,20 @@ test('revision 表随列表同步更新，且索引在快照之后预热', () =>
       'set 完到重渲染之间读到的还是旧值）'
   );
   const warms = hookSource.match(/void warmRawDetails\(/g) ?? [];
-  assert.ok(warms.length >= 2, '在线刷新与离线快照两条路都要预热内存索引，否则点击又会退回读盘');
+  assert.ok(warms.length >= 2, '在线刷新与离线快照两条路都不能缺预热（刷新路优先用交回的那批）');
+});
+
+test('预热「没读到」时保留旧索引，且优先用快照交回的那批密文', () => {
+  assert.match(
+    hookSource,
+    /rawDetailsOrgRef\.current !== ctx\.organizationId/,
+    '读不到缓存时要把旧索引留着（那份密文还能用，判定仍靠 revisionDate）；只有换了组织才允许丢'
+  );
+  assert.match(
+    hookSource,
+    /if \(secrets\) rememberRawDetails\(nextContext, secrets\)/,
+    '刷新路要直接拿快照函数交回的密文建索引，否则又要多读一遍 IndexedDB'
+  );
 });
 
 test('两份缓存读出都只认自己组织的那一份', () => {

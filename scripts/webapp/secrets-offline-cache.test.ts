@@ -4,7 +4,9 @@
 // ① ⭐ **只存密文** —— 快照写进 IndexedDB 的字节里不能出现明文（名字 / 值 / 备注）；
 // ② ⭐ **签名比对** —— 列表没变就一次请求都不发（全量密文每进一次页面重传是不可接受的）；
 // ③ **宁旧勿空** —— 同步失败 / 回空时必须保留旧快照，不能把用户的离线数据清掉；
-// ④ **包裹自愈** —— 换了账号或主密码后旧包裹解不开，必须返回 `null` 而不是抛错。
+// ④ **包裹自愈** —— 换了账号或主密码后旧包裹解不开，必须返回 `null` 而不是抛错；
+// ⑤ **交回那批密文** —— 写快照的函数要把刚落盘的含值密文返回给调用方（内存索引不必再读一遍）；
+// ⑥ **「没读到」≠「读到空」** —— 前者返回 `null`，否则调用方会把还能用的索引清掉、点击全退回网络。
 //
 // Node 没有 IndexedDB，因此注入内存桩（仓库内首次）：只实现本项目用到的那几个方法。
 //
@@ -20,6 +22,7 @@ import {
   getOfflineTrashedSecretDetail,
   listSecretTags,
   listSecrets,
+  loadOfflineSecretDetails,
   loadOfflineSecrets,
   loadOfflineSecretTags,
   loadOfflineTrash,
@@ -493,6 +496,57 @@ test('an empty organization still caches the wrap (offline shows an empty list, 
   assert.ok(offlineContext);
   const offline = await loadOfflineSecrets(offlineContext, CACHE_KEY);
   assert.deepEqual(offline?.secrets, []);
+});
+
+test('⭐ 快照函数交回它刚落盘的那批含值密文', async () => {
+  indexedDb.reset();
+  const userKey = randomKeyPair();
+  const { session, server } = await freshSetup(userKey);
+  const ctx = await ensureSecretsContext(server.authedFetch, session);
+
+  const listed = await listSecrets(server.authedFetch, ctx);
+  const tags = await listSecretTags(server.authedFetch, ctx);
+  const written = await refreshSecretsOfflineSnapshot(server.authedFetch, ctx, CACHE_KEY, listed.raw, tags.raw);
+
+  // 必须是**同一批**含值密文：内存索引直接拿它建，与缓存、与列表三者要能对上
+  const record = await loadSecretsOfflineCache(CACHE_KEY);
+  assert.deepEqual(written, record?.secrets);
+  assert.equal(written?.length, FIXTURES.length);
+  assert.ok(
+    written?.every((row) => !!row.value && row.note !== undefined),
+    '交回的必须是含 value / note 的完整密文'
+  );
+
+  // 签名一致那一支（不重传全量）也要交回缓存里那份，否则调用方只能再读一遍 IndexedDB
+  const syncCalls = () => server.calls.filter((url) => url.endsWith('/secrets/sync')).length;
+  const before = syncCalls();
+  const again = await refreshSecretsOfflineSnapshot(server.authedFetch, ctx, CACHE_KEY, listed.raw, tags.raw);
+  assert.equal(syncCalls(), before, '签名没变就不该重传全量密文');
+  assert.deepEqual(again, written);
+});
+
+test('⭐ 「没读到」与「读到空」要能区分（前者不许清掉调用方的索引）', async () => {
+  indexedDb.reset();
+  const userKey = randomKeyPair();
+  const { session, server } = await freshSetup(userKey);
+  const ctx = await ensureSecretsContext(server.authedFetch, session);
+
+  // 还没落过快照 ⇒ null：调用方据此**保留旧索引**，而不是换成空的（换成空的 = 点击全退回网络）
+  assert.equal(await loadOfflineSecretDetails(ctx, CACHE_KEY), null);
+
+  await primeOnlineSnapshot(server, ctx);
+  const rows = await loadOfflineSecretDetails(ctx, CACHE_KEY);
+  assert.equal(rows?.length, FIXTURES.length);
+  assert.ok(rows?.every((row) => !!row.value), '索引要的是含值密文');
+
+  // 组织对不上 ⇒ 同样是 null：别家的密文不是这把密钥加密的，解出来是乱码
+  assert.equal(await loadOfflineSecretDetails({ ...ctx, organizationId: 'org-other' }, CACHE_KEY), null);
+
+  // 机密被删光（同步回空是**正常**情形）⇒ 空数组，与「没读到」区分开
+  server.secrets = [];
+  server.trash = [];
+  await primeOnlineSnapshot(server, ctx);
+  assert.deepEqual(await loadOfflineSecretDetails(ctx, CACHE_KEY), []);
 });
 
 test('⭐ 标签：落盘的是密文、离线可解，且改标签不触发全量重传', async () => {

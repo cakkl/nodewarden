@@ -156,15 +156,31 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   }, []);
   /** 内存索引：最近一次快照的**含值密文**。点条目时先查它，命中就只剩解密（同帧完成）。 */
   const rawDetailsRef = useRef<Map<string, RawSecretDetail>>(new Map());
-  /** 把缓存里的含值密文读进内存索引（在线刷新后 / 离线快照就位后各一次）。 */
-  const warmRawDetails = useCallback(async (ctx: SecretsContext): Promise<void> => {
-    const cacheKey = offlineCacheKeyRef.current;
-    if (!cacheKey) return;
-    const rows = await loadOfflineSecretDetails(ctx, cacheKey);
+  /** 索引来自哪个组织 —— 换过组织就不能再留（那批密文是另一把密钥加密的，解出来是乱码）。 */
+  const rawDetailsOrgRef = useRef('');
+  const rememberRawDetails = useCallback((ctx: SecretsContext, rows: RawSecretDetail[]) => {
     const index = new Map<string, RawSecretDetail>();
     for (const row of rows) if (row?.id) index.set(row.id, row);
     rawDetailsRef.current = index;
+    rawDetailsOrgRef.current = ctx.organizationId;
   }, []);
+  /**
+   * 从缓存读含值密文建索引。⚠️「没读到」（`null`）时**保留旧索引**（那份密文还能用，判定靠
+   * `revisionDate`）—— 清掉等于把点击全部退回网络；只有换过组织才允许丢。
+   */
+  const warmRawDetails = useCallback(
+    async (ctx: SecretsContext): Promise<void> => {
+      const cacheKey = offlineCacheKeyRef.current;
+      if (!cacheKey) return;
+      const rows = await loadOfflineSecretDetails(ctx, cacheKey);
+      if (!rows) {
+        if (rawDetailsOrgRef.current !== ctx.organizationId) rememberRawDetails(ctx, []);
+        return;
+      }
+      rememberRawDetails(ctx, rows);
+    },
+    [rememberRawDetails]
+  );
   const accessToken = session?.accessToken ?? '';
   const keyMaterial = `${session?.symEncKey ?? ''}|${session?.symMacKey ?? ''}`;
 
@@ -336,9 +352,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         offlineCacheKeyRef.current,
         listed.raw,
         tags?.raw ?? null
-      ).then(() => {
-        // 快照落盘后才读进内存索引：这样索引与列表出自同一版
-        void warmRawDetails(nextContext);
+      ).then((secrets) => {
+        // 快照交回的那批密文直接建索引（省掉再读一遍 IndexedDB）；没交回时回退读盘
+        if (secrets) rememberRawDetails(nextContext, secrets);
+        else void warmRawDetails(nextContext);
       });
       // ⚠️ 选中的那条也得重取：列表里没有 value / note，而且项目 / 备注改完不重取的话，
       // 详情会一直停在旧值（要再点一次条目才更新）。静默刷新，别把面板闪成「加载中」。
@@ -357,7 +374,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     } finally {
       setLoading(false);
     }
-  }, [demoMode, loadDetail, applyOfflineSnapshot, setOfflineState, backendUnreachable, rememberRevisions, warmRawDetails]);
+  }, [demoMode, loadDetail, applyOfflineSnapshot, setOfflineState, backendUnreachable, rememberRevisions, warmRawDetails, rememberRawDetails]);
 
   useEffect(() => {
     void refresh();
