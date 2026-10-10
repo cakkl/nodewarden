@@ -22,6 +22,7 @@ import {
 import ConfirmDialog from '@/components/ConfirmDialog';
 import MobileFilterMenu from '@/components/MobileFilterMenu';
 import type { MobileFilterOption } from '@/components/MobileFilterMenu';
+import TagSuggestInput from '@/components/TagSuggestInput';
 import type { SecretsManagerProps } from '@/hooks/useSecretsManager';
 import type { SecretInput } from '@/lib/api/secrets';
 import { groupSecretsByTag } from '@/lib/sm-tag-groups';
@@ -856,7 +857,11 @@ export default function SecretsPage(props: SecretsPageProps) {
 
         {draft ? (
           <div key={`sm-editor-${draft.id ?? 'new'}`} className="detail-switch-stage">
-            <div className={`card ${projectMenuOpen ? 'card-menu-open' : ''}`}>
+            {/* ⚠️ `card-menu-open` 要覆盖这张卡里的**所有**浮层：项目菜单与标签候选面板。
+                入场动画让每张卡自成层叠上下文 ⇒ 面板的 `z-index` 出不去，
+                不抬起的话会被后面的「值 / 备注」卡片盖住。标签这侧用「有候选」作充分条件
+                （与机器账号页的「有可加项目」同一手法）。 */}
+            <div className={`card ${projectMenuOpen || manager.tagOptions.length > 0 ? 'card-menu-open' : ''}`}>
               <label className="field">
                 <span>{t('txt_name')}</span>
                 <input
@@ -914,22 +919,14 @@ export default function SecretsPage(props: SecretsPageProps) {
                   )}
                 </div>
               </div>
-              {/* 标签（仅 Web）：`datalist` 就是「输入时筛已有标签、点一下就填」的原生形态 */}
-              <label className="field">
-                <span>{t('txt_sm_tag')}</span>
-                <input
-                  className="input"
-                  list="sm-tag-options"
-                  value={draft.tag}
-                  placeholder={t('txt_sm_tag_placeholder')}
-                  onInput={(event) => setDraft({ ...draft, tag: (event.currentTarget as HTMLInputElement).value })}
-                />
-                <datalist id="sm-tag-options">
-                  {manager.tagOptions.map((tag) => (
-                    <option key={tag} value={tag} />
-                  ))}
-                </datalist>
-              </label>
+              {/* 标签（仅 Web）：自带候选面板 —— 原生 `datalist` 的下拉是浏览器绘制的，与本站主题不一致 */}
+              <TagSuggestInput
+                label={t('txt_sm_tag')}
+                value={draft.tag}
+                options={manager.tagOptions}
+                placeholder={t('txt_sm_tag_placeholder')}
+                onChange={(tag) => setDraft({ ...draft, tag })}
+              />
             </div>
             <div className="card">
               <label className="field">
@@ -1010,6 +1007,16 @@ export default function SecretsPage(props: SecretsPageProps) {
                     {valueRevealed ? <EyeOff size={14} className="btn-icon" /> : <Eye size={14} className="btn-icon" />}
                     {valueRevealed ? t('txt_hide') : t('txt_show')}
                   </button>
+                  {/* 与密码管理器的密码栏同形：复制不要求先显示（值此时已经在本地） */}
+                  <button
+                    type="button"
+                    className="btn btn-secondary small"
+                    disabled={manager.selectedSecretLoading || !selected.value}
+                    onClick={() => void copyTextToClipboard(selected.value)}
+                  >
+                    <Copy size={14} className="btn-icon" />
+                    {t('txt_copy')}
+                  </button>
                 </div>
               </div>
             </div>
@@ -1063,6 +1070,15 @@ export default function SecretsPage(props: SecretsPageProps) {
                   >
                     {valueRevealed ? <EyeOff size={14} className="btn-icon" /> : <Eye size={14} className="btn-icon" />}
                     {valueRevealed ? t('txt_hide') : t('txt_show')}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary small"
+                    disabled={!trashSelected.value}
+                    onClick={() => void copyTextToClipboard(trashSelected.value)}
+                  >
+                    <Copy size={14} className="btn-icon" />
+                    {t('txt_copy')}
                   </button>
                 </div>
               </div>

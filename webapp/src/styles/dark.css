@@ -34,6 +34,28 @@
   color: var(--text);
 }
 
+/* 暗色下打磨层给**每个** `.sort-menu-item` 都叠了 `--panel` 底 + `--shadow-sm`（亮色没有这条）
+   ⇒ 相邻候选项各自成一枚圆角方块。退回「透明项」：面板本来就是一块底，只有悬停 / 高亮那条才浮出来。 */
+:root[data-theme='dark'] .sort-menu .sort-menu-item,
+:root[data-theme='dark'] .create-menu .create-menu-item {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ⚠️ 祖先类 `.sort-menu` 把特异性抬到 (0,5,0)，而打磨层那条
+   `:root[data-theme=dark] … .sort-menu-item:hover` 是 (0,4,0) 且**后**加载 ⇒ 同档会被它压掉。 */
+:root[data-theme='dark'] .sort-menu .sort-menu-item:hover,
+:root[data-theme='dark'] .create-menu .create-menu-item:hover {
+  background: color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+/* 键盘高亮的那一项：与悬停同样给主色底，另用亮蓝字把它与悬停区分开。 */
+:root[data-theme='dark'] .sort-menu .sort-menu-item.active,
+:root[data-theme='dark'] .create-menu .create-menu-item.active {
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+  color: var(--primary-strong);
+}
+
 :root[data-theme='dark'] .muted,
 :root[data-theme='dark'] .detail-sub,
 :root[data-theme='dark'] .detail-folder-line,

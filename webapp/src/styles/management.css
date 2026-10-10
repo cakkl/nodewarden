@@ -1786,14 +1786,20 @@
   @apply relative;
 }
 
+/* 同样封顶 + 滚动。⚠️ 上限取 360 而非 `.sort-menu` 的 320：现有 8 个条目自然高 335px，
+   卡到 320 只会凭白多出一条滚动条。 */
 .create-menu {
-  @apply absolute left-0 z-20 w-[220px] overflow-hidden rounded-xl border;
+  @apply absolute left-0 z-20 w-[220px] rounded-xl border;
   top: calc(100% + 6px);
   background: #fff;
   border-color: var(--line);
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18);
   transform-origin: bottom left;
   animation: menu-in 190ms var(--ease-out-strong) both;
+  max-height: min(360px, calc(100dvh - 24px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .create-menu-item {
