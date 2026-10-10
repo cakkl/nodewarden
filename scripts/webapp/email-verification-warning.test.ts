@@ -8,7 +8,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { shouldWarnUnverifiedEmail } from '../../webapp/src/lib/email-verification-warning';
+import { shouldWarnUnverifiedEmail, setEmailVerificationWarningMuted } from '../../webapp/src/lib/email-verification-warning';
 
 test('未验证 + 尚未提醒过 ⇒ 提醒', () => {
   assert.equal(shouldWarnUnverifiedEmail({ id: 'u1', emailVerified: false }, null), true);
@@ -36,4 +36,29 @@ test('profile 为 null ⇒ 不提醒', () => {
 
 test('没有 id ⇒ 不提醒（无法记录「已提醒」，宁可不说）', () => {
   assert.equal(shouldWarnUnverifiedEmail({ id: '', emailVerified: false }, null), false);
+});
+
+// 「不再提醒」：账户界面关掉后，即使换了账号也不该再弹（按浏览器存，与账号无关）
+function withLocalStorage<T>(store: Map<string, string>, run: () => T): T {
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+    removeItem: (key: string) => void store.delete(key),
+  };
+  try {
+    return run();
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
+}
+
+test('关掉提醒后不再提醒；重新打开又提醒', () => {
+  const store = new Map<string, string>();
+  withLocalStorage(store, () => {
+    setEmailVerificationWarningMuted(true);
+    assert.equal(shouldWarnUnverifiedEmail({ id: 'u1', emailVerified: false }, null), false, '关掉后不该提醒');
+    setEmailVerificationWarningMuted(false);
+    assert.equal(shouldWarnUnverifiedEmail({ id: 'u1', emailVerified: false }, null), true, '重新打开应恢复提醒');
+  });
 });

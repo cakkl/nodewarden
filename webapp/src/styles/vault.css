@@ -217,20 +217,14 @@
   min-width: max-content;
 }
 
-/* 选择模式下搜索组独占一行（批量按钮整组落到第二行）—— 重复项模式的那个「完全相同」
-   下拉也在这一组里，同样不会跟批量按钮抢行。 */
-.list-head.selection-mode > .head-search-group {
-  flex: 1 0 100%;
-}
-
-/* 列表头的两个分组（桌面态）：避免 flex-wrap 逐个换行把按钮拆散 —— 组内 nowrap、整组换行。
+/* 列表头的两个分组（桌面态）：组内 nowrap、整组换行，避免 flex-wrap 把按钮逐个拆散。
    搜索组 = 搜索框 + 与它绑定的筛选下拉；动作组 = 排序 / 同步 / 新建。
-   移动态（≤1180px）两组 `display:contents`，子项仍直接参与 `.list-head` 的网格。 */
+   移动态（≤1180px）两组 `display:contents`，子项直接参与 `.list-head` 的网格。 */
 .head-search-group {
   @apply flex min-w-0 items-center gap-2;
-  flex: 1 1 220px;
-  /* 换行阈值由这一条决定：再窄就不如让动作组整体换行 */
-  min-width: 200px;
+  /* 固定两行：搜索独占第一行、动作按钮落到第二行靠右。
+     ⚠️ 不能靠 `flex-wrap` 自然换行 —— 列表列够宽时两组会挤成一行（部署环境实测如此）。 */
+  flex: 1 0 100%;
 }
 
 .head-actions-group {
@@ -922,8 +916,8 @@
   white-space: nowrap;
 }
 
-/* 列表头：标题与按钮必须同一行。`.head-search-group` 默认 `flex: 1 1 220px; min-width: 200px`
-   ⇒ 在 ~320px 宽的列表列里会把动作组挤到第二行（实测 `.list-head` 变成 63px 高）。 */
+/* 列表头：标题与按钮必须同一行。`.head-search-group` 默认 `flex: 1 0 100%`（搜索独占一行）
+   ⇒ 本页这一组装的是**标题**、不是搜索框，必须退回「按内容宽」，否则会把动作组挤到第二行。 */
 .list-head.machine-accounts-list-head .head-search-group {
   flex: 0 1 auto;
   min-width: 0;

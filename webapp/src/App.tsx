@@ -76,6 +76,7 @@ import { RESEND_COOLDOWN_SECONDS, useResendCountdown } from '@/hooks/useResendCo
 import useI18nRevision from '@/hooks/useI18nRevision';
 import useVaultSendActions from '@/hooks/useVaultSendActions';
 import useSecretsManager from '@/hooks/useSecretsManager';
+import useMachineAccounts from '@/hooks/useMachineAccounts';
 import { useToastManager } from '@/hooks/useToastManager';
 import { detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
 import { shouldWarnUnverifiedEmail } from '@/lib/email-verification-warning';
@@ -2325,6 +2326,8 @@ export default function App() {
   }, [phase, mobileLayout, location, navigate]);
 
   const secretsManager = useSecretsManager({ authedFetch, session, onNotify: pushToast });
+  // 与 secretsManager 一样挂在 App：否则每次进机器账号页都会先清空再加载
+  const machineAccounts = useMachineAccounts({ authedFetch, session, onNotify: pushToast });
 
   const mainRoutesProps = {
     profile,
@@ -2332,6 +2335,7 @@ export default function App() {
     session,
     mobileLayout,
     secretsManager,
+    machineAccounts,
     authedFetch,
     themePreference,
     decryptedCiphers,
@@ -2425,6 +2429,11 @@ export default function App() {
     },
     onMailSettingsSaved: (settings: MailSettings) => {
       queryClient.setQueryData(['admin-mail-settings', vaultCacheKey || session?.email], settings);
+      // 邮件可用性变了，两个启动查询都得跟上 —— 否则要刷新整页才生效：
+      // profile 里的 `emailVerification`（账户页的徽标 / 验证按钮）与 `/api/config`
+      // 的 `mailDeliveryAvailable`（两步登录邮件那一行、提示文案）。
+      void profileQuery.refetch();
+      void serverConfigQuery.refetch();
     },
     onSaveMailSettings: adminMailActions.saveMailSettings,
     onSendTestMail: adminMailActions.sendTestMail,

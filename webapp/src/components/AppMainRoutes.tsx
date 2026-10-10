@@ -15,6 +15,7 @@ import type { AccountPasskeyCredential, AdminInvite, AdminUser, AuditLogListResu
 import type { ExportRequest } from '@/lib/export-formats';
 import type { AuthedFetch } from '@/lib/api/shared';
 import type { SecretsManagerProps } from '@/hooks/useSecretsManager';
+import type { MachineAccountsManagerProps } from '@/hooks/useMachineAccounts';
 import { DEVICE_MANAGEMENT_ROUTE_PATHS, IMPORT_EXPORT_ROUTE_PATHS, ROUTES } from '@/lib/routes';
 
 const VaultPage = lazy(() => import('@/components/VaultPage'));
@@ -99,7 +100,8 @@ export interface AppMainRoutesProps {
   domainRulesError: string;
   /** 机密管理器（三个 SM 页面共用同一份数据与操作，见 `useSecretsManager`）。 */
   secretsManager: SecretsManagerProps;
-  /** 机器账号页需要自己访问端点（它的数据与机密/项目不共享）。 */
+  /** 机器账号页的数据（同样挂在 App，见 `useMachineAccounts`）。 */
+  machineAccounts: MachineAccountsManagerProps;
   authedFetch: AuthedFetch;
   onNavigate: (path: string) => void;
   onLogout: () => void;
@@ -315,8 +317,8 @@ export default function AppMainRoutes(props: AppMainRoutesProps) {
       <Route path={ROUTES.secretsMachineAccounts}>
         <Suspense fallback={<RouteContentFallback />}>
           <MachineAccountsPage
+            manager={props.machineAccounts}
             authedFetch={props.authedFetch}
-            session={props.session}
             onNotify={props.onNotify}
             mobileLayout={props.mobileLayout}
           />

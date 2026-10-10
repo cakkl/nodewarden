@@ -15,6 +15,7 @@ import {
 } from '@/lib/two-factor-providers';
 import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
 import { AVAILABLE_LOCALES, detectBrowserLocale, getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import { isEmailVerificationWarningMuted, setEmailVerificationWarningMuted } from '@/lib/email-verification-warning';
 import { buildLocaleOptions } from '@/lib/locale-options';
 import { buildTimezoneGroups } from '@/lib/timezone-options';
 import { useDateTimeFormat } from '@/lib/datetime';
@@ -219,6 +220,8 @@ export default function SettingsPage(props: SettingsPageProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>('preferences');
 
   const [emailVerification, setEmailVerification] = useState<EmailVerificationStatus | null>(null);
+  /** 「不再提醒邮箱未验证」——按浏览器存，初始值直接读本地标记。 */
+  const [emailWarningMuted, setEmailWarningMuted] = useState(isEmailVerificationWarningMuted);
   const [verificationCode, setVerificationCode] = useState('');
   const [emailVerificationBusy, setEmailVerificationBusy] = useState(false);
   const [emailVerificationDialogOpen, setEmailVerificationDialogOpen] = useState(false);
@@ -1122,6 +1125,25 @@ export default function SettingsPage(props: SettingsPageProps) {
                     )}
                   </div>
                   <p className="field-help">{t('txt_change_email_unavailable')}</p>
+                  {/* 未验证时的登录提醒可以在这里关掉（按浏览器存，见 `email-verification-warning`）。
+                      已验证就不再需要这个开关 —— 提醒本来也不会再出现。 */}
+                  {emailVerification?.available && !emailVerification.verified && (
+                    <div className="settings-checkbox-block" style={{ marginTop: '14px' }}>
+                      <label className="settings-switch">
+                        <input
+                          type="checkbox"
+                          checked={emailWarningMuted}
+                          onInput={(e) => {
+                            const muted = (e.currentTarget as HTMLInputElement).checked;
+                            setEmailVerificationWarningMuted(muted);
+                            setEmailWarningMuted(muted);
+                          }}
+                        />
+                        <span aria-hidden="true" />
+                        <strong>{t('txt_email_unverified_warning_opt_out')}</strong>
+                      </label>
+                    </div>
+                  )}
                   {/* 是否接收安全通知邮件。两个前提缺一不可：服务端**能**发信（否则开关无意义）、
                       且邮箱**已验证**（未验证时按发信 gate 本来就不会发通知）。
                       放在邮箱区最后：它属于「意愿」，与地址/验证（事实）分层。 */}

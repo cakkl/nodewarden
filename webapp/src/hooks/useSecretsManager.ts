@@ -12,6 +12,7 @@ import {
   purgeTrashedSecrets,
   restoreTrashedSecrets,
   updateSecret,
+  setSecretsProjects,
   updateSecretProject,
   type SecretDetail,
   type SecretInput,
@@ -60,6 +61,8 @@ export interface SecretsManagerProps {
   onSelectSecret: (id: string) => void;
   onClearSelection: () => void;
   onRefresh: () => Promise<void>;
+  /** 批量调整所属项目（逐条给各自的集合）。 */
+  onSetSecretsProjects: (assignments: ReadonlyArray<{ id: string; projectIds: string[] }>) => Promise<void>;
   onCreateProject: (name: string) => Promise<void>;
   onRenameProject: (id: string, name: string) => Promise<void>;
   onDeleteProject: (id: string) => Promise<void>;
@@ -285,6 +288,11 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       setLiveDetail(null);
     }, []),
     onRefresh: syncNow,
+    onSetSecretsProjects: (assignments) =>
+      runAction(
+        (ctx) => setSecretsProjects(fetcherRef.current, ctx, assignments),
+        t('txt_saved')
+      ),
     onCreateProject: (name) =>
       runAction((ctx) => createSecretProject(fetcherRef.current, ctx, name), t('txt_saved')),
     onRenameProject: (id, name) =>

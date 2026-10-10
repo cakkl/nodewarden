@@ -16,6 +16,7 @@ import {
   getSecretsByIds,
   listSecrets,
   secretsUserKey,
+  setSecretsProjects,
 } from '../../webapp/src/lib/api/secrets';
 import type { AuthedFetch } from '../../webapp/src/lib/api/shared';
 import { bytesToBase64, requireWebCrypto } from '../../webapp/src/lib/crypto';
@@ -211,6 +212,53 @@ test('取值：get-by-ids 带回 value / note 并解出明文', async () => {
   assert.equal(details.length, 1);
   assert.equal(details[0].value, 'postgres://db');
   assert.equal(details[0].note, 'rotate quarterly');
+});
+
+test('批量改项目：先取明细再逐条 PUT，且每条用**各自**的集合', async () => {
+  const userKey = randomKeyPair();
+  const orgKey = requireWebCrypto().getRandomValues(new Uint8Array(64));
+  const keyPair = splitKeyPair(orgKey);
+  const server = createServer({ wrappedOrgKey: await wrapOrgKey(orgKey, userKey) });
+  const ctx = await ensureSecretsContext(server.authedFetch, sessionFor(userKey));
+
+  const puts: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const moveServer: AuthedFetch = async (input, init) => {
+    if (input === '/api/secrets/get-by-ids') {
+      return jsonResponse({
+        data: [
+          { id: 's1', key: await encryptField('DATABASE_URL', keyPair), value: await encryptField('v1', keyPair), note: await encryptField('n1', keyPair), projects: [{ id: 'old' }] },
+          { id: 's2', key: await encryptField('API_KEY', keyPair), value: await encryptField('v2', keyPair), note: await encryptField('', keyPair), projects: [] },
+        ],
+      });
+    }
+    if (input.startsWith('/api/secrets/')) {
+      puts.push({ url: input, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+      // 真实服务端回吐完整详情（`updateSecret` 要解出名字），这里照做
+      return jsonResponse({
+        id: input.split('/').pop(),
+        key: (JSON.parse(String(init?.body)) as Record<string, unknown>).key,
+        projects: [{ id: 'p9' }],
+      });
+    }
+    return server.authedFetch(input, init);
+  };
+
+  // 逐条各自的集合：多选时「没动过的项目」对每条是保持原样的，不能共用一个集合
+  await setSecretsProjects(moveServer, ctx, [
+    { id: 's1', projectIds: ['p9', 'keep'] },
+    { id: 's2', projectIds: [] },
+  ]);
+
+  assert.deepEqual(puts.map((call) => call.url), ['/api/secrets/s1', '/api/secrets/s2'], '每条都要 PUT');
+  assert.deepEqual(puts[0].body.projectIds, ['p9', 'keep'], '第一条用给它自己的集合');
+  assert.deepEqual(puts[1].body.projectIds, [], '第二条清空 = 未分配');
+  for (const call of puts) {
+    // PUT 要求一并带上 key / value / note，且都是密文
+    for (const field of ['key', 'value', 'note']) {
+      assert.match(String(call.body[field]), /^2\./, `${field} 必须是 type 2 的 EncString`);
+    }
+  }
+  assert.equal(await decryptField(String(puts[0].body.key), keyPair), 'DATABASE_URL', '名字要原样带回');
 });
 
 test('写入契约：字段为 camelCase 且**全是密文**，批量删的请求体是裸数组', async () => {

@@ -355,6 +355,35 @@ export async function updateSecret(
   return detail;
 }
 
+/**
+ * 批量调整所属项目。
+ * ⚠️ 官方只有**单条** PUT，且要求一并带上 key / value / note ⇒ 先取回明细（含明文）再逐条提交。
+ * 逐条给**各自**的集合：多选时「没动过的项目」对每条机密是保持原样的，不能共用一个集合。
+ */
+export async function setSecretsProjects(
+  authedFetch: AuthedFetch,
+  ctx: SecretsContext,
+  assignments: ReadonlyArray<{ id: string; projectIds: string[] }>
+): Promise<void> {
+  if (!assignments.length) return;
+  const details = await getSecretsByIds(
+    authedFetch,
+    ctx,
+    assignments.map((assignment) => assignment.id)
+  );
+  const byId = new Map(details.map((detail) => [detail.id, detail]));
+  for (const assignment of assignments) {
+    const detail = byId.get(assignment.id);
+    if (!detail) continue;
+    await updateSecret(authedFetch, ctx, assignment.id, {
+      key: detail.name,
+      value: detail.value,
+      note: detail.note,
+      projectIds: assignment.projectIds,
+    });
+  }
+}
+
 /** 软删（进回收站，满 30 天由服务端 scheduled 物理清除）。 */
 export async function deleteSecrets(
   authedFetch: AuthedFetch,

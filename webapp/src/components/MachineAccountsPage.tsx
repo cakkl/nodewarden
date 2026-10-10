@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import { Check, ChevronDown, Copy, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-preact';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import type { AuthedFetch } from '@/lib/api/shared';
@@ -6,28 +6,20 @@ import {
   createMachineAccount,
   createMachineAccountToken,
   deleteMachineAccount,
-  ensureSecretsContext,
   listMachineAccountEvents,
-  listMachineAccountTokens,
-  listMachineAccounts,
-  listSecretProjects,
   removeMachineAccountGrant,
   renameMachineAccount,
   revokeMachineAccountToken,
   setMachineAccountGrant,
-  type MachineAccountDetail,
   type MachineAccountEvent,
   type MachineAccountGrant,
-  type MachineAccountToken,
   type SecretProject,
-  type SecretsContext,
 } from '@/lib/api/secrets';
 import { IS_DEMO_MODE } from '@/lib/demo';
 import { t } from '@/lib/i18n';
-import { SECRETS_DEMO_MACHINE_ACCOUNTS, SECRETS_DEMO_MACHINE_ACCOUNT_EVENTS, SECRETS_DEMO_PROJECTS } from '@/lib/secrets-demo';
-import { onSecretsManagerChange } from '@/lib/secrets-realtime';
-import type { SessionState } from '@/lib/types';
+import { SECRETS_DEMO_MACHINE_ACCOUNT_EVENTS } from '@/lib/secrets-demo';
 import { useActionRunner, type AppNotify } from '@/hooks/useActionRunner';
+import type { MachineAccountsManagerProps } from '@/hooks/useMachineAccounts';
 
 /**
  * 机器账号（Machine accounts）：左侧账号列表、右侧详情。
@@ -39,8 +31,10 @@ import { useActionRunner, type AppNotify } from '@/hooks/useActionRunner';
  * 复制。因此令牌的增删**即时生效**（不像名称 / 项目那样等「保存」），否则明文无法跟随一次提交回吐。
  */
 export interface MachineAccountsPageProps {
+  /** 数据由 App 提供（见 `useMachineAccounts`）—— 页面只留 UI 状态。 */
+  manager: MachineAccountsManagerProps;
+  /** 写操作（建账号 / 改授权 / 令牌）仍由页面直接调端点，所以还要带凭据。 */
   authedFetch: AuthedFetch;
-  session: SessionState | null;
   onNotify: AppNotify;
   mobileLayout: boolean;
 }
@@ -68,10 +62,15 @@ const EVENT_LABEL_KEYS: Record<number, string> = {
   2305: 'txt_sm_event_account_deleted',
 };
 
-/** 事件一行的人话。目标已不存在时用破折号占位 —— 事件本身仍要看得见。 */
-function eventLabel(event: MachineAccountEvent): string {
+/**
+ * 事件一行的人话（目标不存在时用破折号占位）。
+ * ⚠️ 名字两种来源：目标是机密 / 项目用解密名（服务端只放密文）；其余（23xx 机器账号类）的目标
+ * 就是本页这个账号 ⇒ 用它手里的明文名字，否则会显示成「新建了机器账号「—」」。
+ */
+function eventLabel(event: MachineAccountEvent, accountName: string): string {
   const key = EVENT_LABEL_KEYS[event.typeCode];
-  return key ? t(key, { name: event.name ?? '—' }) : `#${event.typeCode}`;
+  const name = event.secretId || event.projectId ? event.name ?? '—' : accountName;
+  return key ? t(key, { name }) : `#${event.typeCode}`;
 }
 
 /**
@@ -142,13 +141,8 @@ function GrantPicker(props: {
 }
 
 export default function MachineAccountsPage(props: MachineAccountsPageProps) {
-  const { authedFetch, session, onNotify, mobileLayout } = props;
-  const [context, setContext] = useState<SecretsContext | null>(null);
-  const [accounts, setAccounts] = useState<MachineAccountDetail[]>([]);
-  const [projects, setProjects] = useState<SecretProject[]>([]);
-  const [tokens, setTokens] = useState<Record<string, MachineAccountToken[]>>({});
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const { authedFetch, onNotify, mobileLayout, manager } = props;
+  const { context, accounts, projects, tokens, loading, error } = manager;
   const [busy, setBusy] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -166,88 +160,6 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     if (mobileLayout) return;
     setMobilePanel('list');
   }, [mobileLayout]);
-
-  const load = useCallback(async () => {
-    if (IS_DEMO_MODE) {
-      setAccounts(
-        SECRETS_DEMO_MACHINE_ACCOUNTS.map((account) => ({
-          id: account.id,
-          name: account.name,
-          creationDate: account.createdAt,
-          revisionDate: account.revisionDate,
-          grants: account.grants,
-        }))
-      );
-      setProjects(
-        SECRETS_DEMO_PROJECTS.map((project) => ({
-          id: project.id,
-          name: project.name,
-          creationDate: project.createdAt,
-          revisionDate: project.revisionDate,
-        }))
-      );
-      setTokens(
-        Object.fromEntries(
-          SECRETS_DEMO_MACHINE_ACCOUNTS.map((account) => [
-            account.id,
-            // 演示数据用 `createdAt`，API 用 `creationDate` ⇒ 这里显式对齐
-            account.tokens.map(
-              (token): MachineAccountToken => ({
-                id: token.id,
-                name: token.name,
-                expiresAt: token.expiresAt,
-                revokedAt: token.revokedAt,
-                lastUsedAt: token.lastUsedAt,
-                creationDate: token.createdAt,
-              })
-            ),
-          ])
-        )
-      );
-      return null;
-    }
-    if (!session) return null;
-    setLoading(true);
-    setError('');
-    try {
-      const nextContext = await ensureSecretsContext(authedFetch, session);
-      const [nextAccounts, nextProjects] = await Promise.all([
-        listMachineAccounts(authedFetch, nextContext),
-        listSecretProjects(authedFetch, nextContext),
-      ]);
-      const withTokens = await Promise.all(
-        nextAccounts.map(
-          async (account) => [account.id, await listMachineAccountTokens(authedFetch, nextContext, account.id)] as const
-        )
-      );
-      setContext(nextContext);
-      setAccounts(nextAccounts);
-      setProjects(nextProjects);
-      setTokens(Object.fromEntries(withTokens));
-      return null;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      return message;
-    } finally {
-      setLoading(false);
-    }
-  }, [authedFetch, session]);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // 别人（CLI / 其它设备）改了机器账号 / 授权 / 令牌 ⇒ 重新拉一次。
-  // 自己那次由 `App.tsx` 按标签页标识挡掉。
-  useEffect(
-    () =>
-      onSecretsManagerChange((kind) => {
-        if (kind !== 'machine-accounts') return;
-        void load();
-      }),
-    [load]
-  );
 
   /** 事件日志：首屏取第一页，「加载更多」传上一页最后一条的 (时间, id) 复合游标。 */
   async function loadEvents(accountId: string, cursor?: { creationDate: string; id: string }): Promise<void> {
@@ -302,14 +214,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     permission === 'write' ? t('txt_permission_write') : t('txt_permission_read');
 
   /** 统一包装（成功提示 / 刷新 / 失败透出文案见 `useActionRunner`）。 */
-  const run = useActionRunner({ onNotify, demoMode: IS_DEMO_MODE, reload: load, onBusyChange: setBusy });
-
-  /** 「同步」按钮：只在手动点击时给反馈（挂载加载与实时推送的刷新不弹）。 */
-  async function syncNow(): Promise<void> {
-    const failure = await load();
-    if (failure) onNotify('error', failure);
-    else onNotify('success', t('txt_secrets_synced'));
-  }
+  const run = useActionRunner({ onNotify, demoMode: IS_DEMO_MODE, reload: manager.onReload, onBusyChange: setBusy });
 
   function openCreate(): void {
     setCreatedToken(null);
@@ -371,7 +276,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       setDraft(null);
       setTokenDraft(null);
       setSelectedId(accountId);
-      await load();
+      await manager.onReload();
       await loadEvents(accountId);
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : String(err));
@@ -396,7 +301,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       // ⚠️ 明文只在这一刻拿到，先把界面切到「把它复制走」，再刷新列表
       setCreatedToken(created.plaintext);
       setTokenDraft(null);
-      await load();
+      await manager.onReload();
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : String(err));
     } finally {
@@ -439,7 +344,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
               type="button"
               className="btn btn-secondary small list-icon-btn"
               disabled={busy || loading}
-              onClick={() => void syncNow()}
+              onClick={() => void manager.onRefresh()}
             >
               <RefreshCw size={14} className="btn-icon" /> {t('txt_sync_vault')}
             </button>
@@ -779,7 +684,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
               events.map((event) => (
                 <div key={event.id} className="kv-line">
                   <span>{stamp(event.creationDate)}</span>
-                  <strong>{eventLabel(event)}</strong>
+                  <strong>{eventLabel(event, selected.name)}</strong>
                 </div>
               ))
             )}
