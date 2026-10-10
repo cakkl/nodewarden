@@ -101,6 +101,38 @@ test('六个写动作都就地打补丁（列表不必等整页刷新）', () =>
   assert.match(hookSource, /applyTagLocally\(created\.id, tag\)/, '新增后的标签也要写进本地映射（否则分组等下次刷新才变）');
 });
 
+test('写后校准走轻量路径：组织上下文复用缓存、不重拉标签与回收站', () => {
+  assert.match(
+    hookSource,
+    /const calibrate = useCallback\(\(\) => refresh\(\{ skipTags: true, skipTrash: true \}\)/,
+    '写动作的校准要跳过「标签」与「回收站」两次请求（标签由就地补丁维护，回收站的离线副本晚一步更新）'
+  );
+  assert.match(hookSource, /reload: calibrate \}\)/, '写动作默认走轻量校准');
+  assert.match(hookSource, /reload: refresh \}\)/, '会改变「按标签分组」的动作（恢复回收站条目）仍走完整刷新');
+  assert.match(hookSource, /\{ withTags: true \}\)/, '恢复回收站条目要带标签一起校准');
+  assert.match(hookSource, /const nextContext = await resolveSecretsContext\(fetcherRef\.current, current\)/, '刷新要经共享的组织上下文缓存取上下文');
+  assert.equal(
+    (hookSource.match(/await ensureSecretsContext\(/g) ?? []).length,
+    0,
+    '机密 hook 不再直调 `ensureSecretsContext`（那 2 个请求每次刷新都白花）'
+  );
+  assert.equal(
+    (readSource('webapp/src/hooks/useMachineAccounts.ts').match(/await ensureSecretsContext\(/g) ?? []).length,
+    0,
+    '机器账号 hook 同样要用共享缓存（否则首次加载 / 手动刷新又各花 2 个请求）'
+  );
+});
+
+test('组织上下文缓存按会话键命中、并发只解析一次，且非解锁态会清掉（解密后的组织密钥不留在模块作用域）', () => {
+  assert.match(apiSource, /let secretsContextCache: \{ key: string; task: Promise<SecretsContext> \} \| null = null/, '缓存放在 API 层 ⇒ 两个 hook 共用一份');
+  assert.match(apiSource, /if \(cached\?\.key === key\) return cached\.task/, '按「令牌 + 用户密钥」命中：换会话自动失效');
+  assert.match(apiSource, /const task = ensureSecretsContext\(authedFetch, session\);/, '先存 Promise 再 await ⇒ 并发的第二方拿到同一份在飞请求');
+  assert.match(apiSource, /task\.catch\(\(\) => \{[\s\S]{0,120}secretsContextCache = null;/, '失败不缓存：一次网络抖动不该钉死整个会话');
+  assert.match(apiSource, /export function clearSecretsContextCache\(\): void \{\s*secretsContextCache = null;/, '要提供清理入口');
+  const appSource = readSource('webapp/src/App.tsx');
+  assert.match(appSource, /if \(phase !== 'app'\) \{[\s\S]{0,200}clearSecretsContextCache\(\);/, '锁屏 / 退出（非 app 阶段）要清掉缓存的组织密钥');
+});
+
 test('预热「没读到」时保留旧索引，且优先用快照交回的那批密文', () => {
   assert.match(
     hookSource,

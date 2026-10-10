@@ -13,6 +13,7 @@ import {
 import {
   createAccessToken,
   listAccessTokensByMachineAccount,
+  listAccessTokensByMachineAccounts,
   revokeAccessToken,
   type SmAccessToken,
 } from '../services/storage-secrets-token-repo';
@@ -130,6 +131,11 @@ export async function handleSecretsMachineAccountRoute(
   if (path === MACHINE_ACCOUNTS_PATH) {
     if (method === 'GET') {
       const accounts = await listMachineAccounts(env.DB, organization.id);
+      // 令牌随列表一起回（按账号各发一次就是 N+1）
+      const tokensByAccount = await listAccessTokensByMachineAccounts(
+        env.DB,
+        accounts.map((account) => account.id)
+      );
       const withGrants = await Promise.all(
         accounts.map(async (account) => ({
           id: account.id,
@@ -140,7 +146,16 @@ export async function handleSecretsMachineAccountRoute(
           object: 'machineAccount',
         }))
       );
-      return jsonResponse({ data: withGrants, object: 'list' });
+      return jsonResponse({
+        data: withGrants,
+        tokens: Object.fromEntries(
+          accounts.map((account) => [
+            account.id,
+            (tokensByAccount.get(account.id) ?? []).map(tokenSummary),
+          ])
+        ),
+        object: 'list',
+      });
     }
 
     if (method === 'POST') {

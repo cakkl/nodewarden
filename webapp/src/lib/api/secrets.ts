@@ -231,6 +231,36 @@ export async function ensureSecretsContext(authedFetch: AuthedFetch, session: Se
   return { organizationId, orgKey, keyPair: splitKeyPair(orgKey), wrappedOrgKey: authoritative };
 }
 
+/**
+ * 一个会话内复用组织上下文（组织 id + 密钥包裹都不变，包裹只在首次生成时写入）。
+ * 缓存 key 含令牌与用户密钥 ⇒ 锁屏 / 退出 / 重登后自动失效；机密与机器账号两个 hook 共用这一份。
+ *
+ * ⚠️ 存**进行中的 Promise** 而不是结果：两个 hook 在 App 挂载时并发解析，只存结果两边都看到空缓存、
+ * 各问一遍。失败不缓存（一次网络抖动不该钉死整个会话）。
+ * ⚠️ 模块作用域里放着解密后的组织密钥 ⇒ 非解锁态必须 `clearSecretsContextCache()`。
+ */
+let secretsContextCache: { key: string; task: Promise<SecretsContext> } | null = null;
+
+export async function resolveSecretsContext(
+  authedFetch: AuthedFetch,
+  session: SessionState
+): Promise<SecretsContext> {
+  const key = `${session.accessToken}|${session.symEncKey ?? ''}|${session.symMacKey ?? ''}`;
+  const cached = secretsContextCache;
+  if (cached?.key === key) return cached.task;
+  const task = ensureSecretsContext(authedFetch, session);
+  secretsContextCache = { key, task };
+  task.catch(() => {
+    if (secretsContextCache?.task === task) secretsContextCache = null;
+  });
+  return task;
+}
+
+/** 丢掉缓存的组织密钥（锁屏 / 退出时调 —— 别把它留在模块作用域里）。 */
+export function clearSecretsContextCache(): void {
+  secretsContextCache = null;
+}
+
 // ── 项目 ────────────────────────────────────────────────────────────────────
 
 export async function listSecretProjects(authedFetch: AuthedFetch, ctx: SecretsContext): Promise<SecretProject[]> {
@@ -589,56 +619,90 @@ export async function saveSecretTag(
 // ── 离线只读缓存 ────────────────────────────────────────────────────────────
 
 /**
- * 把最新的全量密文快照写进本地缓存（尽力而为，失败不抛）。
- * ⚠️ 线格式不报「已删除」（`sync` 只回活着的行）⇒ 缓存只能整份覆盖，所以先用签名比对，
- * 否则每进一次页面都要重传全量密文。
- * 返回**这次拿到的那批含值密文**（`null` = 既没读到也没取到）：调用方直接用它建内存索引，
- * 省掉「写完再读一遍 IndexedDB」；返回值与当前组织一致（复用缓存那支已比对过组织与包裹）。
- * ⚠️ `rawTags` 为 `null`（这次没取到标签）时必须**保留缓存里的旧标签** —— 否则离线分组会被抹掉。
+ * 快照超过这个时长就放弃增量、回全量：增量万一漏了一条（时间戳并列、服务端时钟回拨），
+ * 陈旧程度也在这里封顶。
+ */
+const SNAPSHOT_FULL_RESYNC_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 把最新的密文快照写进本地缓存（尽力而为，失败不抛）。
+ * 先按签名比对，没变就一次请求都不发；变了的走增量：拿快照里最新的 `revisionDate` 当起点
+ * （服务端写的时间戳 ⇒ 不受本机时钟影响），未变的沿用缓存里的密文，补不齐就整份回全量。
+ *
+ * 返回**这次拿到的那批含值密文**（`null` = 既没读到也没取到，与当前组织一致）：调用方直接用它
+ * 建内存索引，省掉「写完再读一遍 IndexedDB」。
+ * ⚠️ `rawTags` 为 `null`（这次没取到标签）时必须**保留缓存里的旧标签**，否则离线分组会被抹掉。
  */
 export async function refreshSecretsOfflineSnapshot(
   authedFetch: AuthedFetch,
   ctx: SecretsContext,
   cacheKey: string,
   listed: RawSecretsList,
-  rawTags: Record<string, string> | null
+  rawTags: Record<string, string> | null,
+  /** `skipTrash` = 写操作后的校准：只更新密文快照，回收站的离线副本等下次完整刷新。 */
+  options?: { skipTrash?: boolean }
 ): Promise<RawSecretDetail[] | null> {
   if (!cacheKey || !ctx.wrappedOrgKey) return null;
   try {
     const cached = await loadSecretsOfflineCache(cacheKey);
+    // 组织 / 包裹对不上就不是这一把密钥的缓存（换账号或主密码）⇒ 当没有，也别拿它的标签 / 回收站当底
+    const scoped =
+      cached && cached.organizationId === ctx.organizationId && cached.wrappedOrgKey === ctx.wrappedOrgKey
+        ? cached
+        : null;
     const signature = secretsOfflineSignature(listed.secrets, listed.projects);
-    if (
-      cached &&
-      cached.signature === signature &&
-      cached.organizationId === ctx.organizationId &&
-      cached.wrappedOrgKey === ctx.wrappedOrgKey
-    ) {
+    if (scoped && scoped.signature === signature) {
       // 快照是最新的；但标签与签名无关，得单独同步一次（否则刚打的标签离线看不到）。
       // ⚠️ `rawTags` 为 `null`（这次没取到）时什么都不做 —— 不能当成「标签被删光了」。
-      if (rawTags && !sameStringMap(cached.tags, rawTags)) {
+      if (rawTags && !sameStringMap(scoped.tags, rawTags)) {
         await saveCachedSecretsOfflineTags(cacheKey, rawTags);
       }
-      return cached.secrets;
+      return scoped.secrets;
     }
 
-    // 官方同步端点：省略 `lastSyncedDate` = 回全量，且元素**含密文 value / note**
-    // （列表端点拿不到值，那正是离线只读需要的东西）。
-    const response = await authedFetch(orgPath(ctx, '/secrets/sync'));
-    if (!response.ok) return null;
-    const body = await parseJson<{ secrets?: { data?: RawSecretDetail[] } }>(response);
-    const secrets = Array.isArray(body?.secrets?.data) ? body.secrets.data : [];
-    // ⚠️「列表里有机密、同步却回空」才是异常（形状对不上）⇒ 宁可用旧快照；「本来就没有机密」
-    // 时回空是**正常**的，必须照常记下来，否则新账号离线连空列表都看不到。
-    if (secrets.length === 0 && listed.secrets.length > 0) return null;
+    // 存活集用本次列表：线格式不报删除 ⇒ 列表里没有的就是已经删了（或被收回了可见性）
+    const liveIds = new Set(listed.secrets.map((secret) => secret.id).filter((id): id is string => !!id));
+    const anchor = scoped ? snapshotAnchor(scoped.secrets) : '';
+    let secrets: RawSecretDetail[] | null = null;
+    if (scoped && anchor && Date.now() - scoped.savedAt < SNAPSHOT_FULL_RESYNC_MS) {
+      const response = await authedFetch(
+        orgPath(ctx, `/secrets/sync?lastSyncedDate=${encodeURIComponent(anchor)}`)
+      );
+      if (response.ok) {
+        const body = await parseJson<{ secrets?: { data?: RawSecretDetail[] } }>(response);
+        const changed = Array.isArray(body?.secrets?.data) ? body.secrets.data : [];
+        const byId = new Map<string, RawSecretDetail>();
+        for (const row of scoped.secrets) if (row?.id && liveIds.has(row.id)) byId.set(row.id, row);
+        for (const row of changed) if (row?.id && liveIds.has(row.id)) byId.set(row.id, row);
+        // 列表里每一条都得有密文（离线只读要的是值）⇒ 合并补不齐说明起点对不上，整份回全量
+        if ([...liveIds].every((id) => byId.has(id))) secrets = [...byId.values()];
+      }
+    }
+
+    if (!secrets) {
+      // 官方同步端点：省略 `lastSyncedDate` = 客户端从未同步过（官方模型是 `Option`）⇒ 回全量，
+      // 元素**含密文 value / note**（列表端点拿不到值，那正是离线只读需要的东西）。
+      const response = await authedFetch(orgPath(ctx, '/secrets/sync'));
+      if (!response.ok) return null;
+      const body = await parseJson<{ secrets?: { data?: RawSecretDetail[] } }>(response);
+      const rows = Array.isArray(body?.secrets?.data) ? body.secrets.data : [];
+      // ⚠️「列表里有机密、同步却回空」才是异常（形状对不上）⇒ 宁可用旧快照；「本来就没有机密」
+      // 时回空是**正常**的，必须照常记下来，否则新账号离线连空列表都看不到。
+      if (rows.length === 0 && listed.secrets.length > 0) return null;
+      secrets = rows;
+    }
 
     // 回收站：列表端点不含它，只能另取一次（没有批量详情接口 ⇒ 内容靠惰性积累）。
-    const trashResponse = await authedFetch('/api/secrets/trash');
-    const trashBody = trashResponse.ok
-      ? await parseJson<{ secrets?: RawTrashedSecret[] }>(trashResponse)
-      : null;
-    const trash = Array.isArray(trashBody?.secrets) ? trashBody.secrets : (cached?.trash ?? []);
+    let trash = scoped?.trash ?? [];
+    if (!options?.skipTrash) {
+      const trashResponse = await authedFetch('/api/secrets/trash');
+      const trashBody = trashResponse.ok
+        ? await parseJson<{ secrets?: RawTrashedSecret[] }>(trashResponse)
+        : null;
+      trash = Array.isArray(trashBody?.secrets) ? trashBody.secrets : (scoped?.trash ?? []);
+    }
     const aliveIds = new Set(trash.map((row) => row.id).filter((id): id is string => !!id));
-    const cachedTrashDetails = cached?.trashDetails ?? {};
+    const cachedTrashDetails = scoped?.trashDetails ?? {};
     const trashDetails = Object.fromEntries(
       Object.entries(cachedTrashDetails).filter(([id]) => aliveIds.has(id))
     );
@@ -649,7 +713,7 @@ export async function refreshSecretsOfflineSnapshot(
       wrappedOrgKey: ctx.wrappedOrgKey,
       projects: listed.projects,
       secrets,
-      tags: rawTags ?? cached?.tags ?? {},
+      tags: rawTags ?? scoped?.tags ?? {},
       trash,
       trashDetails,
     });
@@ -658,6 +722,16 @@ export async function refreshSecretsOfflineSnapshot(
     // 离线缓存是尽力而为的旁路：失败不该影响在线流程
     return null;
   }
+}
+
+/** 快照里最新的 `revisionDate`，当增量同步的起点；没有可用时间戳时返回空串（⇒ 回全量）。 */
+function snapshotAnchor(rows: readonly RawSecretDetail[]): string {
+  let anchor = '';
+  for (const row of rows) {
+    const value = row?.revisionDate ?? '';
+    if (value > anchor) anchor = value;
+  }
+  return anchor;
 }
 
 /** 两个「字符串→字符串」映射内容是否一致。 */
@@ -856,12 +930,16 @@ function toToken(raw: RawToken): MachineAccountToken | null {
   };
 }
 
-export async function listMachineAccounts(authedFetch: AuthedFetch, ctx: SecretsContext): Promise<MachineAccountDetail[]> {
-  const body = await readJsonOrThrow<{ data?: RawMachineAccount[] }>(
+/** 账号列表：令牌随列表一起回（`tokens`）—— 按账号各发一次就是 N+1，它们本来就是同一页要的东西。 */
+export async function listMachineAccounts(
+  authedFetch: AuthedFetch,
+  ctx: SecretsContext
+): Promise<{ accounts: MachineAccountDetail[]; tokens: Record<string, MachineAccountToken[]> }> {
+  const body = await readJsonOrThrow<{ data?: RawMachineAccount[]; tokens?: Record<string, RawToken[]> }>(
     await authedFetch('/api/secrets/machine-accounts'),
     t('txt_load_failed')
   );
-  return (body.data ?? [])
+  const accounts = (body.data ?? [])
     .filter((raw): raw is RawMachineAccount & { id: string; name: string } => !!raw?.id && !!raw.name)
     .map((raw) => ({
       id: raw.id,
@@ -870,6 +948,13 @@ export async function listMachineAccounts(authedFetch: AuthedFetch, ctx: Secrets
       revisionDate: raw.revisionDate ?? raw.createdAt ?? '',
       grants: (raw.grants ?? []).map(toGrant).filter((grant): grant is MachineAccountGrant => !!grant),
     }));
+  const tokens: Record<string, MachineAccountToken[]> = {};
+  for (const account of accounts) {
+    tokens[account.id] = (body.tokens?.[account.id] ?? [])
+      .map(toToken)
+      .filter((token): token is MachineAccountToken => !!token);
+  }
+  return { accounts, tokens };
 }
 
 export async function createMachineAccount(

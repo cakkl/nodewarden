@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { OfflineRequestError, type AuthedFetch } from '@/lib/api/shared';
 import {
-  ensureSecretsContext,
   listMachineAccountTokens,
   listMachineAccounts,
   listSecretProjects,
+  resolveSecretsContext,
   type MachineAccountDetail,
   type MachineAccountToken,
   type SecretProject,
@@ -128,21 +128,17 @@ export default function useMachineAccounts(options: UseMachineAccountsOptions): 
     setLoading(true);
     setError('');
     try {
-      const nextContext = await ensureSecretsContext(fetcher, currentSession);
-      const [nextAccounts, nextProjects] = await Promise.all([
+      const nextContext = await resolveSecretsContext(fetcher, currentSession);
+      // 令牌随列表一起回来 ⇒ 不必按账号各发一次
+      const [{ accounts: nextAccounts, tokens: nextTokens }, nextProjects] = await Promise.all([
         listMachineAccounts(fetcher, nextContext),
         listSecretProjects(fetcher, nextContext),
       ]);
-      const withTokens = await Promise.all(
-        nextAccounts.map(
-          async (account) => [account.id, await listMachineAccountTokens(fetcher, nextContext, account.id)] as const
-        )
-      );
       setOffline(false);
       setContext(nextContext);
       setAccounts(nextAccounts);
       setProjects(nextProjects);
-      setTokens(Object.fromEntries(withTokens));
+      setTokens(nextTokens);
       return null;
     } catch (err) {
       // 请求发出后才断网（或冷启动时压根没拿到令牌）⇒ 与真离线同样处理，

@@ -34,3 +34,31 @@ test('机器账号数据由 App 提供，页面不再自己加载', () => {
   );
   assert.match(page, /manager\.onUpsertAccount\(/, '名称 / 授权保存后就地更新那一条');
 });
+
+test('令牌随账号列表一起回，不再按账号各发一次（N+1）', () => {
+  const hook = readSource('webapp/src/hooks/useMachineAccounts.ts');
+  assert.match(
+    hook,
+    /const \[\{ accounts: nextAccounts, tokens: nextTokens \}, nextProjects\]/,
+    'reload 要用列表响应里的令牌，而不是按账号各发一次'
+  );
+  assert.match(hook, /setTokens\(nextTokens\)/);
+  assert.equal(
+    (hook.match(/await listMachineAccountTokens\(/g) ?? []).length,
+    1,
+    '单账号端点只留「吊销后重取那一个账号」这一处'
+  );
+
+  const api = readSource('webapp/src/lib/api/secrets.ts');
+  assert.match(api, /tokens\?: Record<string, RawToken\[\]>/, '列表端点响应要解出 tokens');
+  assert.match(
+    readSource('src/handlers/secrets-machine.ts'),
+    /listAccessTokensByMachineAccounts/,
+    '服务端要一次取全部账号的令牌'
+  );
+  assert.match(
+    readSource('src/services/storage-secrets-token-repo.ts'),
+    /machine_account_id IN \(/,
+    '用一条 IN 查询，不要按账号逐个查'
+  );
+});
