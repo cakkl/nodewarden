@@ -271,3 +271,18 @@
 .toast-stack:hover .toast-progress {
   animation-play-state: paused;
 }
+
+/* 只出现一次的令牌明文：**整条换行**显示（弹窗内宽约 460px，94 字符一行放不下，
+   而这是不可再得的凭据 —— 看全比横向滚动重要）。`user-select: all` 让点一下即全选。 */
+.dialog-token-value {
+  @apply block rounded-xl border p-3 text-left;
+  margin-bottom: 10px;
+  background: color-mix(in srgb, var(--primary) 6%, var(--panel));
+  border-color: color-mix(in srgb, var(--primary) 22%, var(--line));
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  user-select: all;
+  overflow-wrap: anywhere;
+}

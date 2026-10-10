@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import { Check, ChevronDown, Copy, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-preact';
+import { Check, ChevronDown, Pencil, Plus, RefreshCw, Trash2, X } from 'lucide-preact';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import type { AuthedFetch } from '@/lib/api/shared';
 import {
   createMachineAccount,
@@ -316,12 +317,8 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
 
   async function copyPlaintext(): Promise<void> {
     if (!createdToken) return;
-    try {
-      await navigator.clipboard.writeText(createdToken);
-      onNotify('success', t('txt_copied'));
-    } catch (err) {
-      onNotify('error', err instanceof Error ? err.message : String(err));
-    }
+    // 统一走 `lib/clipboard`（自带「已复制 / 复制失败」提示）
+    await copyTextToClipboard(createdToken);
   }
 
   function selectAccount(id: string): void {
@@ -508,22 +505,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
             </div>
           ))}
 
-          {createdToken ? (
-            <div className="kv-row">
-              <span className="kv-label">{t('txt_access_token_once')}</span>
-              <div className="kv-main">
-                <strong>{createdToken}</strong>
-              </div>
-              <div className="kv-actions">
-                <button type="button" className="btn btn-secondary" onClick={() => void copyPlaintext()}>
-                  <Copy size={14} className="btn-icon" /> {t('txt_copy')}
-                </button>
-                <button type="button" className="btn btn-secondary" onClick={() => setCreatedToken(null)}>
-                  {t('txt_close')}
-                </button>
-              </div>
-            </div>
-          ) : tokenDraft ? (
+          {tokenDraft ? (
             <div className="machine-inline-row">
               <input
                 className="input"
@@ -774,6 +756,22 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
           void revokeToken(target.id);
         }}
       />
+
+      {/* 令牌明文：它只在创建时出现这一次（库里只有散列）⇒ 用弹窗展示 —— 行内那点宽度显示不下。
+          ⚠️ `dismissable={false}`：一次误点空白 / Esc 就把明文丢了，必须显式点「关闭」。
+          复制后**不关弹窗**：明文不可再得，用户可能还要再抄一遍。 */}
+      <ConfirmDialog
+        open={!!createdToken}
+        dismissable={false}
+        title={t('txt_access_tokens')}
+        message={t('txt_access_token_once')}
+        confirmText={t('txt_copy')}
+        cancelText={t('txt_close')}
+        onConfirm={() => void copyPlaintext()}
+        onCancel={() => setCreatedToken(null)}
+      >
+        <div className="dialog-token-value">{createdToken}</div>
+      </ConfirmDialog>
     </div>
   );
 }
