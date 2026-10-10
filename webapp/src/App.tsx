@@ -2425,6 +2425,11 @@ export default function App() {
     },
     onMailSettingsSaved: (settings: MailSettings) => {
       queryClient.setQueryData(['admin-mail-settings', vaultCacheKey || session?.email], settings);
+      // 邮件可用性变了，两个启动查询都得跟上 —— 否则要刷新整页才生效：
+      // profile 里的 `emailVerification`（账户页的徽标 / 验证按钮）与 `/api/config`
+      // 的 `mailDeliveryAvailable`（两步登录邮件那一行、提示文案）。
+      void profileQuery.refetch();
+      void serverConfigQuery.refetch();
     },
     onSaveMailSettings: adminMailActions.saveMailSettings,
     onSendTestMail: adminMailActions.sendTestMail,
