@@ -106,6 +106,11 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** 写结果缓存的键：同一条机密换了 `revisionDate` 就是另一份内容（两份不能混用）。 */
+function writtenDetailKey(id: string, revisionDate: string): string {
+  return `${id}:${revisionDate}`;
+}
+
 export default function useSecretsManager(options: UseSecretsManagerOptions): SecretsManagerProps {
   const { authedFetch, session, onNotify, offlineCacheKey } = options;
   const demoMode = IS_DEMO_MODE;
@@ -181,6 +186,70 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     },
     [rememberRawDetails]
   );
+  /** 刚写过的那一条（`id:revisionDate` → 详情）：刚写完点开要立刻看到，而内存索引里那份密文要下次刷新才回吐。 */
+  const writtenDetailsRef = useRef<Map<string, SecretDetail>>(new Map());
+  /** 标签就地更新（写成功后的补丁；候选清单只加不减 —— 用过的标签留着）。 */
+  const applyTagLocally = useCallback((id: string, tag: string) => {
+    const next = tag.trim();
+    const map = { ...tagsRef.current };
+    if (next) map[id] = next;
+    else delete map[id];
+    tagsRef.current = map;
+    setTagsBySecretId(map);
+    if (!next) return;
+    setAllTags((current) =>
+      current.includes(next) ? current : [...current, next].sort((a, b) => a.localeCompare(b))
+    );
+  }, []);
+  /**
+   * 写成功后**就地打补丁**：列表立刻反映这次改动（服务端已确认，不必等随后的整页刷新）。
+   * 那次刷新降级为**校准** —— 标签候选、`revisionDate`、离线快照仍由它照旧维护。
+   */
+  const applySecretWrite = useCallback((detail: SecretDetail) => {
+    setLiveSecrets((current) => {
+      const summary: SecretSummary = {
+        id: detail.id,
+        name: detail.name,
+        projectIds: detail.projectIds,
+        creationDate: detail.creationDate,
+        revisionDate: detail.revisionDate,
+      };
+      const index = current.findIndex((item) => item.id === summary.id);
+      if (index < 0) return [...current, summary];
+      const next = current.slice();
+      next[index] = summary;
+      return next;
+    });
+    revisionsRef.current = { ...revisionsRef.current, [detail.id]: detail.revisionDate };
+    const written = writtenDetailsRef.current;
+    if (written.size > 20) written.clear();
+    written.set(writtenDetailKey(detail.id, detail.revisionDate), detail);
+  }, []);
+  /** 软删成功后就地从列表里拿掉，并把 revision 表 / 标签映射 / 内存索引里的对应项一并清掉。 */
+  const removeSecretsLocally = useCallback((ids: readonly string[]) => {
+    const gone = new Set(ids);
+    setLiveSecrets((current) => current.filter((item) => !gone.has(item.id)));
+    const revisions = { ...revisionsRef.current };
+    const tags = { ...tagsRef.current };
+    for (const id of gone) {
+      delete revisions[id];
+      delete tags[id];
+      rawDetailsRef.current.delete(id);
+    }
+    revisionsRef.current = revisions;
+    tagsRef.current = tags;
+    setTagsBySecretId(tags);
+  }, []);
+  /** 批量调整项目后就地改列表里的 `projectIds`（改动是我们发出去的，不必等回应）。 */
+  const applySecretProjectsLocally = useCallback(
+    (assignments: ReadonlyArray<{ id: string; projectIds: string[] }>) => {
+      const byId = new Map(assignments.map((item) => [item.id, item.projectIds]));
+      setLiveSecrets((current) =>
+        current.map((item) => (byId.has(item.id) ? { ...item, projectIds: byId.get(item.id) ?? [] } : item))
+      );
+    },
+    []
+  );
   const accessToken = session?.accessToken ?? '';
   const keyMaterial = `${session?.symEncKey ?? ''}|${session?.symMacKey ?? ''}`;
 
@@ -248,6 +317,12 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     async (ctx: SecretsContext, id: string, showSpinner = true): Promise<void> => {
       try {
         const revision = revisionsRef.current[id];
+        // ⓪ 刚写过的那一条：同步命中 ⇒ 连一帧中间态都不会有
+        const written = revision ? writtenDetailsRef.current.get(writtenDetailKey(id, revision)) : undefined;
+        if (written) {
+          setLiveDetail(written);
+          return;
+        }
         const raw = revision ? rawDetailsRef.current.get(id) : undefined;
         if (raw && raw.revisionDate === revision) {
           setLiveDetail(await decryptSecretDetail(raw, ctx));
@@ -513,10 +588,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     }, []),
     onRefresh: syncNow,
     onSetSecretsProjects: (assignments) =>
-      runAction(
-        (ctx) => setSecretsProjects(fetcherRef.current, ctx, assignments),
-        t('txt_saved')
-      ),
+      runAction(async (ctx) => {
+        await setSecretsProjects(fetcherRef.current, ctx, assignments);
+        applySecretProjectsLocally(assignments);
+      }, t('txt_saved')),
     onCreateProject: (name) =>
       runAction((ctx) => createSecretProject(fetcherRef.current, ctx, name), t('txt_saved')),
     onRenameProject: (id, name) =>
@@ -527,22 +602,28 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       runAction(async (ctx) => {
         const created = await createSecret(fetcherRef.current, ctx, input);
         await saveTagIfChanged(ctx, created.id, tag);
+        // 服务端已确认 ⇒ 就地补上列表与标签，不等随后那次校准刷新
+        applySecretWrite(created);
+        applyTagLocally(created.id, tag);
       }, t('txt_saved')),
     onUpdateSecret: (id, input, tag, contentChanged) =>
       runAction(async (ctx) => {
         // 只有内容真的变了才发官方 PUT（见 props 上的说明）
-        if (contentChanged) await updateSecret(fetcherRef.current, ctx, id, input);
+        if (contentChanged) applySecretWrite(await updateSecret(fetcherRef.current, ctx, id, input));
         await saveTagIfChanged(ctx, id, tag);
+        applyTagLocally(id, tag);
       }, t('txt_saved')),
     onDeleteSecret: (id) =>
       runAction(async (ctx) => {
         await deleteSecrets(fetcherRef.current, ctx, [id]);
+        removeSecretsLocally([id]);
         setSelectedId(null);
         setLiveDetail(null);
       }, t('txt_deleted')),
     onDeleteSecrets: (ids) =>
       runAction(async (ctx) => {
         await deleteSecrets(fetcherRef.current, ctx, ids);
+        removeSecretsLocally(ids);
         setSelectedId(null);
         setLiveDetail(null);
       }, t('txt_deleted')),

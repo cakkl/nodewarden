@@ -49,6 +49,11 @@ const stamp = (iso: string): string => (iso ? `${iso.slice(0, 10)} ${iso.slice(1
 const TOKEN_TTL_DAYS = [30, 90, 365];
 /** 事件日志每页条数（服务端上限 100）。 */
 const EVENT_PAGE_SIZE = 20;
+/**
+ * 机器账号整页重拉要 4 + N 个请求 ⇒ 写动作改成就地打补丁。空实现只为满足 `useActionRunner`
+ * 的必填项（实时推送 / 手动「同步」仍会重拉）。
+ */
+const noReload = (): Promise<void> => Promise.resolve();
 
 /** 事件类型码 → 文案键。数字码与 `src/services/secrets-events.ts` 保持一致。 */
 const EVENT_LABEL_KEYS: Record<number, string> = {
@@ -231,7 +236,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     permission === 'write' ? t('txt_permission_write') : t('txt_permission_read');
 
   /** 统一包装（成功提示 / 刷新 / 失败透出文案见 `useActionRunner`）。 */
-  const run = useActionRunner({ onNotify, demoMode: IS_DEMO_MODE, reload: manager.onReload, onBusyChange: setBusy });
+  const run = useActionRunner({ onNotify, demoMode: IS_DEMO_MODE, reload: noReload, onBusyChange: setBusy });
 
   function openCreate(): void {
     setCreatedToken(null);
@@ -277,8 +282,11 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     try {
       const before = current.id ? accounts.find((account) => account.id === current.id) : undefined;
       let accountId = current.id;
+      let creationDate = before?.creationDate ?? '';
       if (!accountId) {
-        accountId = (await createMachineAccount(authedFetch, context, name)).id;
+        const created = await createMachineAccount(authedFetch, context, name);
+        accountId = created.id;
+        creationDate = created.creationDate;
       } else if (name !== before?.name) {
         await renameMachineAccount(authedFetch, context, accountId, name);
       }
@@ -302,7 +310,15 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       setTokenDraft(null);
       setRevokedExpanded(false);
       setSelectedId(accountId);
-      await manager.onReload();
+      // 服务端已确认 ⇒ 就地更新这一条（名称 / 授权），不等整页重拉
+      manager.onUpsertAccount({
+        id: accountId,
+        name,
+        creationDate: creationDate || new Date().toISOString(),
+        // 只用来显示「最后编辑」的**日期**（`day()` 只取到日），本地时刻与服务端同一瞬间
+        revisionDate: new Date().toISOString(),
+        grants: current.grants.map((grant) => ({ projectId: grant.projectId, permission: grant.permission })),
+      });
       await loadEvents(accountId);
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : String(err));
@@ -327,7 +343,8 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       // ⚠️ 明文只在这一刻拿到，先把界面切到「把它复制走」，再刷新列表
       setCreatedToken(created.plaintext);
       setTokenDraft(null);
-      await manager.onReload();
+      // 服务端返回的就是这条令牌本身 ⇒ 直接追加，不等整页重拉
+      manager.onAddToken(activeId, created.token);
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : String(err));
     } finally {
@@ -337,7 +354,12 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
 
   async function revokeToken(tokenId: string): Promise<void> {
     if (!context) return;
-    await run(() => revokeMachineAccountToken(authedFetch, context, tokenId), t('txt_revoked'));
+    const accountId = activeId;
+    await run(async () => {
+      await revokeMachineAccountToken(authedFetch, context, tokenId);
+      // 撤销时间由服务端给 ⇒ 只重取**这一个**账号的令牌（整页重拉要 4 + N 个请求）
+      if (accountId) await manager.onReloadAccountTokens(accountId);
+    }, t('txt_revoked'));
   }
 
   async function copyPlaintext(): Promise<void> {
@@ -823,7 +845,11 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
           setDraft(null);
           setSelectedId(null);
           setMobilePanel('list');
-          void run(() => deleteMachineAccount(authedFetch, context, target.id), t('txt_deleted'));
+          void run(async () => {
+            await deleteMachineAccount(authedFetch, context, target.id);
+            // 服务端已确认 ⇒ 就地从列表里拿掉（连同它的令牌）
+            manager.onRemoveAccount(target.id);
+          }, t('txt_deleted'));
         }}
       />
 

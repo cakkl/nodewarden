@@ -26,5 +26,11 @@ test('机器账号数据由 App 提供，页面不再自己加载', () => {
       `页面不得自己取数据（发现 ${forbidden}）：数据加载要留在 useMachineAccounts 里`
     );
   }
-  assert.match(page, /manager\.onReload\(\)/, '写操作成功后要经 manager 刷新，别再调本地 load');
+  // 写完就地打补丁，不再整页重拉 —— 整页重拉是 4 + N 个请求（每个账号各一次令牌），
+  // 写完等它回来会明显卡顿，与密码库「请求成功后就地更新列表」也不一致。
+  assert.ok(
+    !/reload: manager\.onReload/.test(page),
+    '`useActionRunner` 的 reload 不得再挂在整页重拉上：用 manager 的补丁接口就地更新'
+  );
+  assert.match(page, /manager\.onUpsertAccount\(/, '名称 / 授权保存后就地更新那一条');
 });
