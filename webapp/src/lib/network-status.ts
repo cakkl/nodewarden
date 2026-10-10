@@ -43,6 +43,15 @@ export function recordNodeWardenReachable(): void {
   setCurrentNetworkStatus('online');
 }
 
+/**
+ * 「拿不到后端」的统一判定：浏览器自报离线、探针已翻离线，或**根本没有访问令牌**。
+ * ⚠️ 无令牌本身就是离线信号（会话持久化刻意不存令牌）；只看 `navigator.onLine` 会漏掉
+ * 「有令牌但网络断了」——那时写请求会真的发出去、重试三次后弹一句英文原文。
+ */
+export function backendUnreachable(options: { hasAccessToken: boolean }): boolean {
+  return browserReportsOffline() || getCurrentNetworkStatus() === 'offline' || !options.hasAccessToken;
+}
+
 export function recordNodeWardenUnreachable(): void {
   lastProbeResult = false;
   consecutiveProbeFailures += 1;

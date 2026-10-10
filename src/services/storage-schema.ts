@@ -271,11 +271,11 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     'FOREIGN KEY (owner_user_id) REFERENCES users(id) ON DELETE CASCADE)',
 
   // 组织密钥的用户侧包裹：用密码库已有的 user key 包住组织密钥（没有组织 RSA 密钥对）。
+  // 主键只用 `org_id`：本仓**没有多租户**（组织与用户 1:1，见 `ensureImplicitOrganization`），
+  // 每人一份的 `(org_id, user_id)` 复合主键是为共享预留的，已移除（2026-10-10）。
   'CREATE TABLE IF NOT EXISTS sm_org_keys (' +
-    'org_id TEXT NOT NULL, user_id TEXT NOT NULL, wrapped_org_key TEXT NOT NULL, created_at TEXT NOT NULL, ' +
-    'PRIMARY KEY (org_id, user_id), ' +
-    'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE, ' +
-    'FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE)',
+    'org_id TEXT PRIMARY KEY, wrapped_org_key TEXT NOT NULL, created_at TEXT NOT NULL, ' +
+    'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
 
   // project 是**授权单位**（不是分组标签）；名称按官方线格式加密。
   'CREATE TABLE IF NOT EXISTS sm_projects (' +
@@ -321,13 +321,10 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
     'FOREIGN KEY (project_id) REFERENCES sm_projects(id) ON DELETE CASCADE)',
   'CREATE INDEX IF NOT EXISTS idx_sm_machine_account_projects_project ON sm_machine_account_projects(project_id)',
 
-  // secret 级的**直接授权**。隐式组织只有 owner 一个成员，所以 `principal_type = 'user'`
-  // 目前不产生行 —— 字段保留：将来做共享不必改表。
-  'CREATE TABLE IF NOT EXISTS sm_secret_access (' +
-    'secret_id TEXT NOT NULL, principal_type TEXT NOT NULL, principal_id TEXT NOT NULL, permission TEXT NOT NULL, ' +
-    'PRIMARY KEY (secret_id, principal_type, principal_id), ' +
-    'FOREIGN KEY (secret_id) REFERENCES sm_secrets(id) ON DELETE CASCADE)',
-  'CREATE INDEX IF NOT EXISTS idx_sm_secret_access_principal ON sm_secret_access(principal_type, principal_id)',
+  // secret 级的直接授权曾预留 `sm_secret_access`（principal_type / permission）—— 本仓没有多租户，
+  // 该表**从未被读写**（只在 schema 与备份寄存清单里出现），已移除（2026-10-10）。
+  // DROP 让老库一并清掉；新装不建（`STORAGE_SCHEMA_VERSION` 已 bump，老库会重跑一遍这些语句）。
+  'DROP TABLE IF EXISTS sm_secret_access',
 
   // access token：只存 SHA-256(client_secret)，不存明文；encrypted_payload 换令牌时原样回吐。
   'CREATE TABLE IF NOT EXISTS sm_access_tokens (' +
@@ -434,11 +431,39 @@ async function ensureAdminUserExists(db: D1Database): Promise<void> {
   await writeBootstrapAdminAuditEvent(db, firstUser.id);
 }
 
+/**
+ * 老库的 `sm_org_keys` 带 `(org_id, user_id)` 复合主键 + `user_id NOT NULL`（多成员预留）；本仓无多租户
+ * ⇒ 简化为 `org_id` 主键。SQLite 改不了主键只能重建，而 `CREATE TABLE IF NOT EXISTS` 会跳过已存在的表
+ * ⇒ 老库留着 `user_id NOT NULL`、新代码不再写它 —— 实测「组织已建、密钥行未写」时 `INSERT OR IGNORE`
+ * 会**静默丢弃**（NOT NULL 冲突被吞）⇒ 首次进入机密管理器报错。`batch()` 事务性、守卫 `user_id` 幂等。
+ */
+async function migrateSecretsOrgKeysToImplicitOrg(db: D1Database): Promise<void> {
+  const columns = await db.prepare('PRAGMA table_info(sm_org_keys)').all<{ name: string }>();
+  const rows = columns.results ?? [];
+  if (rows.length === 0) return; // 表还没有（首次建库会由 SCHEMA_STATEMENTS 建成新形状）
+  if (!rows.some((column) => column.name === 'user_id')) return; // 已是新形状
+
+  await db.batch([
+    db.prepare(
+      'CREATE TABLE sm_org_keys_v2 (' +
+        'org_id TEXT PRIMARY KEY, wrapped_org_key TEXT NOT NULL, created_at TEXT NOT NULL, ' +
+        'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)'
+    ),
+    db.prepare(
+      'INSERT OR IGNORE INTO sm_org_keys_v2(org_id, wrapped_org_key, created_at) ' +
+        'SELECT org_id, wrapped_org_key, created_at FROM sm_org_keys'
+    ),
+    db.prepare('DROP TABLE sm_org_keys'),
+    db.prepare('ALTER TABLE sm_org_keys_v2 RENAME TO sm_org_keys'),
+  ]);
+}
+
 export async function ensureStorageSchema(db: D1Database): Promise<void> {
   await db.prepare('PRAGMA foreign_keys = ON').run();
   await db.prepare('CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT NOT NULL)').run();
   for (const stmt of SCHEMA_STATEMENTS) {
     await executeSchemaStatement(db, stmt);
   }
+  await migrateSecretsOrgKeysToImplicitOrg(db);
   await ensureAdminUserExists(db);
 }

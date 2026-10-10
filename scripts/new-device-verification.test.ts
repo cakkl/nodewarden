@@ -5,7 +5,9 @@
 //
 // 运行方式：npm run test:new-device
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
+import path from 'node:path';
 import test from 'node:test';
 
 import { handleSetVerifyDevices } from '../src/handlers/accounts';
@@ -44,7 +46,11 @@ const EXISTING_DEVICE_ID = 'bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb';
 /** 又一台陌生设备（既不在 devices 表里，也不是本次请求的标识）—— 用来验「码绑设备」 */
 const OTHER_NEW_DEVICE_ID = 'cccccccc-3333-4333-8333-cccccccccccc';
 const SCHEMA_VERSION_KEY = 'schema.version';
-const CURRENT_SCHEMA_VERSION = '2026-10-09-secrets-events';
+/** 从源码读当前版本号：硬编码会在每次 bump 时失效（已踩过一次）。 */
+const CURRENT_SCHEMA_VERSION = /const STORAGE_SCHEMA_VERSION = '([^']+)'/.exec(
+  readFileSync(path.join(path.resolve(import.meta.dirname, '..'), 'src/services/storage.ts'), 'utf8')
+)?.[1] as string;
+assert.ok(CURRENT_SCHEMA_VERSION, '未能从 storage.ts 读出 STORAGE_SCHEMA_VERSION');
 
 interface Harness {
   handle: Awaited<ReturnType<typeof createSchemaDatabase>>;

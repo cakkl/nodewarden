@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'preact/hooks';
+import { useState } from 'preact/hooks';
 import { AlertTriangle, ArrowLeft, Eye, EyeOff, KeyRound, LogIn, LogOut, Unlock, UserPlus } from 'lucide-preact';
 import NetworkStatusBadge from '@/components/NetworkStatusBadge';
 import StandalonePageFrame from '@/components/StandalonePageFrame';
 import { t } from '@/lib/i18n';
 import { PASSWORD_HINT_MAX_LENGTH } from '@shared/password-hint';
-import { getCurrentNetworkStatus, subscribeNetworkStatus, type NetworkStatus } from '@/lib/network-status';
+import useNetworkStatus from '@/hooks/useNetworkStatus';
 
 interface LoginValues {
   email: string;
@@ -91,9 +91,7 @@ function PasswordField(props: {
 }
 
 function OfflineModeNotice() {
-  const [status, setStatus] = useState<NetworkStatus>(getCurrentNetworkStatus);
-
-  useEffect(() => subscribeNetworkStatus(setStatus), []);
+  const status = useNetworkStatus();
 
   if (status !== 'offline') return null;
 

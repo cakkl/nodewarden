@@ -84,10 +84,11 @@ import { detectPreferences, savePreferences } from '@/lib/api/preferences';
 import { detectBrowserTimeZone } from '@/lib/datetime';
 import { APP_NOTIFY_EVENT, type AppNotifyDetail } from '@/lib/app-notify';
 import { emitSecretsManagerChange, getSecretsManagerTabId } from '@/lib/secrets-realtime';
+import { browserReportsOffline, getCurrentNetworkStatus, subscribeNetworkStatus } from '@/lib/network-status';
 import { dispatchBackupProgress, type BackupProgressDetail } from '@/lib/backup-restore-progress';
 import { clearOfflineUnlockRecord } from '@/lib/offline-auth';
 import { clearPasswordSecurityCache } from '@/lib/password-security-cache';
-import { scheduleOfflineLocalePrefetch } from '@/lib/pwa';
+import { requestPersistentStorage, scheduleOfflineLocalePrefetch } from '@/lib/pwa';
 import {
   DIRECT_ALIASES,
   IMPORT_EXPORT_ROUTE_ALIASES,
@@ -132,6 +133,15 @@ function isAdminProfile(profile: Profile | null): profile is Profile {
 }
 
 const THEME_STORAGE_KEY = 'nodewarden.theme.preference.v1';
+
+/**
+ * 浏览器 UI 底色（安装成 PWA 后是状态栏 / 任务切换器颜色）。
+ * 静态 `theme-color` 只写了暗色一个值 ⇒ 浅色主题下状态栏会发黑，得跟着主题改。
+ */
+const THEME_COLOR_BY_THEME: Record<'light' | 'dark', string> = {
+  light: '#eef4ff',
+  dark: '#0f172a',
+};
 const SIGNALR_RECORD_SEPARATOR = String.fromCharCode(0x1e);
 const SIGNALR_UPDATE_TYPE_SYNC_CIPHER_UPDATE = 0;
 const SIGNALR_UPDATE_TYPE_SYNC_CIPHER_CREATE = 1;
@@ -427,6 +437,9 @@ export default function App() {
     if (typeof document === 'undefined') return;
     document.documentElement.dataset.theme = resolvedTheme;
     document.documentElement.style.colorScheme = resolvedTheme;
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', THEME_COLOR_BY_THEME[resolvedTheme]);
   }, [resolvedTheme]);
 
   useEffect(() => {
@@ -1553,6 +1566,8 @@ export default function App() {
     if (IS_DEMO_MODE) return;
     if (phase !== 'app' || !vaultInitialDecryptDone) return;
     scheduleOfflineLocalePrefetch();
+    // 同时申请持久化存储：不申请的话浏览器可静默回收离线快照（见 lib/pwa.ts）。
+    requestPersistentStorage();
   }, [phase, vaultInitialDecryptDone]);
 
   useEffect(() => {
@@ -1924,6 +1939,8 @@ export default function App() {
     /** 连接「够久」的计时器：到点才清零退避（见 NOTIFICATION_RECONNECT_STABLE_MS）。 */
     let stableTimer: number | null = null;
 
+    const notificationsOfflineNow = () => browserReportsOffline() || getCurrentNetworkStatus() === 'offline';
+
     const clearStableTimer = () => {
       if (stableTimer !== null) {
         window.clearTimeout(stableTimer);
@@ -1941,6 +1958,8 @@ export default function App() {
     const scheduleReconnect = () => {
       if (disposed) return;
       clearReconnectTimer();
+      // 离线时不排重连：每 ≤10s 白试一次纯属浪费。网络恢复由下面的 `subscribeNetworkStatus` 补。
+      if (notificationsOfflineNow()) return;
       const delay = Math.min(10000, 1000 * Math.max(1, reconnectAttempts + 1));
       reconnectAttempts += 1;
       reconnectTimer = window.setTimeout(() => {
@@ -2107,7 +2126,8 @@ export default function App() {
         socket = null;
         clearPingTimer();
         clearStableTimer();
-        void refreshAuthorizedDevicesRef.current();
+        // 离线断开时别再拉设备列表：那次请求必然失败。
+        if (!notificationsOfflineNow()) void refreshAuthorizedDevicesRef.current();
         scheduleReconnect();
       });
 
@@ -2122,8 +2142,17 @@ export default function App() {
 
     void connect();
 
+    // 网络恢复 ⇒ 立刻补一次连接（离线期间 `scheduleReconnect` 是空转的），并清零退避。
+    const unsubscribeNetwork = subscribeNetworkStatus((status) => {
+      if (disposed || status !== 'online' || socket) return;
+      reconnectAttempts = 0;
+      clearReconnectTimer();
+      void connect();
+    });
+
     return () => {
       disposed = true;
+      unsubscribeNetwork();
       if (notificationRefreshTimerRef.current !== null) {
         window.clearTimeout(notificationRefreshTimerRef.current);
         notificationRefreshTimerRef.current = null;
@@ -2325,7 +2354,7 @@ export default function App() {
     }
   }, [phase, mobileLayout, location, navigate]);
 
-  const secretsManager = useSecretsManager({ authedFetch, session, onNotify: pushToast });
+  const secretsManager = useSecretsManager({ authedFetch, session, onNotify: pushToast, offlineCacheKey: vaultCacheKey });
   // 与 secretsManager 一样挂在 App：否则每次进机器账号页都会先清空再加载
   const machineAccounts = useMachineAccounts({ authedFetch, session, onNotify: pushToast });
 

@@ -38,12 +38,43 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(APP_SHELL_CACHE)
       .then(async (cache) => {
-        await cache.addAll(CRITICAL_SHELL_URLS);
+        // 关键外壳先抓（离线可用的下限），再抓其余；两步都不因单项失败而中断。
+        await precacheMissing(cache, CRITICAL_SHELL_URLS);
         const nonCriticalUrls = PRECACHE_URLS.filter((url) => !CRITICAL_SHELL_URLS.includes(url));
-        await Promise.allSettled(nonCriticalUrls.map((url) => cache.add(url)));
+        await precacheMissing(cache, nonCriticalUrls);
       })
       .then(() => self.skipWaiting())
   );
+});
+
+/**
+ * 逐个抓取缺失项，返回成功数。
+ * ⚠️ 刻意不用 cache.addAll：它是「任一失败即整体失败」，首访网络一抖就会让整个 SW 装不上。
+ * ⚠️ 本段属于模板字符串：注释里**不能用反引号**（会截断模板，由 typecheck 拦住）。
+ */
+async function precacheMissing(cache, urls) {
+  if (urls.length === 0) return 0;
+  const results = await Promise.allSettled(urls.map((url) => cache.add(url)));
+  return results.filter((result) => result.status === 'fulfilled').length;
+}
+
+/**
+ * 只补缺失的预缓存项（都齐了就是一次纯内存遍历，不发请求）。两个触发点：activate 之后，
+ * 以及页面加载后发来的消息（用户清过 CacheStorage 时 install 不会重跑）。
+ */
+async function ensurePrecacheComplete() {
+  const cache = await caches.open(APP_SHELL_CACHE);
+  const missing = [];
+  for (const url of PRECACHE_URLS) {
+    if (!(await cache.match(url))) missing.push(url);
+  }
+  await precacheMissing(cache, missing);
+}
+
+self.addEventListener('message', (event) => {
+  if (!event.data || event.data.type !== 'nodewarden:ensure-precache') return;
+  const task = ensurePrecacheComplete();
+  if (typeof event.waitUntil === 'function') event.waitUntil(task);
 });
 
 self.addEventListener('activate', (event) => {
@@ -55,6 +86,8 @@ self.addEventListener('activate', (event) => {
           .map((key) => caches.delete(key))
       ))
       .then(() => self.clients.claim())
+      // 激活后再补一次缺口：装的时候可能只抓到一部分，这里重试。
+      .then(() => ensurePrecacheComplete())
   );
 });
 

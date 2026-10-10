@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
-import type { AuthedFetch } from '@/lib/api/shared';
+import { OfflineRequestError, type AuthedFetch } from '@/lib/api/shared';
 import {
   ensureSecretsContext,
   listMachineAccountTokens,
@@ -12,6 +12,7 @@ import {
 } from '@/lib/api/secrets';
 import { IS_DEMO_MODE } from '@/lib/demo';
 import { t } from '@/lib/i18n';
+import { backendUnreachable as sharedBackendUnreachable, subscribeNetworkStatus } from '@/lib/network-status';
 import { onSecretsManagerChange } from '@/lib/secrets-realtime';
 import { SECRETS_DEMO_MACHINE_ACCOUNTS, SECRETS_DEMO_PROJECTS } from '@/lib/secrets-demo';
 import type { SessionState } from '@/lib/types';
@@ -28,6 +29,8 @@ export interface MachineAccountsManagerProps {
   context: SecretsContext | null;
   loading: boolean;
   error: string;
+  /** 离线：机器账号 / 令牌 / 授权**不入缓存**（凭据落盘即明文）⇒ 页面只能提示需要联网。 */
+  offline: boolean;
   accounts: MachineAccountDetail[];
   projects: SecretProject[];
   /** 账号 id → 令牌列表。 */
@@ -51,6 +54,7 @@ export default function useMachineAccounts(options: UseMachineAccountsOptions): 
   const [tokens, setTokens] = useState<Record<string, MachineAccountToken[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [offline, setOffline] = useState(false);
 
   // ⚠️ 两个入参都不保证引用稳定（`authedFetch` 每次渲染都会重建）⇒ 存 ref，依赖里只放原始值，
   // 否则 `reload` 每次都换标识 → 挂载 effect 反复触发 → 无限重拉。与 `useSecretsManager` 同一写法。
@@ -60,6 +64,11 @@ export default function useMachineAccounts(options: UseMachineAccountsOptions): 
   fetcherRef.current = authedFetch;
   const accessToken = session?.accessToken ?? '';
   const keyMaterial = `${session?.symEncKey ?? ''}|${session?.symMacKey ?? ''}`;
+
+  const backendUnreachable = useCallback(
+    () => sharedBackendUnreachable({ hasAccessToken: !!sessionRef.current?.accessToken }),
+    []
+  );
 
   const reload = useCallback(async (): Promise<string | null> => {
     const currentSession = sessionRef.current;
@@ -103,6 +112,12 @@ export default function useMachineAccounts(options: UseMachineAccountsOptions): 
       return null;
     }
     if (!currentSession) return null;
+    // 离线：机器账号不缓存，页面改显示「需要联网」（不算错误，不弹提示）
+    if (backendUnreachable()) {
+      setOffline(true);
+      setError('');
+      return null;
+    }
     setLoading(true);
     setError('');
     try {
@@ -116,23 +131,40 @@ export default function useMachineAccounts(options: UseMachineAccountsOptions): 
           async (account) => [account.id, await listMachineAccountTokens(fetcher, nextContext, account.id)] as const
         )
       );
+      setOffline(false);
       setContext(nextContext);
       setAccounts(nextAccounts);
       setProjects(nextProjects);
       setTokens(Object.fromEntries(withTokens));
       return null;
     } catch (err) {
+      // 请求发出后才断网（或冷启动时压根没拿到令牌）⇒ 与真离线同样处理，
+      // 而不是把「连不上后端」当成机器账号自己的错误透出去
+      if (err instanceof OfflineRequestError) {
+        setOffline(true);
+        setError('');
+        return null;
+      }
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
       return message;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [backendUnreachable]);
 
   useEffect(() => {
     void reload();
   }, [reload, accessToken, keyMaterial]);
+
+  // 网络恢复 ⇒ 自动补上这一次没能发的请求（离线时页面只是个「需要联网」占位）
+  useEffect(
+    () =>
+      subscribeNetworkStatus((status) => {
+        if (status === 'online') void reload();
+      }),
+    [reload]
+  );
 
   // 别人（CLI / 其它设备）改了机器账号 / 授权 / 令牌 ⇒ 重新拉一次。
   // 自己那次由 `App.tsx` 按标签页标识挡掉。
@@ -147,5 +179,5 @@ export default function useMachineAccounts(options: UseMachineAccountsOptions): 
     else onNotify('success', t('txt_secrets_synced'));
   }, [reload, onNotify]);
 
-  return { context, loading, error, accounts, projects, tokens, onReload: reload, onRefresh: refresh };
+  return { context, loading, error, offline, accounts, projects, tokens, onReload: reload, onRefresh: refresh };
 }

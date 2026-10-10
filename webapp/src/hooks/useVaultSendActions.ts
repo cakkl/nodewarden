@@ -53,6 +53,7 @@ import {
 } from '@/lib/api/vault-lazy';
 import { deriveLoginHash, getPreloginKdfConfig, verifyMasterPassword } from '@/lib/api/auth';
 import type { AuthedFetch } from '@/lib/api/shared';
+import { backendUnreachable } from '@/lib/network-status';
 import { downloadBytesAsFile } from '@/lib/download';
 import { runSequentialTasks, type LabeledTask } from '@/lib/sequential-tasks';
 import type { Cipher, Folder as VaultFolder, Profile, Send, SendDraft, SessionState, VaultDraft } from '@/lib/types';
@@ -317,8 +318,12 @@ export default function useVaultSendActions(options: UseVaultSendActionsOptions)
       await Promise.all([refetchCiphers(), refetchFolders(), refetchSends()]);
     };
 
+    /**
+     * 离线写保护。⚠️ 只看「有没有令牌」会漏掉「有令牌但网络断了」：那时写请求会真的发出去、
+     * 三次重试后弹一句英文原文 ⇒ 用 `backendUnreachable`（与机密管理器同一口径）。
+     */
     const requireOnlineWrite = () => {
-      if (session?.accessToken) return;
+      if (!backendUnreachable({ hasAccessToken: !!session?.accessToken })) return;
       throw new Error(t('txt_offline_vault_readonly'));
     };
 

@@ -15,6 +15,12 @@ import {
   wrapOrgKey,
   type SmKeyPair,
 } from '../secrets-crypto';
+import {
+  loadSecretsOfflineCache,
+  saveCachedSecretsOfflineTrashDetail,
+  saveSecretsOfflineCache,
+  secretsOfflineSignature,
+} from '../secrets-offline-cache';
 import type { SessionState } from '../types';
 import { parseErrorMessage, parseJson, type AuthedFetch } from './shared';
 
@@ -32,6 +38,45 @@ export interface SecretsContext {
   /** 原始 64 字节（`enc ‖ mac`）。**创建访问令牌时要把它整体包进 `encrypted_payload`**。 */
   orgKey: Uint8Array;
   keyPair: SmKeyPair;
+  /** 服务端存的那份包裹（用户密钥加密）—— 离线时据此重建上下文，见 `ensureOfflineSecretsContext`。 */
+  wrappedOrgKey: string;
+}
+
+/** 线格式（`projects[]` 里的项目对象，字段都是密文）。 */
+export interface RawSecretProject {
+  id?: string;
+  name?: string;
+  creationDate?: string;
+  revisionDate?: string;
+}
+
+/** 线格式的列表项（不含 value / note）。 */
+export interface RawSecretSummary {
+  id?: string;
+  key?: string;
+  projects?: RawSecretProject[];
+  creationDate?: string;
+  revisionDate?: string;
+}
+
+/** 线格式的完整机密（含密文 value / note）。 */
+export interface RawSecretDetail extends RawSecretSummary {
+  value?: string;
+  note?: string;
+}
+
+/** 线格式的回收站列表项。 */
+export interface RawTrashedSecret {
+  id?: string;
+  key?: string;
+  deletedAt?: string;
+  projectIds?: string[];
+}
+
+/** 线格式的回收站单项（含密文 value / note）。 */
+export interface RawTrashedSecretDetail extends RawTrashedSecret {
+  value?: string;
+  note?: string;
 }
 
 export interface SecretProject {
@@ -110,16 +155,7 @@ async function readJsonOrThrow<T>(resp: Response, fallback: string): Promise<T> 
   return body;
 }
 
-type RawSummary = {
-  id?: string;
-  key?: string;
-  projects?: Array<{ id?: string }>;
-  creationDate?: string;
-  revisionDate?: string;
-};
-type RawDetail = RawSummary & { value?: string; note?: string };
-
-async function toSummary(raw: RawSummary, keyPair: SmKeyPair): Promise<SecretSummary | null> {
+async function toSummary(raw: RawSecretSummary, keyPair: SmKeyPair): Promise<SecretSummary | null> {
   if (!raw?.id || !raw.key) return null;
   return {
     id: raw.id,
@@ -130,7 +166,7 @@ async function toSummary(raw: RawSummary, keyPair: SmKeyPair): Promise<SecretSum
   };
 }
 
-async function toDetail(raw: RawDetail, keyPair: SmKeyPair): Promise<SecretDetail | null> {
+async function toDetail(raw: RawSecretDetail, keyPair: SmKeyPair): Promise<SecretDetail | null> {
   const summary = await toSummary(raw, keyPair);
   if (!summary) return null;
   return {
@@ -164,7 +200,7 @@ export async function ensureSecretsContext(authedFetch: AuthedFetch, session: Se
   );
   if (existing.wrappedOrgKey) {
     const orgKey = await unwrapOrgKey(existing.wrappedOrgKey, userKey);
-    return { organizationId, orgKey, keyPair: splitKeyPair(orgKey) };
+    return { organizationId, orgKey, keyPair: splitKeyPair(orgKey), wrappedOrgKey: existing.wrappedOrgKey };
   }
 
   const generated = requireWebCrypto().getRandomValues(new Uint8Array(SYMMETRIC_KEY_BYTES));
@@ -178,9 +214,9 @@ export async function ensureSecretsContext(authedFetch: AuthedFetch, session: Se
     t('txt_save_failed')
   );
 
-  const authoritative = saved.wrappedOrgKey && saved.wrappedOrgKey !== wrapped ? saved.wrappedOrgKey : null;
-  const orgKey = authoritative ? await unwrapOrgKey(authoritative, userKey) : generated;
-  return { organizationId, orgKey, keyPair: splitKeyPair(orgKey) };
+  const authoritative = saved.wrappedOrgKey && saved.wrappedOrgKey !== wrapped ? saved.wrappedOrgKey : wrapped;
+  const orgKey = authoritative === wrapped ? generated : await unwrapOrgKey(authoritative, userKey);
+  return { organizationId, orgKey, keyPair: splitKeyPair(orgKey), wrappedOrgKey: authoritative };
 }
 
 // ── 项目 ────────────────────────────────────────────────────────────────────
@@ -258,19 +294,33 @@ export async function deleteSecretProjects(
  * 列机密（含该组织可见的项目列表，省一次往返）。
  *
  * ⚠️ 返回项**没有** value / note —— 官方列表契约如此，值要走 `getSecretsByIds`。
+ * `raw` 是同一份响应的原始线格式，交给离线快照复用（不额外发请求）。
  */
 export async function listSecrets(
   authedFetch: AuthedFetch,
   ctx: SecretsContext,
   projectId?: string
-): Promise<{ secrets: SecretSummary[]; projects: SecretProject[] }> {
+): Promise<{ secrets: SecretSummary[]; projects: SecretProject[]; raw: RawSecretsList }> {
   const path = projectId ? `/api/projects/${encodeURIComponent(projectId)}/secrets` : orgPath(ctx, '/secrets');
   const body = await readJsonOrThrow<{
-    secrets?: RawSummary[];
-    projects?: Array<{ id?: string; name?: string; creationDate?: string; revisionDate?: string }>;
+    secrets?: RawSecretSummary[];
+    projects?: RawSecretProject[];
   }>(await authedFetch(path), t('txt_load_failed'));
 
-  const secrets = (await Promise.all((body.secrets ?? []).map((raw) => toSummary(raw, ctx.keyPair)))).filter(
+  return { ...(await decryptSecretsList(body, ctx.keyPair)), raw: { secrets: body.secrets ?? [], projects: body.projects ?? [] } };
+}
+
+/** 原始线格式的列表信封（列表端点与 `sync` 共用一套元素形状）。 */
+export interface RawSecretsList {
+  secrets: RawSecretSummary[];
+  projects: RawSecretProject[];
+}
+
+async function decryptSecretsList(
+  body: { secrets?: RawSecretSummary[]; projects?: RawSecretProject[] },
+  keyPair: SmKeyPair
+): Promise<{ secrets: SecretSummary[]; projects: SecretProject[] }> {
+  const secrets = (await Promise.all((body.secrets ?? []).map((raw) => toSummary(raw, keyPair)))).filter(
     (secret): secret is SecretSummary => !!secret
   );
   const projects = await Promise.all(
@@ -281,7 +331,7 @@ export async function listSecrets(
       )
       .map(async (project) => ({
         id: project.id,
-        name: await decryptOrFallback(project.name, ctx.keyPair),
+        name: await decryptOrFallback(project.name, keyPair),
         creationDate: project.creationDate ?? '',
         revisionDate: project.revisionDate ?? '',
       }))
@@ -295,7 +345,7 @@ export async function getSecretsByIds(
   ctx: SecretsContext,
   ids: string[]
 ): Promise<SecretDetail[]> {
-  const body = await readJsonOrThrow<{ data?: RawDetail[] }>(
+  const body = await readJsonOrThrow<{ data?: RawSecretDetail[] }>(
     await authedFetch('/api/secrets/get-by-ids', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -323,7 +373,7 @@ export async function createSecret(
   ctx: SecretsContext,
   input: SecretInput
 ): Promise<SecretDetail> {
-  const body = await readJsonOrThrow<RawDetail>(
+  const body = await readJsonOrThrow<RawSecretDetail>(
     await authedFetch(orgPath(ctx, '/secrets'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -342,7 +392,7 @@ export async function updateSecret(
   id: string,
   input: SecretInput
 ): Promise<SecretDetail> {
-  const body = await readJsonOrThrow<RawDetail>(
+  const body = await readJsonOrThrow<RawSecretDetail>(
     await authedFetch(`/api/secrets/${encodeURIComponent(id)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -421,16 +471,18 @@ export async function listTrashedSecrets(authedFetch: AuthedFetch, ctx: SecretsC
   );
 }
 
-/** 取回收站里单条的完整内容（含值 / 备注）。 */
+/** 取回收站里单条的完整内容（含值 / 备注）。传了 `cacheKey` 就顺手把这份密文补进离线缓存。 */
 export async function getTrashedSecret(
   authedFetch: AuthedFetch,
   ctx: SecretsContext,
-  id: string
+  id: string,
+  cacheKey?: string
 ): Promise<TrashedSecretDetail | null> {
   const resp = await authedFetch(`/api/secrets/trash/${encodeURIComponent(id)}`);
   if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_load_failed')));
-  const body = await parseJson<{ id?: string; key?: string; value?: string; note?: string; deletedAt?: string; projectIds?: string[] }>(resp);
+  const body = await parseJson<RawTrashedSecretDetail>(resp);
   if (!body?.id || !body.key) return null;
+  if (cacheKey) void saveCachedSecretsOfflineTrashDetail(cacheKey, body.id, body);
   return {
     id: body.id,
     name: await decryptOrFallback(body.key, ctx.keyPair),
@@ -473,6 +525,155 @@ export async function purgeTrashedSecrets(
     t('txt_permanent_delete_item_failed')
   );
   return Array.isArray(body.purged) ? body.purged : [];
+}
+
+// ── 离线只读缓存 ────────────────────────────────────────────────────────────
+
+/**
+ * 把最新的全量密文快照写进本地缓存（尽力而为，失败不抛）。
+ * ⚠️ 线格式不报「已删除」（`sync` 只回活着的行）⇒ 缓存只能整份覆盖，所以先用签名比对，
+ * 否则每进一次页面都要重传全量密文。
+ */
+export async function refreshSecretsOfflineSnapshot(
+  authedFetch: AuthedFetch,
+  ctx: SecretsContext,
+  cacheKey: string,
+  listed: RawSecretsList
+): Promise<void> {
+  if (!cacheKey || !ctx.wrappedOrgKey) return;
+  try {
+    const cached = await loadSecretsOfflineCache(cacheKey);
+    const signature = secretsOfflineSignature(listed.secrets, listed.projects);
+    if (
+      cached &&
+      cached.signature === signature &&
+      cached.organizationId === ctx.organizationId &&
+      cached.wrappedOrgKey === ctx.wrappedOrgKey
+    ) {
+      return;
+    }
+
+    // 官方同步端点：省略 `lastSyncedDate` = 回全量，且元素**含密文 value / note**
+    // （列表端点拿不到值，那正是离线只读需要的东西）。
+    const response = await authedFetch(orgPath(ctx, '/secrets/sync'));
+    if (!response.ok) return;
+    const body = await parseJson<{ secrets?: { data?: RawSecretDetail[] } }>(response);
+    const secrets = Array.isArray(body?.secrets?.data) ? body.secrets.data : [];
+    // ⚠️「列表里有机密、同步却回空」才是异常（形状对不上）⇒ 宁可用旧快照；「本来就没有机密」
+    // 时回空是**正常**的，必须照常记下来，否则新账号离线连空列表都看不到。
+    if (secrets.length === 0 && listed.secrets.length > 0) return;
+
+    // 回收站：列表端点不含它，只能另取一次（没有批量详情接口 ⇒ 内容靠惰性积累）。
+    const trashResponse = await authedFetch('/api/secrets/trash');
+    const trashBody = trashResponse.ok
+      ? await parseJson<{ secrets?: RawTrashedSecret[] }>(trashResponse)
+      : null;
+    const trash = Array.isArray(trashBody?.secrets) ? trashBody.secrets : (cached?.trash ?? []);
+    const aliveIds = new Set(trash.map((row) => row.id).filter((id): id is string => !!id));
+    const cachedTrashDetails = cached?.trashDetails ?? {};
+    const trashDetails = Object.fromEntries(
+      Object.entries(cachedTrashDetails).filter(([id]) => aliveIds.has(id))
+    );
+
+    await saveSecretsOfflineCache(cacheKey, {
+      organizationId: ctx.organizationId,
+      signature,
+      wrappedOrgKey: ctx.wrappedOrgKey,
+      projects: listed.projects,
+      secrets,
+      trash,
+      trashDetails,
+    });
+  } catch {
+    // 离线缓存是尽力而为的旁路：失败不该影响在线流程
+  }
+}
+
+/**
+ * 离线上下文：缓存里的组织密钥包裹 + 本次解锁的会话密钥。
+ * 没有缓存、或包裹解不开（换了账号 / 换了主密码）时返回 `null`。
+ */
+export async function ensureOfflineSecretsContext(
+  session: SessionState,
+  cacheKey: string
+): Promise<SecretsContext | null> {
+  const userKey = secretsUserKey(session);
+  if (!userKey || !cacheKey) return null;
+  const record = await loadSecretsOfflineCache(cacheKey);
+  if (!record) return null;
+  try {
+    const orgKey = await unwrapOrgKey(record.wrappedOrgKey, userKey);
+    return {
+      organizationId: record.organizationId,
+      orgKey,
+      keyPair: splitKeyPair(orgKey),
+      wrappedOrgKey: record.wrappedOrgKey,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function toTrashedSummary(raw: RawTrashedSecret, keyPair: SmKeyPair): Promise<TrashedSecret | null> {
+  if (!raw?.id || !raw.key) return null;
+  return {
+    id: raw.id,
+    name: await decryptOrFallback(raw.key, keyPair),
+    deletedAt: raw.deletedAt ?? '',
+    projectIds: raw.projectIds ?? [],
+  };
+}
+
+/** 离线列表（机密 / 项目），由缓存里的密文解出。没有缓存则 `null`。 */
+export async function loadOfflineSecrets(
+  ctx: SecretsContext,
+  cacheKey: string
+): Promise<{ secrets: SecretSummary[]; projects: SecretProject[] } | null> {
+  const record = await loadSecretsOfflineCache(cacheKey);
+  if (!record) return null;
+  return decryptSecretsList({ secrets: record.secrets, projects: record.projects }, ctx.keyPair);
+}
+
+/** 离线回收站列表（名称 / 删除时间 / 项目关联；内容另走 `getOfflineTrashedSecretDetail`）。 */
+export async function loadOfflineTrash(
+  ctx: SecretsContext,
+  cacheKey: string
+): Promise<TrashedSecret[] | null> {
+  const record = await loadSecretsOfflineCache(cacheKey);
+  if (!record) return null;
+  return (await Promise.all(record.trash.map((raw) => toTrashedSummary(raw, ctx.keyPair)))).filter(
+    (item): item is TrashedSecret => !!item
+  );
+}
+
+/** 离线取单条机密：缓存里存的是**全量含值密文** ⇒ 离线时看内容永远不成问题。 */
+export async function getOfflineSecretDetail(
+  ctx: SecretsContext,
+  cacheKey: string,
+  id: string
+): Promise<SecretDetail | null> {
+  const record = await loadSecretsOfflineCache(cacheKey);
+  const raw = record?.secrets.find((item) => item.id === id);
+  if (!raw) return null;
+  return toDetail(raw, ctx.keyPair);
+}
+
+/** 离线的回收站单项内容；「没看过内容」的那条返回 `null`（界面提示需要联网）。 */
+export async function getOfflineTrashedSecretDetail(
+  ctx: SecretsContext,
+  cacheKey: string,
+  id: string
+): Promise<TrashedSecretDetail | null> {
+  const record = await loadSecretsOfflineCache(cacheKey);
+  const raw = record?.trashDetails?.[id];
+  if (!raw) return null;
+  const summary = await toTrashedSummary(raw, ctx.keyPair);
+  if (!summary) return null;
+  return {
+    ...summary,
+    value: raw.value ? await decryptOrFallback(raw.value, ctx.keyPair) : '',
+    note: raw.note ? await decryptOrFallback(raw.note, ctx.keyPair) : '',
+  };
 }
 
 // ── 机器账号与访问令牌 ──────────────────────────────────────────────────────

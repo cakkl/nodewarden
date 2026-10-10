@@ -1,9 +1,11 @@
 import { useState } from 'preact/hooks';
-import { RefreshCw, ShieldCheck, ShieldX } from 'lucide-preact';
+import { RefreshCw, ShieldCheck, ShieldX, WifiOff } from 'lucide-preact';
 import LoadingState from '@/components/LoadingState';
 import type { AuthRequest } from '@/lib/types';
 import { t } from '@/lib/i18n';
 import { useDateTimeFormat } from '@/lib/datetime';
+import useNetworkStatus from '@/hooks/useNetworkStatus';
+import { browserReportsOffline } from '@/lib/network-status';
 
 interface PendingAuthRequestsPanelProps {
   pendingAuthRequests: AuthRequest[];
@@ -21,6 +23,21 @@ export default function PendingAuthRequestsPanel(props: PendingAuthRequestsPanel
   const formatDateTime = (value: string | null | undefined): string => format(value) ?? t('txt_dash');
   const [authRequestSubmittingId, setAuthRequestSubmittingId] = useState<string | null>(null);
   const refreshing = props.pendingAuthRequestsLoading || !!props.pendingAuthRequestsRefreshing;
+  // ⚠️ 离线时列表也一定是空的（查询被禁用）⇒ 直接复用既有空态会把「取不到」说成
+  // 「没有待批准的登录请求」，用户无从分辨。
+  const offline = useNetworkStatus() === 'offline' || browserReportsOffline();
+
+  const emptyState = offline ? (
+    <div className="settings-module-placeholder">
+      <WifiOff size={20} />
+      <span>{t('txt_offline_unavailable')}</span>
+    </div>
+  ) : (
+    <div className="settings-module-placeholder">
+      <ShieldCheck size={20} />
+      <span>{t('txt_no_pending_device_logins')}</span>
+    </div>
+  );
 
   async function approveAuthRequest(authRequest: AuthRequest): Promise<void> {
     if (authRequestSubmittingId) return;
@@ -67,10 +84,7 @@ export default function PendingAuthRequestsPanel(props: PendingAuthRequestsPanel
             </div>
           )
         ) : props.pendingAuthRequests.length === 0 ? (
-          <div className="settings-module-placeholder">
-            <ShieldCheck size={20} />
-            <span>{t('txt_no_pending_device_logins')}</span>
-          </div>
+          emptyState
         ) : (
           props.pendingAuthRequests.map((authRequest) => (
             <div key={authRequest.id} className="account-passkey-row auth-request-row">

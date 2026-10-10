@@ -39,7 +39,7 @@ export async function handleGetSecretsOrganizationKey(_request: Request, env: En
   const organization = await getImplicitOrganization(env.DB, userId);
   if (!organization) return jsonResponse({ wrappedOrgKey: null, object: 'organizationKey' });
 
-  const orgKey = await getOrgKey(env.DB, organization.id, userId);
+  const orgKey = await getOrgKey(env.DB, organization.id);
   return jsonResponse({ wrappedOrgKey: orgKey ? orgKey.wrappedOrgKey : null, object: 'organizationKey' });
 }
 
@@ -59,7 +59,7 @@ export async function handlePutSecretsOrganizationKey(request: Request, env: Env
 
   const organization = await ensureImplicitOrganization(env.DB, userId);
   // 回吐**实际存储**的包裹：并发首次初始化时可能是别人先写的那把（见 `saveOrgKey`）
-  const stored = await saveOrgKey(env.DB, organization.id, userId, wrappedOrgKey);
+  const stored = await saveOrgKey(env.DB, organization.id, wrappedOrgKey);
   return jsonResponse({ id: organization.id, object: 'organizationKey', wrappedOrgKey: stored.wrappedOrgKey });
 }
 
