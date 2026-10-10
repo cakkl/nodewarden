@@ -8,6 +8,7 @@ import {
   EyeOff,
   Folder as FolderIcon,
   FolderPlus,
+  FolderInput,
   FolderX,
   LayoutGrid,
   Pencil,
@@ -22,6 +23,7 @@ import MobileFilterMenu from '@/components/MobileFilterMenu';
 import type { MobileFilterOption } from '@/components/MobileFilterMenu';
 import type { SecretsManagerProps } from '@/hooks/useSecretsManager';
 import type { SecretInput } from '@/lib/api/secrets';
+import { applyProjectToggles, commonProjectIds, projectCheckState } from '@/lib/secrets-project-selection';
 import { t } from '@/lib/i18n';
 
 /**
@@ -64,6 +66,7 @@ export default function SecretsPage(props: SecretsPageProps) {
     onUpdateSecret,
     onDeleteSecret,
     onDeleteSecrets,
+    onSetSecretsProjects,
     onRestoreTrash,
     onPurgeTrash,
     onSelectTrash,
@@ -93,6 +96,10 @@ export default function SecretsPage(props: SecretsPageProps) {
   const [confirmDeleteSecretId, setConfirmDeleteSecretId] = useState<string | null>(null);
   const [confirmPurgeSecretId, setConfirmPurgeSecretId] = useState<string | null>(null);
   const [confirmBulk, setConfirmBulk] = useState<'delete' | 'purge' | null>(null);
+  /** 多选「调整所属项目」：只记**用户动过的**项目（未动过的保持各条原样，见 `secrets-project-selection`）。 */
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [projectToggles, setProjectToggles] = useState<Map<string, boolean>>(new Map());
+  const [targetMenuOpen, setTargetMenuOpen] = useState(false);
 
   useEffect(() => {
     if (mobileLayout) return;
@@ -153,6 +160,18 @@ export default function SecretsPage(props: SecretsPageProps) {
   const isMobileDetail = mobileLayout && mobilePanel === 'detail';
   const listItems = view === 'trash' ? manager.trash : visibleSecrets;
   const checkedCount = checkedIds.size;
+
+  /** 所选中（非回收站）的机密 —— 对话框的勾选状态由它们的**真实归属**推出来。 */
+  const checkedSecrets = useMemo(
+    () => manager.secrets.filter((secret) => checkedIds.has(secret.id)),
+    [manager.secrets, checkedIds]
+  );
+  /** 把「动过的项目」套到各条上；标签只在结果完全一致时显示项目名，否则显示「多个项目」。 */
+  const targetAssignments = useMemo(
+    () => applyProjectToggles(checkedSecrets, projectToggles),
+    [checkedSecrets, projectToggles]
+  );
+  const targetCommon = useMemo(() => commonProjectIds(targetAssignments), [targetAssignments]);
   // 换视图或换左侧筛选就清掉勾选：列表换了，旧勾选既看不见也不该参与批量操作。
   const checkedScopeKey =
     view === 'trash'
@@ -255,6 +274,30 @@ export default function SecretsPage(props: SecretsPageProps) {
     setCheckedIds(new Set());
     if (view === 'trash') void onPurgeTrash(ids);
     else void onDeleteSecrets(ids);
+  }
+
+  /** 打开「调整所属项目」：清空「动过的项目」，勾选状态全部由各条机密的真实归属推出来。 */
+  function openProjectsDialog(): void {
+    setProjectToggles(new Map());
+    setTargetMenuOpen(false);
+    setProjectsOpen(true);
+  }
+
+  /** 三态复选框：半勾（部分机密属于它）点一下 → 全勾（给所有涉及的机密加上）。 */
+  function toggleTargetProject(projectId: string, checked: boolean): void {
+    setProjectToggles((previous) => new Map(previous).set(projectId, checked));
+  }
+
+  function runSetProjects(): void {
+    // 一个都没动 ⇒ 不发请求（结果本来就没变化）
+    if (projectToggles.size === 0) {
+      setProjectsOpen(false);
+      return;
+    }
+    const assignments = applyProjectToggles(checkedSecrets, projectToggles);
+    setProjectsOpen(false);
+    setCheckedIds(new Set());
+    void onSetSecretsProjects(assignments);
   }
 
   const isProjectActive = (projectId: string): boolean =>
@@ -558,7 +601,15 @@ export default function SecretsPage(props: SecretsPageProps) {
                   >
                     <RotateCcw size={14} className="btn-icon" /> {t('txt_restore')}
                   </button>
-                ) : null}
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-secondary small"
+                    onClick={openProjectsDialog}
+                  >
+                    <FolderInput size={14} className="btn-icon" /> {t('txt_secret_project')}
+                  </button>
+                )}
                 <button type="button" className="btn btn-danger small" onClick={() => setConfirmBulk(view === 'trash' ? 'purge' : 'delete')}>
                   <Trash2 size={14} className="btn-icon" />{' '}
                   {view === 'trash' ? t('txt_delete_permanently') : t('txt_delete_selected')}
@@ -971,6 +1022,62 @@ export default function SecretsPage(props: SecretsPageProps) {
         onCancel={() => setConfirmBulk(null)}
         onConfirm={runBulkDelete}
       />
+
+      <ConfirmDialog
+        open={projectsOpen}
+        title={t('txt_secret_project')}
+        message={t('txt_sm_choose_projects', { count: checkedCount })}
+        confirmText={t('txt_save')}
+        cancelText={t('txt_cancel')}
+        onCancel={() => setProjectsOpen(false)}
+        onConfirm={runSetProjects}
+      >
+        <div className="field">
+          <span>{t('nav_secret_projects')}</span>
+          <div className="mobile-vault-filter-control">
+            <button
+              type="button"
+              className={`mobile-vault-filter-trigger ${targetMenuOpen ? 'active' : ''}`}
+              aria-haspopup="menu"
+              aria-expanded={targetMenuOpen}
+              onClick={() => setTargetMenuOpen((open) => !open)}
+            >
+              <span className="mobile-vault-filter-trigger-label">
+                {targetCommon ? projectName(targetCommon) : t('txt_multiple_projects')}
+              </span>
+              <ChevronDown size={13} className="mobile-vault-filter-chevron" />
+            </button>
+            {targetMenuOpen && (
+              <div className="sort-menu mobile-vault-filter-menu" role="menu">
+                {sortedProjects.length === 0 ? (
+                  <div className="sort-menu-item">{t('txt_secret_projects_empty')}</div>
+                ) : (
+                  sortedProjects.map((project) => {
+                    const state = projectCheckState(checkedSecrets, project.id, projectToggles);
+                    return (
+                      <label key={project.id} className="sort-menu-item">
+                        <input
+                          type="checkbox"
+                          aria-label={t('txt_select_device_name', { name: project.name })}
+                          checked={state === true}
+                          /* `indeterminate` 只能设 DOM 属性：半勾 = 只有部分机密属于它 */
+                          ref={(element) => {
+                            if (element) (element as HTMLInputElement).indeterminate = state === 'partial';
+                          }}
+                          onChange={(event) =>
+                            toggleTargetProject(project.id, (event.currentTarget as HTMLInputElement).checked)
+                          }
+                        />
+                        <span>{project.name}</span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </ConfirmDialog>
     </div>
   );
 }
