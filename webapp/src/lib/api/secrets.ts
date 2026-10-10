@@ -178,6 +178,17 @@ async function toDetail(raw: RawSecretDetail, keyPair: SmKeyPair): Promise<Secre
 }
 
 /**
+ * 把一条**含值密文**解成详情（不碰网络、不读盘）。
+ * 点条目时用它处理内存索引里的那份：只有解密 ⇒ 同一帧内完成，不会先画一帧「加载中」。
+ */
+export async function decryptSecretDetail(
+  raw: RawSecretDetail,
+  ctx: SecretsContext
+): Promise<SecretDetail | null> {
+  return toDetail(raw, ctx.keyPair);
+}
+
+/**
  * 取组织密钥（首次进入时生成并上传），得到可用的会话上下文。
  *
  * ⚠️ 首次上传后要用**服务端回吐的**包裹：两个标签页并发首次进入会各生成一把，后写的那把
@@ -581,9 +592,9 @@ export async function saveSecretTag(
  * 把最新的全量密文快照写进本地缓存（尽力而为，失败不抛）。
  * ⚠️ 线格式不报「已删除」（`sync` 只回活着的行）⇒ 缓存只能整份覆盖，所以先用签名比对，
  * 否则每进一次页面都要重传全量密文。
- *
- * `rawTags` 是标签的**密文**映射（标签不进签名 ⇒ 单独比对），`null` = 这次没取到：
- * ⚠️ 那时必须**保留缓存里的旧标签** —— 当成空映射会把离线分组凭空抹掉。
+ * 返回**这次拿到的那批含值密文**（`null` = 既没读到也没取到）：调用方直接用它建内存索引，
+ * 省掉「写完再读一遍 IndexedDB」；返回值与当前组织一致（复用缓存那支已比对过组织与包裹）。
+ * ⚠️ `rawTags` 为 `null`（这次没取到标签）时必须**保留缓存里的旧标签** —— 否则离线分组会被抹掉。
  */
 export async function refreshSecretsOfflineSnapshot(
   authedFetch: AuthedFetch,
@@ -591,8 +602,8 @@ export async function refreshSecretsOfflineSnapshot(
   cacheKey: string,
   listed: RawSecretsList,
   rawTags: Record<string, string> | null
-): Promise<void> {
-  if (!cacheKey || !ctx.wrappedOrgKey) return;
+): Promise<RawSecretDetail[] | null> {
+  if (!cacheKey || !ctx.wrappedOrgKey) return null;
   try {
     const cached = await loadSecretsOfflineCache(cacheKey);
     const signature = secretsOfflineSignature(listed.secrets, listed.projects);
@@ -607,18 +618,18 @@ export async function refreshSecretsOfflineSnapshot(
       if (rawTags && !sameStringMap(cached.tags, rawTags)) {
         await saveCachedSecretsOfflineTags(cacheKey, rawTags);
       }
-      return;
+      return cached.secrets;
     }
 
     // 官方同步端点：省略 `lastSyncedDate` = 回全量，且元素**含密文 value / note**
     // （列表端点拿不到值，那正是离线只读需要的东西）。
     const response = await authedFetch(orgPath(ctx, '/secrets/sync'));
-    if (!response.ok) return;
+    if (!response.ok) return null;
     const body = await parseJson<{ secrets?: { data?: RawSecretDetail[] } }>(response);
     const secrets = Array.isArray(body?.secrets?.data) ? body.secrets.data : [];
     // ⚠️「列表里有机密、同步却回空」才是异常（形状对不上）⇒ 宁可用旧快照；「本来就没有机密」
     // 时回空是**正常**的，必须照常记下来，否则新账号离线连空列表都看不到。
-    if (secrets.length === 0 && listed.secrets.length > 0) return;
+    if (secrets.length === 0 && listed.secrets.length > 0) return null;
 
     // 回收站：列表端点不含它，只能另取一次（没有批量详情接口 ⇒ 内容靠惰性积累）。
     const trashResponse = await authedFetch('/api/secrets/trash');
@@ -642,8 +653,10 @@ export async function refreshSecretsOfflineSnapshot(
       trash,
       trashDetails,
     });
+    return secrets;
   } catch {
     // 离线缓存是尽力而为的旁路：失败不该影响在线流程
+    return null;
   }
 }
 
@@ -728,14 +741,35 @@ export async function loadOfflineTrash(
   );
 }
 
-/** 离线取单条机密：缓存里存的是**全量含值密文** ⇒ 离线时看内容永远不成问题。 */
+/**
+ * 缓存里那批**含值密文**（一次读出，供调用方在内存里建索引）。
+ * `null` = **没读到**（没有记录 / 不是同一组织），与「读到了、里面是 0 条」是两回事：
+ * 调用方据此决定保留旧索引还是换成空的。
+ * ⚠️ 点条目时读一遍 IndexedDB 是个宏任务，够浏览器画出一帧 ⇒ 密文要先读进内存（点击只剩解密）。
+ */
+export async function loadOfflineSecretDetails(
+  ctx: SecretsContext,
+  cacheKey: string
+): Promise<RawSecretDetail[] | null> {
+  const record = await loadSecretsOfflineCache(cacheKey);
+  if (!record || record.organizationId !== ctx.organizationId) return null;
+  return record.secrets;
+}
+
+/**
+ * 缓存里单条机密的明文详情（缓存存的是**全量含值密文**）。
+ * 调用方拿返回的 `revisionDate` 与列表项比对：一致才说明这份密文没落后。
+ *
+ * ⚠️ 记录的组织必须与上下文一致：别家组织那份密文不是这把密钥加密的，解出来是乱码。
+ */
 export async function getOfflineSecretDetail(
   ctx: SecretsContext,
   cacheKey: string,
   id: string
 ): Promise<SecretDetail | null> {
   const record = await loadSecretsOfflineCache(cacheKey);
-  const raw = record?.secrets.find((item) => item.id === id);
+  if (!record || record.organizationId !== ctx.organizationId) return null;
+  const raw = record.secrets.find((item) => item.id === id);
   if (!raw) return null;
   return toDetail(raw, ctx.keyPair);
 }

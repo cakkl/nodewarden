@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import {
   createSecret,
   createSecretProject,
+  decryptSecretDetail,
   deleteSecretProjects,
   deleteSecrets,
   ensureOfflineSecretsContext,
@@ -13,6 +14,7 @@ import {
   listSecretTags,
   listSecrets,
   listTrashedSecrets,
+  loadOfflineSecretDetails,
   loadOfflineSecrets,
   loadOfflineSecretTags,
   saveSecretTag,
@@ -23,6 +25,7 @@ import {
   updateSecret,
   setSecretsProjects,
   updateSecretProject,
+  type RawSecretDetail,
   type SecretDetail,
   type SecretInput,
   type SecretProject,
@@ -141,6 +144,43 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   offlineCacheKeyRef.current = offlineCacheKey;
   /** 「已保存的标签」得在异步动作里读到最新值（比较后才决定要不要发请求）。 */
   const tagsRef = useRef<Record<string, string>>({});
+  /**
+   * 列表里每条机密的最新 `revisionDate`：判「内存索引 / 本地快照里那份是否落后」。
+   * `liveSecrets` 是 state，同一轮异步里 set 完还没重渲染就得读到 ⇒ 与 `offlineRef` 一样同步写一份。
+   */
+  const revisionsRef = useRef<Record<string, string>>({});
+  const rememberRevisions = useCallback((next: SecretSummary[]) => {
+    const map: Record<string, string> = {};
+    for (const secret of next) map[secret.id] = secret.revisionDate;
+    revisionsRef.current = map;
+  }, []);
+  /** 内存索引：最近一次快照的**含值密文**。点条目时先查它，命中就只剩解密（同帧完成）。 */
+  const rawDetailsRef = useRef<Map<string, RawSecretDetail>>(new Map());
+  /** 索引来自哪个组织 —— 换过组织就不能再留（那批密文是另一把密钥加密的，解出来是乱码）。 */
+  const rawDetailsOrgRef = useRef('');
+  const rememberRawDetails = useCallback((ctx: SecretsContext, rows: RawSecretDetail[]) => {
+    const index = new Map<string, RawSecretDetail>();
+    for (const row of rows) if (row?.id) index.set(row.id, row);
+    rawDetailsRef.current = index;
+    rawDetailsOrgRef.current = ctx.organizationId;
+  }, []);
+  /**
+   * 从缓存读含值密文建索引。⚠️「没读到」（`null`）时**保留旧索引**（那份密文还能用，判定靠
+   * `revisionDate`）—— 清掉等于把点击全部退回网络；只有换过组织才允许丢。
+   */
+  const warmRawDetails = useCallback(
+    async (ctx: SecretsContext): Promise<void> => {
+      const cacheKey = offlineCacheKeyRef.current;
+      if (!cacheKey) return;
+      const rows = await loadOfflineSecretDetails(ctx, cacheKey);
+      if (!rows) {
+        if (rawDetailsOrgRef.current !== ctx.organizationId) rememberRawDetails(ctx, []);
+        return;
+      }
+      rememberRawDetails(ctx, rows);
+    },
+    [rememberRawDetails]
+  );
   const accessToken = session?.accessToken ?? '';
   const keyMaterial = `${session?.symEncKey ?? ''}|${session?.symMacKey ?? ''}`;
 
@@ -195,19 +235,37 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     setOffline(value);
   }, []);
 
-  /** 取某条机密的详情（列表里根本没有 value / note，所以详情得单独取）。 */
+  /**
+   * 取某条机密的详情（列表里根本没有 value / note，所以详情得单独取）。
+   *
+   * 三级，**顺序不能改** —— 取数落在同一帧内是「点开 / 切换没有中间帧」的唯一条件：
+   * ① 内存索引里的含值密文（只解密）；② 本地快照（读一次 IndexedDB）；③ 网络 `get-by-ids`。
+   * 三级都要求 `revisionDate` 与列表一致：编辑会推进它，而 `refresh` 先刷列表再取详情 ⇒
+   * 刚改过的条目不会命中旧密文。
+   * ⚠️ 加载态只能放在 ③：提到函数开头会给 ①② 也画出一帧「加载中」。
+   */
   const loadDetail = useCallback(
     async (ctx: SecretsContext, id: string, showSpinner = true): Promise<void> => {
-      if (showSpinner) setSelectedSecretLoading(true);
       try {
-        // 离线：缓存里存的就是**全量含值密文** ⇒ 看内容不成问题
-        if (offlineRef.current) {
-          const cacheKey = offlineCacheKeyRef.current;
-          const cached = cacheKey ? await getOfflineSecretDetail(ctx, cacheKey, id) : null;
-          setLiveDetail(cached);
-          if (!cached) onNotify('error', t('txt_sm_offline_content_unavailable'));
+        const revision = revisionsRef.current[id];
+        const raw = revision ? rawDetailsRef.current.get(id) : undefined;
+        if (raw && raw.revisionDate === revision) {
+          setLiveDetail(await decryptSecretDetail(raw, ctx));
           return;
         }
+        const cacheKey = offlineCacheKeyRef.current;
+        const local = cacheKey ? await getOfflineSecretDetail(ctx, cacheKey, id) : null;
+        // 离线时快照就是全部内容；在线时要求它与列表同一版
+        if (local && (offlineRef.current || local.revisionDate === revision)) {
+          setLiveDetail(local);
+          return;
+        }
+        if (offlineRef.current) {
+          setLiveDetail(null);
+          onNotify('error', t('txt_sm_offline_content_unavailable'));
+          return;
+        }
+        if (showSpinner) setSelectedSecretLoading(true);
         const details = await getSecretsByIds(fetcherRef.current, ctx, [id]);
         setLiveDetail(details[0] ?? null);
       } catch (err) {
@@ -238,6 +296,8 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         setOfflineState(true);
         setContext(nextContext);
         setLiveSecrets(listed.secrets);
+        rememberRevisions(listed.secrets);
+        void warmRawDetails(nextContext);
         setLiveProjects(listed.projects);
         // 标签与列表分开缓存（官方载荷里没有它），离线时同样要能分组
         const tags = await loadOfflineSecretTags(nextContext, cacheKey);
@@ -250,7 +310,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         return false;
       }
     },
-    [loadDetail, setOfflineState]
+    [loadDetail, setOfflineState, rememberRevisions, warmRawDetails]
   );
 
   /** 返回失败文案；`null` = 成功 —— 是否给反馈由调用点决定（自动加载 / 实时推送不弹）。 */
@@ -276,6 +336,8 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       setOfflineState(false);
       setContext(nextContext);
       setLiveSecrets(listed.secrets);
+      // 同步记下新版 `revisionDate`：本轮稍后的 `loadDetail` 要据此判断快照能不能用
+      rememberRevisions(listed.secrets);
       setLiveProjects(listed.projects);
       // 取失败时**保留上一次的**标签：宁可分组稍旧，也不要凭空把分组抹掉（类似快照的「宁旧勿空」）。
       if (tags) {
@@ -290,7 +352,11 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         offlineCacheKeyRef.current,
         listed.raw,
         tags?.raw ?? null
-      );
+      ).then((secrets) => {
+        // 快照交回的那批密文直接建索引（省掉再读一遍 IndexedDB）；没交回时回退读盘
+        if (secrets) rememberRawDetails(nextContext, secrets);
+        else void warmRawDetails(nextContext);
+      });
       // ⚠️ 选中的那条也得重取：列表里没有 value / note，而且项目 / 备注改完不重取的话，
       // 详情会一直停在旧值（要再点一次条目才更新）。静默刷新，别把面板闪成「加载中」。
       const selected = selectedIdRef.current;
@@ -308,7 +374,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     } finally {
       setLoading(false);
     }
-  }, [demoMode, loadDetail, applyOfflineSnapshot, setOfflineState, backendUnreachable]);
+  }, [demoMode, loadDetail, applyOfflineSnapshot, setOfflineState, backendUnreachable, rememberRevisions, warmRawDetails, rememberRawDetails]);
 
   useEffect(() => {
     void refresh();
