@@ -420,14 +420,12 @@ CREATE TABLE IF NOT EXISTS sm_organizations (
 );
 
 CREATE TABLE IF NOT EXISTS sm_org_keys (
-  org_id TEXT NOT NULL,
-  user_id TEXT NOT NULL,
+  -- 主键只用 org_id：本仓没有多租户（组织与用户 1:1）
+  org_id TEXT PRIMARY KEY,
   -- 用密码库已有的 user key 包裹的组织密钥（没有组织 RSA 密钥对）
   wrapped_org_key TEXT NOT NULL,
   created_at TEXT NOT NULL,
-  PRIMARY KEY (org_id, user_id),
-  FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS sm_projects (
@@ -489,16 +487,8 @@ CREATE TABLE IF NOT EXISTS sm_machine_account_projects (
 CREATE INDEX IF NOT EXISTS idx_sm_machine_account_projects_project
   ON sm_machine_account_projects(project_id);
 
-CREATE TABLE IF NOT EXISTS sm_secret_access (
-  secret_id TEXT NOT NULL,
-  principal_type TEXT NOT NULL,
-  principal_id TEXT NOT NULL,
-  permission TEXT NOT NULL,
-  PRIMARY KEY (secret_id, principal_type, principal_id),
-  FOREIGN KEY (secret_id) REFERENCES sm_secrets(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_sm_secret_access_principal
-  ON sm_secret_access(principal_type, principal_id);
+-- `sm_secret_access`（secret 级直接授权）曾作为「将来做共享」的预留，从未被读写 —— 本仓没有
+-- 多租户，已移除（2026-10-10）。运行时 schema 里有一条 DROP 让老库一并清掉。
 
 CREATE TABLE IF NOT EXISTS sm_access_tokens (
   id TEXT PRIMARY KEY,

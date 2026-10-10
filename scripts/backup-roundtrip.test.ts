@@ -140,7 +140,6 @@ const SECRETS_MANAGER_TABLES = [
   'sm_machine_accounts',
   'sm_secrets',
   'sm_secret_projects',
-  'sm_secret_access',
   'sm_machine_account_projects',
   'sm_access_tokens',
   'sm_events',
@@ -154,8 +153,8 @@ function seedSecretsManager(handle: Handle, userId: string, suffix = '1'): void 
   const secret = `secret-${suffix}`;
   const machine = `machine-${suffix}`;
   db.prepare('INSERT INTO sm_organizations (id, owner_user_id, created_at) VALUES (?,?,?)').run(org, userId, NOW);
-  db.prepare('INSERT INTO sm_org_keys (org_id, user_id, wrapped_org_key, created_at) VALUES (?,?,?,?)').run(
-    org, userId, 'wrapped-org-key', NOW
+  db.prepare('INSERT INTO sm_org_keys (org_id, wrapped_org_key, created_at) VALUES (?,?,?)').run(
+    org, 'wrapped-org-key', NOW
   );
   db.prepare('INSERT INTO sm_projects (id, org_id, name_encrypted, created_at, revision_date) VALUES (?,?,?,?,?)').run(
     project, org, 'enc-project-name', NOW, NOW
@@ -164,9 +163,6 @@ function seedSecretsManager(handle: Handle, userId: string, suffix = '1'): void 
     'INSERT INTO sm_secrets (id, org_id, key_encrypted, value_encrypted, note_encrypted, created_at, revision_date, deleted_at) VALUES (?,?,?,?,?,?,?,?)'
   ).run(secret, org, 'enc-key', 'enc-value', 'enc-note', NOW, NOW, null);
   db.prepare('INSERT INTO sm_secret_projects (secret_id, project_id) VALUES (?,?)').run(secret, project);
-  db.prepare('INSERT INTO sm_secret_access (secret_id, principal_type, principal_id, permission) VALUES (?,?,?,?)').run(
-    secret, 'machine', machine, 'read'
-  );
   db.prepare('INSERT INTO sm_machine_accounts (id, org_id, name, created_at, revision_date) VALUES (?,?,?,?,?)').run(
     machine, org, 'ci-bot', NOW, NOW
   );

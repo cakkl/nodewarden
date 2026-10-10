@@ -151,12 +151,11 @@ async function validateShadowTableCounts(
  */
 const SECRETS_MANAGER_KEEP_TABLES: ReadonlyArray<readonly [table: string, keepFilter: string]> = [
   ['sm_organizations', 'owner_user_id IN (SELECT id FROM users)'],
-  ['sm_org_keys', 'org_id IN (SELECT id FROM sm_organizations) AND user_id IN (SELECT id FROM users)'],
+  ['sm_org_keys', 'org_id IN (SELECT id FROM sm_organizations)'],
   ['sm_projects', 'org_id IN (SELECT id FROM sm_organizations)'],
   ['sm_machine_accounts', 'org_id IN (SELECT id FROM sm_organizations)'],
   ['sm_secrets', 'org_id IN (SELECT id FROM sm_organizations)'],
   ['sm_secret_projects', 'secret_id IN (SELECT id FROM sm_secrets) AND project_id IN (SELECT id FROM sm_projects)'],
-  ['sm_secret_access', 'secret_id IN (SELECT id FROM sm_secrets)'],
   [
     'sm_machine_account_projects',
     'machine_account_id IN (SELECT id FROM sm_machine_accounts) AND project_id IN (SELECT id FROM sm_projects)',
