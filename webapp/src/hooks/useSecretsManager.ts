@@ -283,12 +283,13 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         setAllTags(tags.allTags);
       }
       // 后台补快照：签名没变时它不做全量拉取（标签单独比对，见 `refreshSecretsOfflineSnapshot`）
+      // `null` = 这次没取到标签 ⇒ 让它保留缓存里的旧标签，别抹掉
       void refreshSecretsOfflineSnapshot(
         fetcherRef.current,
         nextContext,
         offlineCacheKeyRef.current,
         listed.raw,
-        tags?.raw ?? {}
+        tags?.raw ?? null
       );
       // ⚠️ 选中的那条也得重取：列表里没有 value / note，而且项目 / 备注改完不重取的话，
       // 详情会一直停在旧值（要再点一次条目才更新）。静默刷新，别把面板闪成「加载中」。

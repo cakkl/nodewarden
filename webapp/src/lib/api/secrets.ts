@@ -582,14 +582,15 @@ export async function saveSecretTag(
  * ⚠️ 线格式不报「已删除」（`sync` 只回活着的行）⇒ 缓存只能整份覆盖，所以先用签名比对，
  * 否则每进一次页面都要重传全量密文。
  *
- * `rawTags` 是标签的**密文**映射（标签不进签名 ⇒ 单独比对，改标签才不会触发整份重传）。
+ * `rawTags` 是标签的**密文**映射（标签不进签名 ⇒ 单独比对），`null` = 这次没取到：
+ * ⚠️ 那时必须**保留缓存里的旧标签** —— 当成空映射会把离线分组凭空抹掉。
  */
 export async function refreshSecretsOfflineSnapshot(
   authedFetch: AuthedFetch,
   ctx: SecretsContext,
   cacheKey: string,
   listed: RawSecretsList,
-  rawTags: Record<string, string>
+  rawTags: Record<string, string> | null
 ): Promise<void> {
   if (!cacheKey || !ctx.wrappedOrgKey) return;
   try {
@@ -602,7 +603,10 @@ export async function refreshSecretsOfflineSnapshot(
       cached.wrappedOrgKey === ctx.wrappedOrgKey
     ) {
       // 快照是最新的；但标签与签名无关，得单独同步一次（否则刚打的标签离线看不到）。
-      if (!sameStringMap(cached.tags, rawTags)) await saveCachedSecretsOfflineTags(cacheKey, rawTags);
+      // ⚠️ `rawTags` 为 `null`（这次没取到）时什么都不做 —— 不能当成「标签被删光了」。
+      if (rawTags && !sameStringMap(cached.tags, rawTags)) {
+        await saveCachedSecretsOfflineTags(cacheKey, rawTags);
+      }
       return;
     }
 
@@ -634,7 +638,7 @@ export async function refreshSecretsOfflineSnapshot(
       wrappedOrgKey: ctx.wrappedOrgKey,
       projects: listed.projects,
       secrets,
-      tags: rawTags,
+      tags: rawTags ?? cached?.tags ?? {},
       trash,
       trashDetails,
     });

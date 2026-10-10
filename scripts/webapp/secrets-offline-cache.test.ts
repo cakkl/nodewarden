@@ -530,6 +530,24 @@ test('⭐ 标签：落盘的是密文、离线可解，且改标签不触发全�
   assert.deepEqual(afterTagChange.allTags, ['测试', '生产']);
 });
 
+test('⭐ 标签取不到时（null）不得清掉缓存里的标签', async () => {
+  indexedDb.reset();
+  const userKey = randomKeyPair();
+  const { session, server } = await freshSetup(userKey);
+  const ctx = await ensureSecretsContext(server.authedFetch, session);
+  await primeOnlineSnapshot(server, ctx);
+
+  const before = await loadSecretsOfflineCache(CACHE_KEY);
+  assert.ok(before?.tags.s1, '前置：缓存里应有 s1 的标签');
+
+  // 模拟「这次标签请求失败」：调用方传 `null`（与 `listSecretTags().catch(() => null)` 同形）
+  const listed = await listSecrets(server.authedFetch, ctx);
+  await refreshSecretsOfflineSnapshot(server.authedFetch, ctx, CACHE_KEY, listed.raw, null);
+
+  const after = await loadSecretsOfflineCache(CACHE_KEY);
+  assert.deepEqual(after?.tags, before.tags, '取不到标签时必须保留旧值（不是当成「标签被删光了」）');
+});
+
 test('cache never carries machine-account data', () => {
   // 设计决定：机器账号 / 访问令牌 / 授权**不随机密一起离线**（它们的凭据落盘即明文）。
   // 这是「已核实过」的结论，写成断言防退化。
