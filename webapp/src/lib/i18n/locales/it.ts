@@ -90,6 +90,7 @@ const it: Record<string, string> = {
   "txt_email_verification": "Verifica email",
   "txt_email_verification_description": "Conferma che questo indirizzo è tuo. Le notifiche di sicurezza vengono inviate solo a un indirizzo confermato.",
   "txt_email_verification_unverified_warning": "La tua email non è verificata, quindi non riceverai il suggerimento via email. Verificala in {where}.",
+  "txt_email_unverified_warning_opt_out": "Non ricordare più la verifica dell’e-mail",
   "txt_email_verification_verified_badge": "Verificato",
   "txt_email_verification_unverified_badge": "Non verificato",
   "txt_email_verification_resend_code": "Invia un nuovo codice",

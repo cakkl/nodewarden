@@ -91,6 +91,7 @@ const ru: Record<string, string> = {
   "txt_email_verification": "Подтверждение почты",
   "txt_email_verification_description": "Подтвердите, что этот адрес принадлежит вам. Уведомления безопасности отправляются только на подтверждённый адрес.",
   "txt_email_verification_unverified_warning": "Электронная почта не подтверждена — подсказку по почте получить не удастся. Подтвердите её в разделе {where}.",
+  "txt_email_unverified_warning_opt_out": "Больше не напоминать о подтверждении почты",
   "txt_email_verification_verified_badge": "Подтверждён",
   "txt_email_verification_unverified_badge": "Не подтверждён",
   "txt_email_verification_resend_code": "Отправить новый код",

@@ -90,6 +90,7 @@ const fi: Record<string, string> = {
   "txt_email_verification": "Sähköpostin vahvistus",
   "txt_email_verification_description": "Vahvista, että tämä osoite on sinun. Turvallisuusilmoituksia lähetetään vain vahvistettuun osoitteeseen.",
   "txt_email_verification_unverified_warning": "Sähköpostiasi ei ole vahvistettu, joten et saa vihjettä sähköpostitse. Vahvista se kohdassa {where}.",
+  "txt_email_unverified_warning_opt_out": "Älä muistuta sähköpostin vahvistamisesta",
   "txt_email_verification_verified_badge": "Vahvistettu",
   "txt_email_verification_unverified_badge": "Vahvistamaton",
   "txt_email_verification_resend_code": "Lähetä uusi koodi",

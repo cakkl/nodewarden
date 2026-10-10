@@ -90,6 +90,7 @@ const en: Record<string, string> = {
   "txt_email_verification": "Email verification",
   "txt_email_verification_description": "Confirm that this address belongs to you. Security notifications are only sent to a confirmed address.",
   "txt_email_verification_unverified_warning": "Your email is not verified, so you won't receive your master password hint by email. Verify it in {where}.",
+  "txt_email_unverified_warning_opt_out": "Don't remind me to verify my email",
   "txt_email_verification_verified_badge": "Verified",
   "txt_email_verification_unverified_badge": "Not verified",
   "txt_email_verification_resend_code": "Send a new code",
