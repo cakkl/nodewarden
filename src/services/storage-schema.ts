@@ -288,9 +288,13 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // ⚠️ secret ↔ project 是**多对多**（官方线格式是 `projectIds[]` / 内层 `projects[]`），
   // 关联放 sm_secret_projects，本表上**没有** project 列。
   // `deleted_at` 非空 = 在 Trash 里（保留 30 天，由已有的每 5 分钟 scheduled 清理）。
+  // `tag_encrypted` 是**本站 Web 扩展**（官方线格式里没有这个字段）：一个机密至多一个标签，
+  // 与 key/value/note 同用组织密钥加密。⚠️ 改标签**不推进 `revision_date`** —— 否则官方 `sync`
+  // 会把它当机密变更推给所有客户端（详见 repo 层的 updateSecretTag）。
   'CREATE TABLE IF NOT EXISTS sm_secrets (' +
     'id TEXT PRIMARY KEY, org_id TEXT NOT NULL, ' +
     'key_encrypted TEXT NOT NULL, value_encrypted TEXT NOT NULL, note_encrypted TEXT NOT NULL, ' +
+    'tag_encrypted TEXT, ' +
     'created_at TEXT NOT NULL, revision_date TEXT NOT NULL, deleted_at TEXT, ' +
     'FOREIGN KEY (org_id) REFERENCES sm_organizations(id) ON DELETE CASCADE)',
   'CREATE INDEX IF NOT EXISTS idx_sm_secrets_org_deleted ON sm_secrets(org_id, deleted_at)',
@@ -304,6 +308,8 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   // Trash 清理是**纯 deleted_at** 过滤，(org_id, deleted_at) 用不上
   // —— 同 login_attempts_ip 的教训：过滤侧没索引就退化成全表扫。
   'CREATE INDEX IF NOT EXISTS idx_sm_secrets_deleted_at ON sm_secrets(deleted_at)',
+  // Web 扩展的标签列（老库补列；新库已含在 CREATE 里）。重复列名由执行器吞掉 ⇒ 幂等。
+  'ALTER TABLE sm_secrets ADD COLUMN tag_encrypted TEXT',
 
   // 机器账号（非人类用户）。名称是明文（官方同款），凭据走 access token。
   // `revision_date` = 名称 / 项目授权的最后变更时间（详情卡片展示用）。

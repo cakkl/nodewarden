@@ -5,10 +5,12 @@ import {
   getOrgKey,
   getTrashedSecret,
   listSecretProjectIds,
+  listSecretTags,
   listTrashedSecrets,
   purgeSecretsByIds,
   restoreSecret,
   saveOrgKey,
+  updateSecretTag,
   type SmSecret,
 } from '../services/storage-secrets-repo';
 import { SmEventType, recordSecretsEvents } from '../services/secrets-events';
@@ -188,4 +190,69 @@ export async function handleSecretsTrashRoute(
   }
 
   return null;
+}
+
+// ── 标签（仅自家 Web UI）────────────────────────────────────────────────────
+// 官方线格式（`bws` / SDK 的 `SecretResponseModel`）没有标签字段 ⇒ 走与回收站同样的做法：
+// Web 自己的命名空间，不把界面概念渗进官方契约。一个机密**至多一个**标签。
+
+const TAGS_PATH = '/api/secrets/tags';
+/** 标签只是短标识；上限防的是「拿超大密文撑着行」。 */
+const MAX_TAG_CIPHER_LENGTH = 2048;
+
+/**
+ * `GET` 回全量映射（列表分组 + 编辑器自动补全共用一份），`PUT` 改单条。
+ *
+ * ⚠️ 只回**未删除**的条目（回收站不参与分组）；回收站里的标签仍在库里，还原后自动回来。
+ * ⚠️ 不记审计事件（标签只是界面分组）。
+ */
+export async function handleSecretsTagRoute(
+  request: Request,
+  env: Env,
+  userId: string,
+  path: string,
+  method: string
+): Promise<Response | null> {
+  if (path !== TAGS_PATH) return null;
+
+  const organization = await getImplicitOrganization(env.DB, userId);
+
+  if (method === 'GET') {
+    if (!organization) return jsonResponse({ object: 'secretTags', tags: {} });
+    const rows = await listSecretTags(env.DB, organization.id);
+    const tags: Record<string, string> = {};
+    for (const row of rows) {
+      if (row.tagEncrypted) tags[row.id] = row.tagEncrypted;
+    }
+    return jsonResponse({ object: 'secretTags', tags });
+  }
+
+  if (method !== 'PUT') return errorResponse('Method not allowed', 405);
+
+  let body: { secretId?: unknown; tag?: unknown };
+  try {
+    body = (await request.json()) as { secretId?: unknown; tag?: unknown };
+  } catch {
+    return errorResponse('Invalid JSON body', 400);
+  }
+  if (typeof body.secretId !== 'string' || !body.secretId) {
+    return errorResponse('secretId must be a secret id', 400);
+  }
+  // `null` / 省略 = 清除标签；其余必须是非空字符串且是合法密文
+  //（非法值会让客户端解密整页报错；类型不对则宁可拒绝，而不是静默把标签清掉）。
+  if (body.tag !== null && body.tag !== undefined && typeof body.tag !== 'string') {
+    return errorResponse('tag must be an EncString or null', 400);
+  }
+  const tag = typeof body.tag === 'string' && body.tag ? body.tag : null;
+  if (tag !== null && !isEncString(tag, MAX_TAG_CIPHER_LENGTH)) {
+    return errorResponse('tag must be an EncString', 400);
+  }
+
+  if (!organization) return errorResponse('Not found', 404);
+  const updated = await updateSecretTag(env.DB, organization.id, body.secretId, tag);
+  if (!updated) return errorResponse('Not found', 404);
+  // 让**同一用户的其它 Web 标签页**刷新（自己那页按标签页标识挡掉回声）。
+  // 可以放心广播：推送类型 103/104 是**本站自有**号段（官方 SM 没有推送、只有拉取式同步）。
+  broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets' });
+  return jsonResponse({ object: 'secretTag', id: body.secretId, tag });
 }

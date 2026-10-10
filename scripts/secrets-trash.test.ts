@@ -53,6 +53,7 @@ async function seedSecret(h: Harness, id: string, deletedAt: string | null, proj
     keyEncrypted: ENC_KEY,
     valueEncrypted: ENC_VALUE,
     noteEncrypted: '',
+    tagEncrypted: null,
     createdAt: CREATED_AT,
     revisionDate: CREATED_AT,
     deletedAt,

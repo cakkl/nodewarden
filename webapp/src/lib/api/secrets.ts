@@ -17,6 +17,7 @@ import {
 } from '../secrets-crypto';
 import {
   loadSecretsOfflineCache,
+  saveCachedSecretsOfflineTags,
   saveCachedSecretsOfflineTrashDetail,
   saveSecretsOfflineCache,
   secretsOfflineSignature,
@@ -527,18 +528,69 @@ export async function purgeTrashedSecrets(
   return Array.isArray(body.purged) ? body.purged : [];
 }
 
+// ── 标签（仅 Web）─────────────────────────────────────────────────────────
+
+/**
+ * 取「机密 id → 标签明文」映射。
+ *
+ * 标签是本站 Web 扩展（官方线格式没有这个字段）⇒ 单独一个端点。同一份数据同时喂两个用途：
+ * 列表分组、编辑器里输入标签时的候选。
+ */
+export async function listSecretTags(
+  authedFetch: AuthedFetch,
+  ctx: SecretsContext
+): Promise<{ tagsBySecretId: Record<string, string>; allTags: string[]; raw: Record<string, string> }> {
+  const body = await readJsonOrThrow<{ tags?: Record<string, string> }>(
+    await authedFetch('/api/secrets/tags'),
+    t('txt_load_failed')
+  );
+  const raw: Record<string, string> = {};
+  const tagsBySecretId: Record<string, string> = {};
+  const allTags: string[] = [];
+  for (const [id, cipher] of Object.entries(body.tags ?? {})) {
+    if (!id || !cipher) continue;
+    raw[id] = cipher;
+    // 一条坏密文不该让整页打不开 ⇒ 与列表同一口气（解密失败显占位）。
+    const plain = await decryptOrFallback(cipher, ctx.keyPair);
+    tagsBySecretId[id] = plain;
+    if (!allTags.includes(plain)) allTags.push(plain);
+  }
+  allTags.sort((a, b) => a.localeCompare(b));
+  return { tagsBySecretId, allTags, raw };
+}
+
+/** 设/清一个机密的标签（`null` = 清除）。 */
+export async function saveSecretTag(
+  authedFetch: AuthedFetch,
+  ctx: SecretsContext,
+  secretId: string,
+  tag: string | null
+): Promise<Response> {
+  const response = await authedFetch('/api/secrets/tags', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secretId, tag: tag === null ? null : await encryptField(tag, ctx.keyPair) }),
+  });
+  if (!response.ok) throw new Error(await parseErrorMessage(response, t('txt_save_failed')));
+  return response;
+}
+
 // ── 离线只读缓存 ────────────────────────────────────────────────────────────
 
 /**
  * 把最新的全量密文快照写进本地缓存（尽力而为，失败不抛）。
  * ⚠️ 线格式不报「已删除」（`sync` 只回活着的行）⇒ 缓存只能整份覆盖，所以先用签名比对，
  * 否则每进一次页面都要重传全量密文。
+ *
+ * `rawTags` 是标签的**密文**映射（标签不进签名 ⇒ 单独比对），`null` = 这次没取到：
+ * ⚠️ 那时必须**保留缓存里的旧标签** —— 当成空映射会把离线分组凭空抹掉。
  */
 export async function refreshSecretsOfflineSnapshot(
   authedFetch: AuthedFetch,
   ctx: SecretsContext,
   cacheKey: string,
-  listed: RawSecretsList
+  listed: RawSecretsList,
+  rawTags: Record<string, string> | null
 ): Promise<void> {
   if (!cacheKey || !ctx.wrappedOrgKey) return;
   try {
@@ -550,6 +602,11 @@ export async function refreshSecretsOfflineSnapshot(
       cached.organizationId === ctx.organizationId &&
       cached.wrappedOrgKey === ctx.wrappedOrgKey
     ) {
+      // 快照是最新的；但标签与签名无关，得单独同步一次（否则刚打的标签离线看不到）。
+      // ⚠️ `rawTags` 为 `null`（这次没取到）时什么都不做 —— 不能当成「标签被删光了」。
+      if (rawTags && !sameStringMap(cached.tags, rawTags)) {
+        await saveCachedSecretsOfflineTags(cacheKey, rawTags);
+      }
       return;
     }
 
@@ -581,12 +638,37 @@ export async function refreshSecretsOfflineSnapshot(
       wrappedOrgKey: ctx.wrappedOrgKey,
       projects: listed.projects,
       secrets,
+      tags: rawTags ?? cached?.tags ?? {},
       trash,
       trashDetails,
     });
   } catch {
     // 离线缓存是尽力而为的旁路：失败不该影响在线流程
   }
+}
+
+/** 两个「字符串→字符串」映射内容是否一致。 */
+function sameStringMap(a: Record<string, string>, b: Record<string, string>): boolean {
+  const aKeys = Object.keys(a);
+  if (aKeys.length !== Object.keys(b).length) return false;
+  return aKeys.every((key) => a[key] === b[key]);
+}
+
+/** 离线读标签：解出「id → 明文」与去重排序后的候选清单（与在线同一形状）。 */
+export async function loadOfflineSecretTags(
+  ctx: SecretsContext,
+  cacheKey: string
+): Promise<{ tagsBySecretId: Record<string, string>; allTags: string[] }> {
+  const record = await loadSecretsOfflineCache(cacheKey);
+  const tagsBySecretId: Record<string, string> = {};
+  const allTags: string[] = [];
+  for (const [id, cipher] of Object.entries(record?.tags ?? {})) {
+    const plain = await decryptOrFallback(cipher, ctx.keyPair);
+    tagsBySecretId[id] = plain;
+    if (!allTags.includes(plain)) allTags.push(plain);
+  }
+  allTags.sort((a, b) => a.localeCompare(b));
+  return { tagsBySecretId, allTags };
 }
 
 /**

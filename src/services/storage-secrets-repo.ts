@@ -111,13 +111,15 @@ export interface SmSecret {
   keyEncrypted: string;
   valueEncrypted: string;
   noteEncrypted: string;
+  /** 本站 Web 扩展（官方线格式没有）：**至多一个**标签，密文；`null` = 未打标签。 */
+  tagEncrypted: string | null;
   createdAt: string;
   revisionDate: string;
   deletedAt: string | null;
 }
 
 const SECRET_COLUMNS =
-  'id, org_id, key_encrypted, value_encrypted, note_encrypted, created_at, revision_date, deleted_at';
+  'id, org_id, key_encrypted, value_encrypted, note_encrypted, tag_encrypted, created_at, revision_date, deleted_at';
 
 function mapSecretRow(row: any): SmSecret {
   return {
@@ -126,6 +128,7 @@ function mapSecretRow(row: any): SmSecret {
     keyEncrypted: row.key_encrypted,
     valueEncrypted: row.value_encrypted,
     noteEncrypted: row.note_encrypted,
+    tagEncrypted: row.tag_encrypted ?? null,
     createdAt: row.created_at,
     revisionDate: row.revision_date,
     deletedAt: row.deleted_at,
@@ -145,7 +148,7 @@ export async function listOrgSecrets(db: D1Database, orgId: string): Promise<SmS
 export async function listProjectSecrets(db: D1Database, orgId: string, projectId: string): Promise<SmSecret[]> {
   const result = await db
     .prepare(
-      'SELECT s.id, s.org_id, s.key_encrypted, s.value_encrypted, s.note_encrypted, ' +
+      'SELECT s.id, s.org_id, s.key_encrypted, s.value_encrypted, s.note_encrypted, s.tag_encrypted, ' +
         's.created_at, s.revision_date, s.deleted_at ' +
         'FROM sm_secrets s JOIN sm_secret_projects sp ON sp.secret_id = s.id ' +
         'WHERE s.org_id = ? AND sp.project_id = ? AND s.deleted_at IS NULL ORDER BY s.created_at'
@@ -166,8 +169,8 @@ export async function getSecretById(db: D1Database, orgId: string, id: string): 
 export async function createSecret(db: D1Database, secret: SmSecret): Promise<void> {
   await db
     .prepare(
-      'INSERT INTO sm_secrets(id, org_id, key_encrypted, value_encrypted, note_encrypted, created_at, revision_date, deleted_at) ' +
-        'VALUES(?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO sm_secrets(id, org_id, key_encrypted, value_encrypted, note_encrypted, tag_encrypted, created_at, revision_date, deleted_at) ' +
+        'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)'
     )
     .bind(
       secret.id,
@@ -175,11 +178,41 @@ export async function createSecret(db: D1Database, secret: SmSecret): Promise<vo
       secret.keyEncrypted,
       secret.valueEncrypted,
       secret.noteEncrypted,
+      secret.tagEncrypted,
       secret.createdAt,
       secret.revisionDate,
       secret.deletedAt
     )
     .run();
+}
+
+/**
+ * 只改标签（`null` = 清除）。
+ *
+ * ⚠️ 刻意**不碰 `revision_date`**：官方 `sync` 按 `revision_date > since` 判定变更 ⇒ 推进它会让
+ * 「改个标签」被当成机密变更推给所有客户端（`bws` / SDK 白白重拉），前端离线快照的签名也跟着变、
+ * 触发一次全量密文重传。
+ */
+export async function updateSecretTag(
+  db: D1Database,
+  orgId: string,
+  id: string,
+  tagEncrypted: string | null
+): Promise<boolean> {
+  const result = await db
+    .prepare('UPDATE sm_secrets SET tag_encrypted = ? WHERE org_id = ? AND id = ? AND deleted_at IS NULL')
+    .bind(tagEncrypted, orgId, id)
+    .run();
+  return Number(result.meta.changes ?? 0) > 0;
+}
+
+/** 列出组织内**未删除**条目的标签（仅 Web 扩展字段；回收站不参与分组，故不包含）。 */
+export async function listSecretTags(db: D1Database, orgId: string): Promise<Array<{ id: string; tagEncrypted: string | null }>> {
+  const result = await db
+    .prepare('SELECT id, tag_encrypted FROM sm_secrets WHERE org_id = ? AND deleted_at IS NULL')
+    .bind(orgId)
+    .all<any>();
+  return (result.results ?? []).map((row: any) => ({ id: row.id, tagEncrypted: row.tag_encrypted ?? null }));
 }
 
 export async function updateSecret(
