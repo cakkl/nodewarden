@@ -867,22 +867,6 @@ export default function SecretsPage(props: SecretsPageProps) {
                   }
                 />
               </label>
-              {/* 标签（仅 Web）：`datalist` 就是「输入时筛已有标签、点一下就填」的原生形态 */}
-              <label className="field">
-                <span>{t('txt_sm_tag')}</span>
-                <input
-                  className="input"
-                  list="sm-tag-options"
-                  value={draft.tag}
-                  placeholder={t('txt_sm_tag_placeholder')}
-                  onInput={(event) => setDraft({ ...draft, tag: (event.currentTarget as HTMLInputElement).value })}
-                />
-                <datalist id="sm-tag-options">
-                  {manager.tagOptions.map((tag) => (
-                    <option key={tag} value={tag} />
-                  ))}
-                </datalist>
-              </label>
               <div className="field">
                 <span>{t('nav_secret_projects')}</span>
                 <div className="mobile-vault-filter-control" ref={projectMenuRef}>
@@ -930,6 +914,22 @@ export default function SecretsPage(props: SecretsPageProps) {
                   )}
                 </div>
               </div>
+              {/* 标签（仅 Web）：`datalist` 就是「输入时筛已有标签、点一下就填」的原生形态 */}
+              <label className="field">
+                <span>{t('txt_sm_tag')}</span>
+                <input
+                  className="input"
+                  list="sm-tag-options"
+                  value={draft.tag}
+                  placeholder={t('txt_sm_tag_placeholder')}
+                  onInput={(event) => setDraft({ ...draft, tag: (event.currentTarget as HTMLInputElement).value })}
+                />
+                <datalist id="sm-tag-options">
+                  {manager.tagOptions.map((tag) => (
+                    <option key={tag} value={tag} />
+                  ))}
+                </datalist>
+              </label>
             </div>
             <div className="card">
               <label className="field">

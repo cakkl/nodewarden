@@ -249,5 +249,10 @@ export async function handleSecretsTagRoute(
   if (!organization) return errorResponse('Not found', 404);
   const updated = await updateSecretTag(env.DB, organization.id, body.secretId, tag);
   if (!updated) return errorResponse('Not found', 404);
+  // 让**同一个用户的其它 Web 标签页**刷新（自己那页按标签页标识挡掉回声）。
+  // ⚠️ 这里可以放心广播：推送类型 103/104 是**本站自有**的号段（官方 SM 没有推送、只有拉取式同步），
+  // 唯一消费方就是本仓的 Web 前端 ⇒ 不会把 CLI / 官方客户端拉来重同步。
+  // ⚠️ 但仍**不记审计事件**（标签只是界面分组）。
+  broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets' });
   return jsonResponse({ object: 'secretTag', id: body.secretId, tag });
 }
