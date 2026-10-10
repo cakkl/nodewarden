@@ -444,6 +444,8 @@ CREATE TABLE IF NOT EXISTS sm_secrets (
   key_encrypted TEXT NOT NULL,
   value_encrypted TEXT NOT NULL,
   note_encrypted TEXT NOT NULL,
+  -- 本站 Web 扩展（官方线格式没有此字段）：至多一个标签，与 key/value/note 同用组织密钥加密。
+  tag_encrypted TEXT,
   created_at TEXT NOT NULL,
   revision_date TEXT NOT NULL,
   -- 非空 = 在 Trash 里（保留 30 天）

@@ -334,6 +334,8 @@ async function createSecretResponse(request: Request, env: Env, principal: SmPri
     keyEncrypted: body!.key as string,
     valueEncrypted: body!.value as string,
     noteEncrypted: (body!.note as string | undefined) ?? '',
+    // 官方线格式没有标签字段 ⇒ 从 CLI / SDK 建的机密一律未打标签（只有 Web 端能设）。
+    tagEncrypted: null,
     createdAt: now,
     revisionDate: now,
     deletedAt: null,

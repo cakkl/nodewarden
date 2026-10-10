@@ -68,6 +68,7 @@ import {
   handleGetSecretsOrganization,
   handleGetSecretsOrganizationKey,
   handlePutSecretsOrganizationKey,
+  handleSecretsTagRoute,
   handleSecretsTrashRoute,
 } from './handlers/secrets';
 import { handleSecretsMachineAccountRoute } from './handlers/secrets-machine';
@@ -258,6 +259,12 @@ export async function handleAuthenticatedRoute(
     path.startsWith('/api/secrets/trash/')
   ) {
     return handleSecretsTrashRoute(request, env, userId, path, method);
+  }
+
+  // 标签（仅自家 Web UI，官方线格式没有这个字段）：`/api/secrets/tags` 同样会被官方那套的
+  // 「单段就是 secret id」规则匹配到（id = "tags"）⇒ 必须排在下面它之前。
+  if (path === '/api/secrets/tags') {
+    return handleSecretsTagRoute(request, env, userId, path, method);
   }
 
   // 官方形态的端点（`bws` 那套）对 Web 会话同样开放，权限判定与机器账号共用一套（§二.2）。
