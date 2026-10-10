@@ -930,12 +930,16 @@ function toToken(raw: RawToken): MachineAccountToken | null {
   };
 }
 
-export async function listMachineAccounts(authedFetch: AuthedFetch, ctx: SecretsContext): Promise<MachineAccountDetail[]> {
-  const body = await readJsonOrThrow<{ data?: RawMachineAccount[] }>(
+/** 账号列表：令牌随列表一起回（`tokens`）—— 按账号各发一次就是 N+1，它们本来就是同一页要的东西。 */
+export async function listMachineAccounts(
+  authedFetch: AuthedFetch,
+  ctx: SecretsContext
+): Promise<{ accounts: MachineAccountDetail[]; tokens: Record<string, MachineAccountToken[]> }> {
+  const body = await readJsonOrThrow<{ data?: RawMachineAccount[]; tokens?: Record<string, RawToken[]> }>(
     await authedFetch('/api/secrets/machine-accounts'),
     t('txt_load_failed')
   );
-  return (body.data ?? [])
+  const accounts = (body.data ?? [])
     .filter((raw): raw is RawMachineAccount & { id: string; name: string } => !!raw?.id && !!raw.name)
     .map((raw) => ({
       id: raw.id,
@@ -944,6 +948,13 @@ export async function listMachineAccounts(authedFetch: AuthedFetch, ctx: Secrets
       revisionDate: raw.revisionDate ?? raw.createdAt ?? '',
       grants: (raw.grants ?? []).map(toGrant).filter((grant): grant is MachineAccountGrant => !!grant),
     }));
+  const tokens: Record<string, MachineAccountToken[]> = {};
+  for (const account of accounts) {
+    tokens[account.id] = (body.tokens?.[account.id] ?? [])
+      .map(toToken)
+      .filter((token): token is MachineAccountToken => !!token);
+  }
+  return { accounts, tokens };
 }
 
 export async function createMachineAccount(

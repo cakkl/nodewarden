@@ -129,20 +129,16 @@ export default function useMachineAccounts(options: UseMachineAccountsOptions): 
     setError('');
     try {
       const nextContext = await resolveSecretsContext(fetcher, currentSession);
-      const [nextAccounts, nextProjects] = await Promise.all([
+      // 令牌随列表一起回来 ⇒ 不必按账号各发一次
+      const [{ accounts: nextAccounts, tokens: nextTokens }, nextProjects] = await Promise.all([
         listMachineAccounts(fetcher, nextContext),
         listSecretProjects(fetcher, nextContext),
       ]);
-      const withTokens = await Promise.all(
-        nextAccounts.map(
-          async (account) => [account.id, await listMachineAccountTokens(fetcher, nextContext, account.id)] as const
-        )
-      );
       setOffline(false);
       setContext(nextContext);
       setAccounts(nextAccounts);
       setProjects(nextProjects);
-      setTokens(Object.fromEntries(withTokens));
+      setTokens(nextTokens);
       return null;
     } catch (err) {
       // 请求发出后才断网（或冷启动时压根没拿到令牌）⇒ 与真离线同样处理，

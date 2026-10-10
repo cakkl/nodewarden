@@ -213,6 +213,36 @@ test('授权：同一 (账号, project) 重复设置是改档，不是新增行�
   }
 });
 
+test('机器账号：令牌随列表一起回（列表页不必按账号各发一次）', async () => {
+  const h = await createHarness();
+  try {
+    const first = await createMachine(h, USER_A, 'bot-a');
+    const second = await createMachine(h, USER_A, 'bot-b');
+    await call(h, USER_A, `/api/secrets/machine-accounts/${first}/tokens`, 'POST', {
+      name: 'ci token',
+      secretHash: await hashApiKey(TOKEN_SECRET),
+      encryptedPayload: ENC,
+    });
+
+    const raw = (await call(h, USER_A, '/api/secrets/machine-accounts', 'GET')) as Response;
+    // 看原始响应文本：除了形状，还要断言「不外发哈希」
+    const text = await raw.text();
+    const list = JSON.parse(text) as {
+      data: Array<{ id: string }>;
+      tokens: Record<string, Array<{ id: string; name: string; object: string }>>;
+    };
+    assert.deepEqual(
+      list.tokens[first].map((token) => token.name),
+      ['ci token']
+    );
+    assert.deepEqual(list.tokens[second], [], '没有令牌的账号也要有键（值空数组）');
+    assert.equal(list.tokens[first][0].object, 'accessToken', '与单账号端点同一形状');
+    assert.equal(text.includes('secretHash'), false, '不得外发哈希');
+  } finally {
+    h.handle.close();
+  }
+});
+
 test('令牌：创建只回 id、列表不泄漏 secret_hash，吊销后 revoked_at 非空', async () => {
   const h = await createHarness();
   try {

@@ -18,6 +18,13 @@ export interface SmAccessToken {
   createdAt: string;
 }
 
+/** 令牌表的列清单（读写两处都要用；列顺序与 `mapAccessTokenRow` 一致）。 */
+const TOKEN_COLUMNS =
+  'id, machine_account_id, org_id, name, secret_hash, encrypted_payload, expires_at, revoked_at, last_used_at, created_at';
+
+/** D1 单条语句的绑定参数上限（`StorageService.MAX_D1_SQL_VARIABLES` 也是这个值）。 */
+const MAX_BIND_PARAMS = 100;
+
 function mapAccessTokenRow(row: any): SmAccessToken {
   return {
     id: row.id,
@@ -43,11 +50,7 @@ function mapAccessTokenRow(row: any): SmAccessToken {
  */
 export async function getAccessTokenById(db: D1Database, tokenId: string): Promise<SmAccessToken | null> {
   const row = await db
-    .prepare(
-      'SELECT id, machine_account_id, org_id, name, secret_hash, encrypted_payload, ' +
-        'expires_at, revoked_at, last_used_at, created_at ' +
-        'FROM sm_access_tokens WHERE id = ?'
-    )
+    .prepare(`SELECT ${TOKEN_COLUMNS} FROM sm_access_tokens WHERE id = ?`)
     .bind(tokenId)
     .first<any>();
   return row ? mapAccessTokenRow(row) : null;
@@ -65,6 +68,36 @@ export async function revokeAccessToken(db: D1Database, tokenId: string, orgId: 
     .bind(revokedAt, tokenId, orgId)
     .run();
 }
+
+/**
+ * 一次取多个机器账号名下的令牌（`账号 id → 令牌`），避免列表页按账号各查一遍。
+ * `IN (...)` 按 D1 参数上限分块；每个账号只落在一块里 ⇒ 块内的 `created_at` 序与单账号端点一致。
+ */
+export async function listAccessTokensByMachineAccounts(
+  db: D1Database,
+  machineAccountIds: readonly string[]
+): Promise<Map<string, SmAccessToken[]>> {
+  const grouped = new Map<string, SmAccessToken[]>();
+  const ids = [...new Set(machineAccountIds.filter((id): id is string => !!id))];
+  for (let start = 0; start < ids.length; start += MAX_BIND_PARAMS) {
+    const chunk = ids.slice(start, start + MAX_BIND_PARAMS);
+    const placeholders = chunk.map(() => '?').join(', ');
+    const result = await db
+      .prepare(
+        `SELECT ${TOKEN_COLUMNS} FROM sm_access_tokens WHERE machine_account_id IN (${placeholders}) ORDER BY created_at`
+      )
+      .bind(...chunk)
+      .all<any>();
+    for (const row of result.results ?? []) {
+      const token = mapAccessTokenRow(row);
+      const list = grouped.get(token.machineAccountId) ?? [];
+      list.push(token);
+      grouped.set(token.machineAccountId, list);
+    }
+  }
+  return grouped;
+}
+
 /** 列出某个机器账号名下的令牌（Web UI 用）。 */
 export async function listAccessTokensByMachineAccount(
   db: D1Database,
@@ -72,9 +105,7 @@ export async function listAccessTokensByMachineAccount(
 ): Promise<SmAccessToken[]> {
   const result = await db
     .prepare(
-      'SELECT id, machine_account_id, org_id, name, secret_hash, encrypted_payload, ' +
-        'expires_at, revoked_at, last_used_at, created_at ' +
-        'FROM sm_access_tokens WHERE machine_account_id = ? ORDER BY created_at'
+      `SELECT ${TOKEN_COLUMNS} FROM sm_access_tokens WHERE machine_account_id = ? ORDER BY created_at`
     )
     .bind(machineAccountId)
     .all<any>();
