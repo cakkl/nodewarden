@@ -1,14 +1,8 @@
 import { Wifi, WifiOff } from 'lucide-preact';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect } from 'preact/hooks';
 import { t } from '@/lib/i18n';
-import {
-  browserReportsOffline,
-  getCurrentNetworkStatus,
-  probeNodeWardenService,
-  setCurrentNetworkStatus,
-  subscribeNetworkStatus,
-  type NetworkStatus,
-} from '@/lib/network-status';
+import { browserReportsOffline, probeNodeWardenService, setCurrentNetworkStatus, type NetworkStatus } from '@/lib/network-status';
+import useNetworkStatus from '@/hooks/useNetworkStatus';
 
 /**
  * 周期兜底的间隔。每次探针都是**一次完整 Worker 调用**（`cache: 'no-store'` + 唯一 query），
@@ -23,7 +17,7 @@ function statusLabel(status: NetworkStatus): string {
 }
 
 export default function NetworkStatusBadge() {
-  const [status, setStatus] = useState<NetworkStatus>(getCurrentNetworkStatus);
+  const status = useNetworkStatus();
   const label = statusLabel(status);
   const Icon = status === 'online' ? Wifi : WifiOff;
 
@@ -57,7 +51,6 @@ export default function NetworkStatusBadge() {
       if (document.visibilityState === 'visible') void checkService();
     };
 
-    const unsubscribe = subscribeNetworkStatus(setStatus);
     void checkService().finally(scheduleNextCheck);
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -65,7 +58,6 @@ export default function NetworkStatusBadge() {
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      unsubscribe();
       window.clearTimeout(timer);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);

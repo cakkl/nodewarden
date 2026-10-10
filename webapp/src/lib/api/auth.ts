@@ -21,7 +21,7 @@ import type {
 } from '../types';
 import type { AccountPasskeyAssertion, AccountPasskeyPrfKeySet } from '../account-passkeys';
 import { recordNodeWardenReachable, recordNodeWardenUnreachable } from '../network-status';
-import { createApiError, parseErrorMessage, parseJson, readRetryAfterSeconds, type AuthedFetch, type SessionSetter } from './shared';
+import { createApiError, parseErrorMessage, parseJson, readRetryAfterSeconds, OfflineRequestError, type AuthedFetch, type SessionSetter } from './shared';
 
 const SESSION_KEY = 'nodewarden.web.session.v4';
 const PROFILE_SNAPSHOT_KEY = 'nodewarden.web.profile-snapshot.v1';
@@ -546,6 +546,15 @@ export async function getPasswordHint(
 
 export function createAuthedFetch(getSession: () => SessionState | null, setSession: SessionSetter) {
   return async function authedFetch(input: string, init: RequestInit = {}): Promise<Response> {
+    /**
+     * 网络层失败 ⇒ 统一的本地化错误。
+     * ⚠️ 主动中止（切页 / 取消查询）不是离线，必须原样透传，否则调用方的 AbortError 判断会失效。
+     */
+    const asOfflineError = (error: unknown): unknown => {
+      const name = error && typeof error === 'object' ? (error as { name?: unknown }).name : undefined;
+      return name === 'AbortError' ? error : new OfflineRequestError();
+    };
+
     const retryableRequest = async (headers: Headers): Promise<Response> => {
       const maxAttempts = 3;
       let lastError: unknown;
@@ -564,17 +573,18 @@ export function createAuthedFetch(getSession: () => SessionState | null, setSess
           lastError = error;
           if (attempt === maxAttempts - 1) {
             recordNodeWardenUnreachable();
-            throw error;
+            throw asOfflineError(error);
           }
         }
         const delayMs = 250 * (2 ** attempt) + Math.floor(Math.random() * 120);
         await new Promise((resolve) => window.setTimeout(resolve, delayMs));
       }
-      throw lastError instanceof Error ? lastError : new Error('Request failed');
+      throw lastError instanceof Error ? lastError : new OfflineRequestError();
     };
 
     const session = getSession();
-    if (!session?.accessToken) throw new Error(t('txt_offline_vault_readonly'));
+    // 无令牌 = 离线冷启动（会话持久化不存令牌）⇒ 与「连不上」同一种反馈
+    if (!session?.accessToken) throw new OfflineRequestError();
     const headers = new Headers(init.headers || {});
     headers.set('Authorization', `Bearer ${session.accessToken}`);
     // 机密管理器的「标签页」上下文（服务端会回吐进推送的 `ContextId`）。必须按**标签页**而不是

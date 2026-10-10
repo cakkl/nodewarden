@@ -10,6 +10,7 @@
   "orientation": "any",
   "background_color": "#eef4ff",
   "theme_color": "#0f172a",
+  "launch_handler": { "client_mode": "navigate-existing" },
   "categories": ["security", "productivity", "utilities"],
   "icons": [
     {

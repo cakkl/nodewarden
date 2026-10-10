@@ -671,12 +671,20 @@ export default function SettingsPage(props: SettingsPageProps) {
     const auto = next === AUTO_OPTION;
     const effective = auto ? detectBrowserLocale() : next;
     setSelectedLocale(effective);
-    await props.onSaveMailPreferences?.(
-      auto ? { locale: effective, localeAuto: true } : { locale: effective, localeAuto: false }
-    );
+    // ⚠️ 顺序要紧：先本地生效，再「尽力同步」服务端。
+    // 旧写法把服务端保存放在前面，离线时它会抛错 ⇒ `setLocale` 根本不执行，界面仍是旧语言，
+    // 而下拉框已经显示新语言，且没有任何提示（真机实测）。
     if (effective !== getLocale()) {
       // 热切换：`setLocale` 会通知订阅者重渲染 ⇒ 不整页重载，也就不需要重新解锁密码库。
       await setLocale(effective);
+    }
+    try {
+      await props.onSaveMailPreferences?.(
+        auto ? { locale: effective, localeAuto: true } : { locale: effective, localeAuto: false }
+      );
+    } catch (error) {
+      // 界面语言已在本地切好，只有「服务端记下来的语言」（邮件与其它设备用）没存上
+      props.onNotify?.('error', error instanceof Error ? error.message : t('txt_save_failed'));
     }
   }
 

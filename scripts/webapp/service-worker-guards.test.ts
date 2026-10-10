@@ -108,6 +108,40 @@ test('兜底页文案：每个受支持语言都必须有非空翻译', () => {
   );
 });
 
+// ---------------------------------------------------------------- 预缓存可恢复性
+
+test('预缓存不得用 addAll：单项失败不能拖垮整个 install', () => {
+  // `cache.addAll` 是「任一失败即整体失败」——首访网络一拖就会让整个 SW 装不上，
+  // 此后完全没有离线能力（直到下次导航再试）。必须逐项抓、抓到多少算多少。
+  const config = readSource('webapp/vite.config.ts');
+  assert.ok(!/\.addAll\(/.test(config), '预缓存不能用 cache.addAll（关键外壳也一样）');
+  assert.match(config, /Promise\.allSettled\(urls\.map\(\(url\) => cache\.add\(url\)\)\)/, '逐项抓取并容忍失败');
+});
+
+test('预缓存缺口可自查补齐（activate 时 + 页面发消息时）', () => {
+  const config = readSource('webapp/vite.config.ts');
+  const pwa = readSource('webapp/src/lib/pwa.ts');
+  // 用户在 Chrome 里「清除缓存的图片和文件」会清空 CacheStorage 但保留 SW 与 localStorage
+  // ⇒ install 不会重跑，离线能力会一直残缺到下次部署。两侧都得在。
+  assert.ok(config.includes('nodewarden:ensure-precache'), 'SW 要监听自查消息');
+  assert.ok(pwa.includes('nodewarden:ensure-precache'), '页面加载后要发这条消息');
+  assert.ok(config.includes('ensurePrecacheComplete'), 'SW 要能只补缺失项（全齐时是一次纯内存遍历）');
+  const activate = config.slice(config.indexOf("addEventListener('activate'"), config.indexOf("addEventListener('fetch'"));
+  assert.ok(activate.includes('ensurePrecacheComplete'), 'activate 里也要自查一次：首访可能只抓到一部分');
+});
+
+test('theme-color 跟随应用主题，viewport 开放安全区', () => {
+  const app = readSource('webapp/src/App.tsx');
+  const html = readSource('webapp/index.html');
+  assert.match(
+    app,
+    /querySelector\('meta\[name="theme-color"\]'\)/,
+    '静态 theme-color 只写了暗色一个值 ⇒ 浅色主题下状态栏会发黑，必须跟着主题改'
+  );
+  // responsive.css 里已有大量 `env(safe-area-inset-*)`，但不加 viewport-fit=cover 它们恒为 0。
+  assert.match(html, /viewport-fit=cover/, 'CSS 已依赖 env(safe-area-inset-*)，viewport 必须开放安全区');
+});
+
 // ---------------------------------------------------------------- 语言包延后预取
 
 test('语言包预取只在登录就绪后触发', () => {

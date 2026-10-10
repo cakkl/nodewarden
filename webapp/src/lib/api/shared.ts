@@ -4,6 +4,17 @@ import type { SessionState, TokenError } from '../types';
 export type AuthedFetch = (input: string, init?: RequestInit) => Promise<Response>;
 export type SessionSetter = (next: SessionState | null) => void;
 
+/**
+ * 「连不上后端」——不是 HTTP 错误，而是根本没拿到响应（离线 / DNS / TLS / CORS）。
+ * `fetch` 原生失败是 `TypeError: Failed to fetch`，透给用户就是一句未本地化的英文 ⇒ 统一在此换算。
+ */
+export class OfflineRequestError extends Error {
+  constructor() {
+    super(t('txt_offline_unavailable'));
+    this.name = 'OfflineRequestError';
+  }
+}
+
 export const BULK_API_CHUNK_SIZE = 200;
 
 export function chunkArray<T>(items: T[], size: number): T[][] {

@@ -142,7 +142,7 @@ function GrantPicker(props: {
 
 export default function MachineAccountsPage(props: MachineAccountsPageProps) {
   const { authedFetch, onNotify, mobileLayout, manager } = props;
-  const { context, accounts, projects, tokens, loading, error } = manager;
+  const { context, accounts, projects, tokens, loading, error, offline } = manager;
   const [busy, setBusy] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -343,7 +343,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
             <button
               type="button"
               className="btn btn-secondary small list-icon-btn"
-              disabled={busy || loading}
+              disabled={busy || loading || offline}
               onClick={() => void manager.onRefresh()}
             >
               <RefreshCw size={14} className="btn-icon" /> {t('txt_sync_vault')}
@@ -356,6 +356,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
                 className={`btn btn-primary small ${mobileLayout ? 'mobile-fab-trigger' : 'desktop-create-trigger'}`}
                 aria-label={t('txt_add')}
                 title={t('txt_add')}
+                disabled={offline}
                 onClick={openCreate}
               >
                 <Plus size={14} className="btn-icon" />
@@ -368,7 +369,9 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       <div className="list-panel">
         {/* 加载 / 错误占位只在列表为空时出现：有数据时刷新（同步 / 实时推送）
             要保持列表不动，否则会先闪一下「加载中」 */}
-        {loading && !accounts.length ? (
+        {offline ? (
+          <div className="empty">{t('txt_sm_offline_machine_accounts')}</div>
+        ) : loading && !accounts.length ? (
           <div className="empty">{t('txt_loading')}</div>
         ) : error && !accounts.length ? (
           <div className="empty">{error}</div>
@@ -625,7 +628,11 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
         </div>
       )}
 
-      {editor ? (
+      {offline ? (
+        <div className="card">
+          <div className="empty">{t('txt_sm_offline_machine_accounts')}</div>
+        </div>
+      ) : editor ? (
         editor
       ) : !selected ? (
         <div className="card">

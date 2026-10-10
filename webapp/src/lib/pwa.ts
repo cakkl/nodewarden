@@ -9,6 +9,13 @@ export function registerNodeWardenServiceWorker(): void {
     void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
       // PWA support is progressive enhancement; the vault still works without it.
     });
+    // 用户「清除缓存的图片和文件」会清空 CacheStorage 但保留 SW ⇒ `install` 不会重跑、预缓存
+    // 会一直残缺到下次部署。每次加载后让 SW 自查一次，缺什么补什么。
+    void navigator.serviceWorker.ready
+      .then((registration) => registration.active?.postMessage({ type: 'nodewarden:ensure-precache' }))
+      .catch(() => {
+        // 拿不到 `ready`（注册失败 / 被策略拦下）就算了，离线能力是渐进增强。
+      });
   };
 
   if (document.readyState === 'complete') {
@@ -17,6 +24,22 @@ export function registerNodeWardenServiceWorker(): void {
   }
 
   window.addEventListener('load', register, { once: true });
+}
+
+/** 只做一次（每个页面实例）。 */
+let persistentStorageRequested = false;
+
+/**
+ * 申请「持久化存储」配额。
+ * ⚠️ 离线能力全押在浏览器存储上（两个快照 + 离线解锁记录），不申请就可能在存储紧张时被静默回收。
+ * 授权由浏览器决定（Chrome 可能直接拒绝）⇒ 只是尽力而为，不给用户反馈。
+ */
+export function requestPersistentStorage(): void {
+  if (typeof window === 'undefined' || persistentStorageRequested) return;
+  const storage = navigator.storage;
+  if (!storage || typeof storage.persist !== 'function') return;
+  persistentStorageRequested = true;
+  void storage.persist().catch(() => {});
 }
 
 /** 只做一次（每个页面实例）。 */

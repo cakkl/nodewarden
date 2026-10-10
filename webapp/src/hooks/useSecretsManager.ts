@@ -4,12 +4,18 @@ import {
   createSecretProject,
   deleteSecretProjects,
   deleteSecrets,
+  ensureOfflineSecretsContext,
   ensureSecretsContext,
+  getOfflineSecretDetail,
+  getOfflineTrashedSecretDetail,
   getSecretsByIds,
   getTrashedSecret,
   listSecrets,
   listTrashedSecrets,
+  loadOfflineSecrets,
+  loadOfflineTrash,
   purgeTrashedSecrets,
+  refreshSecretsOfflineSnapshot,
   restoreTrashedSecrets,
   updateSecret,
   setSecretsProjects,
@@ -25,6 +31,7 @@ import {
 import type { AuthedFetch } from '@/lib/api/shared';
 import { IS_DEMO_MODE } from '@/lib/demo';
 import { t } from '@/lib/i18n';
+import { backendUnreachable as sharedBackendUnreachable, browserReportsOffline, subscribeNetworkStatus } from '@/lib/network-status';
 import { SECRETS_DEMO_PROJECTS, SECRETS_DEMO_SECRETS, SECRETS_DEMO_TRASH } from '@/lib/secrets-demo';
 import { onSecretsManagerChange } from '@/lib/secrets-realtime';
 import type { SessionState } from '@/lib/types';
@@ -34,6 +41,8 @@ interface UseSecretsManagerOptions {
   authedFetch: AuthedFetch;
   session: SessionState | null;
   onNotify: AppNotify;
+  /** 离线缓存的键（`profile.id` 优先、回落邮箱）—— 与密码库同一口径，由 App 计算后传入。 */
+  offlineCacheKey: string;
 }
 
 /**
@@ -48,6 +57,8 @@ export interface SecretsManagerProps {
   ready: boolean;
   loading: boolean;
   error: string;
+  /** 数据来自本地缓存（离线只读）：写操作会被挡下并提示，不改变界面形态。 */
+  offline: boolean;
   projects: SecretProject[];
   secrets: SecretSummary[];
   /** 选中机密的完整内容（含值 / 备注）；列表端点是拿不到的。 */
@@ -80,10 +91,11 @@ function messageOf(error: unknown): string {
 }
 
 export default function useSecretsManager(options: UseSecretsManagerOptions): SecretsManagerProps {
-  const { authedFetch, session, onNotify } = options;
+  const { authedFetch, session, onNotify, offlineCacheKey } = options;
   const demoMode = IS_DEMO_MODE;
 
   const [context, setContext] = useState<SecretsContext | null>(null);
+  const [offline, setOffline] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [liveProjects, setLiveProjects] = useState<SecretProject[]>([]);
@@ -105,8 +117,18 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   // `refresh` 要能读到「当前选中哪条」但又不因选中变化而换标识（否则每次点条目都会重拉列表）
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
+  // 离线只读状态：用 ref 同步一份，免得写进回调依赖后反复换标识（见下方无限重拉的教训）
+  const offlineRef = useRef(offline);
+  offlineRef.current = offline;
+  const offlineCacheKeyRef = useRef(offlineCacheKey);
+  offlineCacheKeyRef.current = offlineCacheKey;
   const accessToken = session?.accessToken ?? '';
   const keyMaterial = `${session?.symEncKey ?? ''}|${session?.symMacKey ?? ''}`;
+
+  const backendUnreachable = useCallback(
+    () => sharedBackendUnreachable({ hasAccessToken: !!sessionRef.current?.accessToken }),
+    []
+  );
 
   // demo 模式：数据来自静态演示集，写操作一律只读提示（不发请求、不落库）
   const demoSources = useMemo(
@@ -148,11 +170,25 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     };
   }, [trashDetailId]);
 
+  /** 离线状态要同步写 ref：同一轮里后面的回调（如 `loadDetail`）也得立刻看到新值。 */
+  const setOfflineState = useCallback((value: boolean) => {
+    offlineRef.current = value;
+    setOffline(value);
+  }, []);
+
   /** 取某条机密的详情（列表里根本没有 value / note，所以详情得单独取）。 */
   const loadDetail = useCallback(
     async (ctx: SecretsContext, id: string, showSpinner = true): Promise<void> => {
       if (showSpinner) setSelectedSecretLoading(true);
       try {
+        // 离线：缓存里存的就是**全量含值密文** ⇒ 看内容不成问题
+        if (offlineRef.current) {
+          const cacheKey = offlineCacheKeyRef.current;
+          const cached = cacheKey ? await getOfflineSecretDetail(ctx, cacheKey, id) : null;
+          setLiveDetail(cached);
+          if (!cached) onNotify('error', t('txt_sm_offline_content_unavailable'));
+          return;
+        }
         const details = await getSecretsByIds(fetcherRef.current, ctx, [id]);
         setLiveDetail(details[0] ?? null);
       } catch (err) {
@@ -165,6 +201,35 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     [onNotify]
   );
 
+  /**
+   * 用本地快照重建整套数据（离线只读）。
+   * ⚠️ 组织密钥从缓存里的**包裹**解出（用户密钥加密）；拿不到（没缓存 / 换过账号或主密码）
+   * 就返回 `false`，让调用方把真实的联网错误透给用户。
+   */
+  const applyOfflineSnapshot = useCallback(
+    async (currentSession: SessionState): Promise<boolean> => {
+      const cacheKey = offlineCacheKeyRef.current;
+      if (!cacheKey) return false;
+      try {
+        const nextContext = await ensureOfflineSecretsContext(currentSession, cacheKey);
+        if (!nextContext) return false;
+        const listed = await loadOfflineSecrets(nextContext, cacheKey);
+        if (!listed) return false;
+        // 先翻状态再取详情：`loadDetail` 据此走离线分支
+        setOfflineState(true);
+        setContext(nextContext);
+        setLiveSecrets(listed.secrets);
+        setLiveProjects(listed.projects);
+        const selected = selectedIdRef.current;
+        if (selected) await loadDetail(nextContext, selected, false);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [loadDetail, setOfflineState]
+  );
+
   /** 返回失败文案；`null` = 成功 —— 是否给反馈由调用点决定（自动加载 / 实时推送不弹）。 */
   const refresh = useCallback(async (): Promise<string | null> => {
     const current = sessionRef.current;
@@ -172,11 +237,26 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     setLoading(true);
     setError('');
     try {
+      // 后端不可达（含浏览器自报离线）⇒ 不白等两个必然失败的请求
+      if (backendUnreachable()) {
+        if (await applyOfflineSnapshot(current)) return null;
+        const offlineMessage = t('txt_offline_unavailable');
+        setError(offlineMessage);
+        return offlineMessage;
+      }
       const nextContext = await ensureSecretsContext(fetcherRef.current, current);
       const listed = await listSecrets(fetcherRef.current, nextContext);
+      setOfflineState(false);
       setContext(nextContext);
       setLiveSecrets(listed.secrets);
       setLiveProjects(listed.projects);
+      // 后台补快照：签名没变时它一次请求都不发（见 `refreshSecretsOfflineSnapshot`）
+      void refreshSecretsOfflineSnapshot(
+        fetcherRef.current,
+        nextContext,
+        offlineCacheKeyRef.current,
+        listed.raw
+      );
       // ⚠️ 选中的那条也得重取：列表里没有 value / note，而且项目 / 备注改完不重取的话，
       // 详情会一直停在旧值（要再点一次条目才更新）。静默刷新，别把面板闪成「加载中」。
       const selected = selectedIdRef.current;
@@ -185,17 +265,29 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       }
       return null;
     } catch (err) {
+      // 请求发出后才断网 ⇒ 回落缓存；真的没有快照才把错误透给用户
+      // （连不上时 `authedFetch` 已经换成本地化的离线文案，不用在这儿再判一次）
+      if (await applyOfflineSnapshot(current)) return null;
       const message = messageOf(err);
       setError(message);
       return message;
     } finally {
       setLoading(false);
     }
-  }, [demoMode, loadDetail]);
+  }, [demoMode, loadDetail, applyOfflineSnapshot, setOfflineState, backendUnreachable]);
 
   useEffect(() => {
     void refresh();
   }, [refresh, accessToken, keyMaterial]);
+
+  // 网络恢复 ⇒ 自动切回在线数据（离线时页面上挂的是旧快照）
+  useEffect(
+    () =>
+      subscribeNetworkStatus((status) => {
+        if (status === 'online') void refresh();
+      }),
+    [refresh]
+  );
 
   // 别人（CLI / 其它设备）改了机密与项目 ⇒ 整页刷新（列表、项目与选中项详情）。
   // 自己那次由 `App.tsx` 按标签页标识挡掉。
@@ -210,6 +302,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
 
   /** 「同步」按钮：只在手动点击时给反馈（挂载加载与实时推送的刷新不弹）。 */
   const syncNow = useCallback(async (): Promise<void> => {
+    if (offlineRef.current) {
+      onNotify('error', t('txt_sm_offline_readonly'));
+      return;
+    }
     const failure = await refresh();
     if (failure) onNotify('error', failure);
     else onNotify('success', t('txt_secrets_synced'));
@@ -263,18 +359,24 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   const run = useActionRunner({ onNotify, demoMode, reload: refresh });
   const runAction = useCallback(
     async (action: (ctx: SecretsContext) => Promise<unknown>, successText: string): Promise<void> => {
+      // 离线只读：写操作在本地拦下（按钮保留，反馈走既有 toast 机制，与密码库同一口径）
+      if (offlineRef.current) {
+        onNotify('error', t('txt_sm_offline_readonly'));
+        return;
+      }
       const current = context;
       // 还没有组织上下文 ⇒ 静默返回（不是失败，不该弹错误）
       if (!current) return;
       await run(() => action(current), successText);
     },
-    [context, run]
+    [context, run, onNotify]
   );
 
   return {
     ready,
     loading: demoMode ? false : loading,
     error: demoMode ? '' : error,
+    offline: demoMode ? false : offline,
     projects,
     secrets,
     selectedSecret,
@@ -321,6 +423,11 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       if (!current) return;
       setTrashLoading(true);
       try {
+        if (offlineRef.current || browserReportsOffline()) {
+          const cached = await loadOfflineTrash(current, offlineCacheKeyRef.current);
+          if (cached) setLiveTrash(cached);
+          return;
+        }
         setLiveTrash(await listTrashedSecrets(fetcherRef.current, current));
       } catch (err) {
         onNotify('error', messageOf(err));
@@ -335,7 +442,17 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         if (demoMode) return;
         const current = context;
         if (!current) return;
-        void getTrashedSecret(fetcherRef.current, current, id)
+        if (offlineRef.current) {
+          // 回收站没有批量详情接口 ⇒ 只有「在线看过内容」的那几条在本地有密文
+          void getOfflineTrashedSecretDetail(current, offlineCacheKeyRef.current, id)
+            .then((detail) => {
+              setLiveTrashDetail(detail);
+              if (!detail) onNotify('error', t('txt_sm_offline_content_unavailable'));
+            })
+            .catch(() => setLiveTrashDetail(null));
+          return;
+        }
+        void getTrashedSecret(fetcherRef.current, current, id, offlineCacheKeyRef.current)
           .then((detail) => setLiveTrashDetail(detail))
           .catch((err) => {
             setLiveTrashDetail(null);
