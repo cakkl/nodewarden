@@ -26,13 +26,18 @@ export interface SecretsOfflineCacheRecord {
   cacheKey: string;
   savedAt: number;
   organizationId: string;
-  /** 在线列表的 `id + revisionDate` 签名：一致即跳过全量拉取（线格式不报删除，只能全量覆盖）。 */
+  /**
+   * 在线列表的 `id + revisionDate` 签名：一致即跳过全量拉取（线格式不报删除，只能全量覆盖）。
+   * ⚠️ **只算列表与项目**，标签不进签名 —— 否则改一个标签会让整份密文重传。
+   */
   signature: string;
   /** 组织密钥的包裹（用户密钥加密），解锁后据此解出组织密钥。 */
   wrappedOrgKey: string;
   projects: RawSecretProject[];
   /** 含 value / note 的密文快照。 */
   secrets: RawSecretDetail[];
+  /** 机密 id → 标签密文（仅 Web 扩展字段；官方 `sync` 载荷里没有它，得另存）。 */
+  tags: Record<string, string>;
   trash: RawTrashedSecret[];
   /** 看过内容的回收站条目（键为机密 id）。 */
   trashDetails: Record<string, RawTrashedSecretDetail>;
@@ -113,6 +118,8 @@ export async function loadSecretsOfflineCache(cacheKey: string): Promise<Secrets
     ...record,
     projects: Array.isArray(record.projects) ? record.projects : [],
     secrets: Array.isArray(record.secrets) ? record.secrets : [],
+    // 老记录没有这个字段（离线缓存是增量演进的）⇒ 缺就当作「都没标签」。
+    tags: record.tags && typeof record.tags === 'object' ? record.tags : {},
     trash: Array.isArray(record.trash) ? record.trash : [],
     trashDetails: record.trashDetails && typeof record.trashDetails === 'object' ? record.trashDetails : {},
   };
@@ -127,6 +134,21 @@ export async function saveSecretsOfflineCache(
   await withStore('readwrite', (store) =>
     writeRecord(store, { ...record, cacheKey: normalized, savedAt: Date.now() })
   );
+}
+
+/**
+ * 只改缓存里的标签（在线改完标签后调）。
+ * ⚠️ 不动签名、不动 `savedAt` 以外的字段：标签与「快照是否需要重拉」无关。
+ */
+export async function saveCachedSecretsOfflineTags(
+  cacheKey: string,
+  tags: Record<string, string>
+): Promise<void> {
+  const normalized = String(cacheKey || '').trim();
+  if (!normalized) return;
+  const record = await loadSecretsOfflineCache(normalized);
+  if (!record) return;
+  await withStore('readwrite', (store) => writeRecord(store, { ...record, tags }));
 }
 
 /**

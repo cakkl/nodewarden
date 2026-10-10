@@ -10,9 +10,12 @@ import {
   getOfflineTrashedSecretDetail,
   getSecretsByIds,
   getTrashedSecret,
+  listSecretTags,
   listSecrets,
   listTrashedSecrets,
   loadOfflineSecrets,
+  loadOfflineSecretTags,
+  saveSecretTag,
   loadOfflineTrash,
   purgeTrashedSecrets,
   refreshSecretsOfflineSnapshot,
@@ -61,6 +64,10 @@ export interface SecretsManagerProps {
   offline: boolean;
   projects: SecretProject[];
   secrets: SecretSummary[];
+  /** 机密 id → 标签明文（列表分组与详情显示用）。 */
+  tags: Record<string, string>;
+  /** 已用过的标签（编辑器候选；与当前筛选无关）。 */
+  tagOptions: string[];
   /** 选中机密的完整内容（含值 / 备注）；列表端点是拿不到的。 */
   selectedSecret: SecretDetail | null;
   selectedSecretLoading: boolean;
@@ -77,8 +84,14 @@ export interface SecretsManagerProps {
   onCreateProject: (name: string) => Promise<void>;
   onRenameProject: (id: string, name: string) => Promise<void>;
   onDeleteProject: (id: string) => Promise<void>;
-  onCreateSecret: (input: SecretInput) => Promise<void>;
-  onUpdateSecret: (id: string, input: SecretInput) => Promise<void>;
+  /**
+   * 新建 / 更新机密。
+   * 标签**不进 `SecretInput`**（那是官方线格式的形状），作为独立参数传：空串 = 清除标签。
+   * `contentChanged` = 名称 / 值 / 备注 / 项目是否有变：**只改了标签时不发官方 PUT**，
+   * 否则那条 PUT 会无谓推进 `revision_date`（CLI 会以为机密变了、离线快照也会整份重拉）。
+   */
+  onCreateSecret: (input: SecretInput, tag: string) => Promise<void>;
+  onUpdateSecret: (id: string, input: SecretInput, tag: string, contentChanged: boolean) => Promise<void>;
   onDeleteSecret: (id: string) => Promise<void>;
   onDeleteSecrets: (ids: string[]) => Promise<void>;
   onLoadTrash: () => Promise<void>;
@@ -100,6 +113,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   const [error, setError] = useState('');
   const [liveProjects, setLiveProjects] = useState<SecretProject[]>([]);
   const [liveSecrets, setLiveSecrets] = useState<SecretSummary[]>([]);
+  /** 机密 id → 标签明文（仅 Web 扩展字段）。 */
+  const [tagsBySecretId, setTagsBySecretId] = useState<Record<string, string>>({});
+  /** 已用过的标签（可复用给编辑器候选），去重排序。 */
+  const [allTags, setAllTags] = useState<string[]>([]);
   const [liveTrash, setLiveTrash] = useState<TrashedSecret[]>([]);
   const [trashDetailId, setTrashDetailId] = useState<string | null>(null);
   const [liveTrashDetail, setLiveTrashDetail] = useState<TrashedSecretDetail | null>(null);
@@ -122,6 +139,8 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   offlineRef.current = offline;
   const offlineCacheKeyRef = useRef(offlineCacheKey);
   offlineCacheKeyRef.current = offlineCacheKey;
+  /** 「已保存的标签」得在异步动作里读到最新值（比较后才决定要不要发请求）。 */
+  const tagsRef = useRef<Record<string, string>>({});
   const accessToken = session?.accessToken ?? '';
   const keyMaterial = `${session?.symEncKey ?? ''}|${session?.symMacKey ?? ''}`;
 
@@ -220,6 +239,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         setContext(nextContext);
         setLiveSecrets(listed.secrets);
         setLiveProjects(listed.projects);
+        // 标签与列表分开缓存（官方载荷里没有它），离线时同样要能分组
+        const tags = await loadOfflineSecretTags(nextContext, cacheKey);
+        setTagsBySecretId(tags.tagsBySecretId);
+        setAllTags(tags.allTags);
         const selected = selectedIdRef.current;
         if (selected) await loadDetail(nextContext, selected, false);
         return true;
@@ -246,16 +269,21 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       }
       const nextContext = await ensureSecretsContext(fetcherRef.current, current);
       const listed = await listSecrets(fetcherRef.current, nextContext);
+      // 标签：与列表并行取（多一次请求，但换来分组与候选；失败不影响主流程）
+      const tags = await listSecretTags(fetcherRef.current, nextContext).catch(() => null);
       setOfflineState(false);
       setContext(nextContext);
       setLiveSecrets(listed.secrets);
       setLiveProjects(listed.projects);
-      // 后台补快照：签名没变时它一次请求都不发（见 `refreshSecretsOfflineSnapshot`）
+      setTagsBySecretId(tags?.tagsBySecretId ?? {});
+      setAllTags(tags?.allTags ?? []);
+      // 后台补快照：签名没变时它不做全量拉取（标签单独比对，见 `refreshSecretsOfflineSnapshot`）
       void refreshSecretsOfflineSnapshot(
         fetcherRef.current,
         nextContext,
         offlineCacheKeyRef.current,
-        listed.raw
+        listed.raw,
+        tags?.raw ?? {}
       );
       // ⚠️ 选中的那条也得重取：列表里没有 value / note，而且项目 / 备注改完不重取的话，
       // 详情会一直停在旧值（要再点一次条目才更新）。静默刷新，别把面板闪成「加载中」。
@@ -314,6 +342,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   const projects = demoMode ? demoSources.projects : liveProjects;
   const secrets = demoMode ? demoSources.secrets : liveSecrets;
   const trash = demoMode ? demoSources.trash : liveTrash;
+  // 演示集里没有标签概念 ⇒ 演示下两组都空（分组退化成扁平列表）
+  const tags = demoMode ? {} : tagsBySecretId;
+  const tagOptions = demoMode ? [] : allTags;
+  tagsRef.current = tags;
 
   // 选中的机密可能已经不在列表里（被删 / 换了筛选），清掉避免显示幽灵详情
   useEffect(() => {
@@ -357,6 +389,20 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
    * 这里只多一层：把已就绪的组织上下文交给调用方。
    */
   const run = useActionRunner({ onNotify, demoMode, reload: refresh });
+
+  /**
+   * 标签只在**真的变了**时才发请求（避免每次编辑都白写一次），空串 = 清除。
+   * 两端 trim：服务端不归一化，但手滑多一个空格会凭空多出一个分组。
+   */
+  const saveTagIfChanged = useCallback(
+    async (ctx: SecretsContext, id: string, tag: string): Promise<void> => {
+      const next = tag.trim();
+      const current = tagsRef.current[id] ?? '';
+      if (next === current) return;
+      await saveSecretTag(fetcherRef.current, ctx, id, next === '' ? null : next);
+    },
+    []
+  );
   const runAction = useCallback(
     async (action: (ctx: SecretsContext) => Promise<unknown>, successText: string): Promise<void> => {
       // 离线只读：写操作在本地拦下（按钮保留，反馈走既有 toast 机制，与密码库同一口径）
@@ -377,6 +423,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     loading: demoMode ? false : loading,
     error: demoMode ? '' : error,
     offline: demoMode ? false : offline,
+    /** 机密 id → 标签明文（列表分组与详情显示）。 */
+    tags,
+    /** 已用过的标签（编辑器候选；不随当前筛选变化）。 */
+    tagOptions,
     projects,
     secrets,
     selectedSecret,
@@ -401,10 +451,17 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       runAction((ctx) => updateSecretProject(fetcherRef.current, ctx, id, name), t('txt_saved')),
     onDeleteProject: (id) =>
       runAction((ctx) => deleteSecretProjects(fetcherRef.current, ctx, [id]), t('txt_deleted')),
-    onCreateSecret: (input) =>
-      runAction((ctx) => createSecret(fetcherRef.current, ctx, input), t('txt_saved')),
-    onUpdateSecret: (id, input) =>
-      runAction((ctx) => updateSecret(fetcherRef.current, ctx, id, input), t('txt_saved')),
+    onCreateSecret: (input, tag) =>
+      runAction(async (ctx) => {
+        const created = await createSecret(fetcherRef.current, ctx, input);
+        await saveTagIfChanged(ctx, created.id, tag);
+      }, t('txt_saved')),
+    onUpdateSecret: (id, input, tag, contentChanged) =>
+      runAction(async (ctx) => {
+        // 只有内容真的变了才发官方 PUT（见 props 上的说明）
+        if (contentChanged) await updateSecret(fetcherRef.current, ctx, id, input);
+        await saveTagIfChanged(ctx, id, tag);
+      }, t('txt_saved')),
     onDeleteSecret: (id) =>
       runAction(async (ctx) => {
         await deleteSecrets(fetcherRef.current, ctx, [id]);

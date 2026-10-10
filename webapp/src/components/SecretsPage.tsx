@@ -23,6 +23,7 @@ import MobileFilterMenu from '@/components/MobileFilterMenu';
 import type { MobileFilterOption } from '@/components/MobileFilterMenu';
 import type { SecretsManagerProps } from '@/hooks/useSecretsManager';
 import type { SecretInput } from '@/lib/api/secrets';
+import { groupSecretsByTag } from '@/lib/sm-tag-groups';
 import { applyProjectToggles, commonProjectIds, projectCheckState } from '@/lib/secrets-project-selection';
 import { t } from '@/lib/i18n';
 
@@ -40,6 +41,29 @@ export interface SecretsPageProps {
 
 const EMPTY_DRAFT: SecretInput = { key: '', value: '', note: '', projectIds: [] };
 const day = (iso: string): string => (iso ? iso.slice(0, 10) : '—');
+
+/**
+ * 折叠的标签按**浏览器**存（与服务端无关，换设备各存各的，性质同列表排序偏好）。
+ * ⚠️ 标签是密文解出来的明文，只存在本地，服务端看不到。
+ */
+const TAG_COLLAPSED_STORAGE_KEY = 'nodewarden.sm.tag-collapsed.v1';
+
+function readCollapsedTags(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TAG_COLLAPSED_STORAGE_KEY) ?? 'null');
+    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCollapsedTags(tags: string[]): void {
+  try {
+    localStorage.setItem(TAG_COLLAPSED_STORAGE_KEY, JSON.stringify(tags));
+  } catch {
+    // 存不下就算了：折叠状态只是界面偏好
+  }
+}
 
 /**
  * 左栏筛选。**「未分配」是真实存在的状态**：删掉一个 project 时它的关联被级联删除、
@@ -83,7 +107,14 @@ export default function SecretsPage(props: SecretsPageProps) {
   const projectSortMenuRef = useRef<HTMLDivElement | null>(null);
 
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
-  const [draft, setDraft] = useState<{ id: string | null; input: SecretInput } | null>(null);
+  const [draft, setDraft] = useState<{
+    id: string | null;
+    input: SecretInput;
+    /** 打开编辑器时的原始内容（仅编辑时有），用来判断「是不是只改了标签」。 */
+    original: SecretInput | null;
+    tag: string;
+  } | null>(null);
+  const [collapsedTags, setCollapsedTags] = useState<string[]>(readCollapsedTags);
   const [valueRevealed, setValueRevealed] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'list' | 'detail'>('list');
   const [creatingProject, setCreatingProject] = useState(false);
@@ -161,6 +192,91 @@ export default function SecretsPage(props: SecretsPageProps) {
   const listItems = view === 'trash' ? manager.trash : visibleSecrets;
   const checkedCount = checkedIds.size;
 
+  /**
+   * 按标签把**已筛选**的条目分组（分组来源是筛后条目 ⇒ 结构上不可能出现空组）。
+   *
+   * ⚠️ 与「编辑器候选」是两份不同的数据：候选用全局标签清单（与当前筛选无关），否则筛着
+   * 「生产环境」时就补全不到别的标签。
+   */
+  const tagGroups = useMemo(
+    () => (view === 'trash' ? null : groupSecretsByTag(visibleSecrets, manager.tags)),
+    [manager.tags, view, visibleSecrets]
+  );
+
+  // 折叠记录得跟着标签生命期走：标签消失了还留着「已折叠」的话，以后同名标签一出现就是收起的。
+  // ⚠️ 两个坑（都实测踩过）：
+  // ① 判据用**全局**标签集（`manager.tags`），不是当前筛选后的分组 —— 用后者的话，一筛项目
+  //    就会把别的标签的折叠状态当孤儿清掉；
+  // ② 加载完成前（列表为空）不清理 —— 挂载瞬间标签集是空的，一清理就把状态全抹了。
+  useEffect(() => {
+    if (manager.secrets.length === 0) return;
+    const alive = new Set(
+      Object.values(manager.tags)
+        .map((tag) => tag.trim())
+        .filter(Boolean)
+    );
+    setCollapsedTags((prev) => {
+      const next = prev.filter((tag) => alive.has(tag));
+      if (next.length === prev.length) return prev;
+      writeCollapsedTags(next);
+      return next;
+    });
+  }, [manager.secrets.length, manager.tags]);
+
+  function toggleTagCollapsed(tag: string): void {
+    setCollapsedTags((prev) => {
+      const next = prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag];
+      writeCollapsedTags(next);
+      return next;
+    });
+  }
+
+  /**
+   * 一行条目。抽成函数是因为分组后**同一个行**要在「标签组内」与「未标记尾部」两处渲染；
+   * 抄一份会让两处的点击 / 选中语义迟早分叉。
+   */
+  function renderListRow(item: (typeof listItems)[number]) {
+    return (
+      <div
+        key={item.id}
+        className={`list-item ${
+          (view === 'trash' ? trashSelectedId === item.id : selected?.id === item.id) ? 'active' : ''
+        }`}
+        onClick={(event) => {
+          // 点复选框不该顺带切换选中 / 打开详情（与密码库的 row-check 同一处理）
+          if ((event.target as HTMLElement).closest('.row-check')) return;
+          if (view === 'trash') {
+            setTrashSelectedId(item.id);
+            setValueRevealed(false);
+            onSelectTrash(item.id);
+            if (mobileLayout) setMobilePanel('detail');
+          } else selectSecret(item.id);
+        }}
+      >
+        <label className="check-hit" onClick={(event) => event.stopPropagation()}>
+          <input
+            type="checkbox"
+            className="row-check"
+            checked={checkedIds.has(item.id)}
+            aria-label={t('txt_select_device_name', { name: item.name })}
+            onInput={(event) => toggleChecked(item.id, (event.currentTarget as HTMLInputElement).checked)}
+          />
+        </label>
+        <div className="row-main">
+          <div className="list-text">
+            <span className="list-title">{item.name}</span>
+            <span className="list-sub">
+              {projectName(item.projectIds)}
+              <span className="muted-inline">
+                {' · '}
+                {day('deletedAt' in item ? item.deletedAt : item.revisionDate)}
+              </span>
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
   /** 所选中（非回收站）的机密 —— 对话框的勾选状态由它们的**真实归属**推出来。 */
   const checkedSecrets = useMemo(
     () => manager.secrets.filter((secret) => checkedIds.has(secret.id)),
@@ -220,6 +336,8 @@ export default function SecretsPage(props: SecretsPageProps) {
     setDraft({
       id: null,
       input: { ...EMPTY_DRAFT, projectIds: projectFilter.kind === 'project' ? [projectFilter.projectId] : [] },
+      original: null,
+      tag: '',
     });
     setValueRevealed(false);
     if (mobileLayout) setMobilePanel('detail');
@@ -227,10 +345,19 @@ export default function SecretsPage(props: SecretsPageProps) {
 
   function openEdit(): void {
     if (!selected) return;
-    setDraft({
-      id: selected.id,
-      input: { key: selected.name, value: selected.value, note: selected.note, projectIds: selected.projectIds },
-    });
+    const input = { key: selected.name, value: selected.value, note: selected.note, projectIds: selected.projectIds };
+    // 记住原始内容：只改了标签时不该发官方 PUT（它会无谓推进 `revision_date`）。
+    setDraft({ id: selected.id, input, original: input, tag: manager.tags[selected.id] ?? '' });
+  }
+
+  /** 名称 / 值 / 备注 / 项目（集合比较，顺序无关）是否有变。 */
+  function contentChangedFrom(original: SecretInput, next: SecretInput): boolean {
+    return (
+      original.key !== next.key ||
+      original.value !== next.value ||
+      original.note !== next.note ||
+      [...original.projectIds].sort().join('\u0000') !== [...next.projectIds].sort().join('\u0000')
+    );
   }
 
   async function saveDraft(): Promise<void> {
@@ -239,8 +366,13 @@ export default function SecretsPage(props: SecretsPageProps) {
     // 允许一个 project 都不选（官方 `project_ids` 也是可选）：这类机密只对 Web 会话可见，
     // 机器账号按 project 授权过滤 ⇒ 看不到它。
     if (!input.key.trim()) return;
-    if (draft.id) await onUpdateSecret(draft.id, input);
-    else await onCreateSecret(input);
+    if (draft.id) {
+      // 编辑时一定带 `original`（新建才为 null）⇒ 没带就当作内容变了，宁可多发一次 PUT
+      const contentChanged = draft.original ? contentChangedFrom(draft.original, input) : true;
+      await onUpdateSecret(draft.id, input, draft.tag, contentChanged);
+    } else {
+      await onCreateSecret(input, draft.tag);
+    }
     setDraft(null);
   }
 
@@ -682,46 +814,32 @@ export default function SecretsPage(props: SecretsPageProps) {
           ) : listItems.length === 0 ? (
             <div className="empty">{view === 'trash' ? t('txt_trash') : t('txt_secrets_empty')}</div>
           ) : (
-            listItems.map((item) => (
-              <div
-                key={item.id}
-                className={`list-item ${
-                  (view === 'trash' ? trashSelectedId === item.id : selected?.id === item.id) ? 'active' : ''
-                }`}
-                onClick={(event) => {
-                  // 点复选框不该顺带切换选中 / 打开详情（与密码库的 row-check 同一处理）
-                  if ((event.target as HTMLElement).closest('.row-check')) return;
-                  if (view === 'trash') {
-                    setTrashSelectedId(item.id);
-                    setValueRevealed(false);
-                    onSelectTrash(item.id);
-                    if (mobileLayout) setMobilePanel('detail');
-                  } else selectSecret(item.id);
-                }}
-              >
-                <label className="check-hit" onClick={(event) => event.stopPropagation()}>
-                  <input
-                    type="checkbox"
-                    className="row-check"
-                    checked={checkedIds.has(item.id)}
-                    aria-label={t('txt_select_device_name', { name: item.name })}
-                    onInput={(event) => toggleChecked(item.id, (event.currentTarget as HTMLInputElement).checked)}
-                  />
-                </label>
-                <div className="row-main">
-                  <div className="list-text">
-                    <span className="list-title">{item.name}</span>
-                    <span className="list-sub">
-                      {projectName(item.projectIds)}
-                      <span className="muted-inline">
-                        {' · '}
-                        {day('deletedAt' in item ? item.deletedAt : item.revisionDate)}
-                      </span>
-                    </span>
+            <>
+              {tagGroups?.groups.map((group) => {
+                const collapsed = collapsedTags.includes(group.tag);
+                return (
+                  <div key={`tag-${group.tag}`} className="list-group">
+                    <button
+                      type="button"
+                      className="list-group-head"
+                      aria-expanded={!collapsed}
+                      aria-label={collapsed ? t('txt_expand') : t('txt_collapse')}
+                      onClick={() => toggleTagCollapsed(group.tag)}
+                    >
+                      <ChevronDown size={14} className={`btn-icon list-group-chevron${collapsed ? ' collapsed' : ''}`} />
+                      <span className="list-group-title">{group.tag}</span>
+                      <span className="list-group-count">{group.items.length}</span>
+                    </button>
+                    {collapsed ? null : group.items.map((item) => renderListRow(item))}
                   </div>
-                </div>
-              </div>
-            ))
+                );
+              })}
+              {/* 没有标签的条目**不参与分组**，整体放在最下面（给个轻量标题，免得看着像分组漏了） */}
+              {tagGroups && tagGroups.untagged.length > 0 ? (
+                <div className="list-group-head static">{t('txt_sm_untagged')}</div>
+              ) : null}
+              {(tagGroups ? tagGroups.untagged : listItems).map((item) => renderListRow(item))}
+            </>
           )}
         </div>
       </section>
@@ -748,6 +866,22 @@ export default function SecretsPage(props: SecretsPageProps) {
                     setDraft({ ...draft, input: { ...draft.input, key: (event.currentTarget as HTMLInputElement).value } })
                   }
                 />
+              </label>
+              {/* 标签（仅 Web）：`datalist` 就是「输入时筛已有标签、点一下就填」的原生形态 */}
+              <label className="field">
+                <span>{t('txt_sm_tag')}</span>
+                <input
+                  className="input"
+                  list="sm-tag-options"
+                  value={draft.tag}
+                  placeholder={t('txt_sm_tag_placeholder')}
+                  onInput={(event) => setDraft({ ...draft, tag: (event.currentTarget as HTMLInputElement).value })}
+                />
+                <datalist id="sm-tag-options">
+                  {manager.tagOptions.map((tag) => (
+                    <option key={tag} value={tag} />
+                  ))}
+                </datalist>
               </label>
               <div className="field">
                 <span>{t('nav_secret_projects')}</span>
@@ -857,6 +991,10 @@ export default function SecretsPage(props: SecretsPageProps) {
               <div className="kv-line">
                 <span>{t('txt_secret_project')}</span>
                 <strong>{projectName(selected.projectIds)}</strong>
+              </div>
+              <div className="kv-line">
+                <span>{t('txt_sm_tag')}</span>
+                <strong>{manager.tags[selected.id] ?? t('txt_dash')}</strong>
               </div>
               <div className="kv-row">
                 <span className="kv-label">{t('txt_secret_value')}</span>

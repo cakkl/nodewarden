@@ -18,8 +18,10 @@ import {
   ensureSecretsContext,
   getOfflineSecretDetail,
   getOfflineTrashedSecretDetail,
+  listSecretTags,
   listSecrets,
   loadOfflineSecrets,
+  loadOfflineSecretTags,
   loadOfflineTrash,
   refreshSecretsOfflineSnapshot,
 } from '../../webapp/src/lib/api/secrets';
@@ -144,6 +146,8 @@ interface FakeTrashedSecret {
 interface FakeServer {
   secrets: FakeSecret[];
   trash: FakeTrashedSecret[];
+  /** 机密 id → 标签明文（假服务端把它加密后回吐，与真实现一致）。 */
+  tags: Record<string, string>;
   /** 同步端点注入的故障（非 `null` 时返回该状态码）。 */
   syncFailure: number | null;
   /** 同步端点强制回空（模拟「版本对不上」）。 */
@@ -165,6 +169,7 @@ function createServer(orgKey: Uint8Array, wrappedOrgKey: string): FakeServer {
   const server: FakeServer = {
     secrets: [],
     trash: [],
+    tags: {},
     syncFailure: null,
     syncEmpty: false,
     calls: [],
@@ -216,6 +221,15 @@ function createServer(orgKey: Uint8Array, wrappedOrgKey: string): FakeServer {
             ),
           },
         });
+      }
+
+      if (url === '/api/secrets/tags') {
+        // 标签是 Web 扩展字段：假服务端回「id → 标签密文」
+        const tags: Record<string, string> = {};
+        for (const secret of server.secrets) {
+          if (server.tags[secret.id]) tags[secret.id] = (await encrypted(server.tags[secret.id])) as string;
+        }
+        return jsonResponse({ object: 'secretTags', tags });
       }
 
       if (url === '/api/secrets/trash') {
@@ -281,19 +295,22 @@ async function freshSetup(
   const orgKey = requireWebCrypto().getRandomValues(new Uint8Array(SYMMETRIC_KEY_BYTES));
   const server = createServer(orgKey, await wrapOrgKey(orgKey, userKey));
   server.secrets = FIXTURES.map((secret) => ({ ...secret }));
+  // s1 有标签、s2 没有（覆盖「分组 + 未标记」两种条目）
+  server.tags = { s1: '生产' };
   server.trash = [
     { id: 't1', name: '已删机密', value: 'P1ain-Trash-Value', note: '', deletedAt: '2026-10-03T00:00:00.000Z' },
   ];
   return { session: sessionFor(userKey), server };
 }
 
-/** 走一遍在线流程：拿上下文 + 列表 + 落快照。 */
+/** 走一遍在线流程：拿上下文 + 列表 + 标签 + 落快照。 */
 async function primeOnlineSnapshot(
   server: FakeServer,
   ctx: Awaited<ReturnType<typeof ensureSecretsContext>>
 ): Promise<void> {
   const listed = await listSecrets(server.authedFetch, ctx);
-  await refreshSecretsOfflineSnapshot(server.authedFetch, ctx, CACHE_KEY, listed.raw);
+  const tags = await listSecretTags(server.authedFetch, ctx);
+  await refreshSecretsOfflineSnapshot(server.authedFetch, ctx, CACHE_KEY, listed.raw, tags.raw);
 }
 
 test('online snapshot: stores ciphertext only and rebuilds the list offline', async () => {
@@ -344,14 +361,16 @@ test('signature unchanged: no extra request at all', async () => {
   const afterFirst = server.calls.filter((url) => url.endsWith('/secrets/sync')).length;
   assert.equal(afterFirst, 1, 'first pass must fetch the full snapshot');
 
-  // 同样的列表再走一遍：除了那次列表本身，不该再发任何请求（尤其不能重传全量密文）
+  // 同样的列表再走一遍：除了列表与标签本身，不该再发任何请求（尤其不能重传全量密文）
   const before = server.calls.length;
   await primeOnlineSnapshot(server, ctx);
+  const after = server.calls.slice(before);
   assert.deepEqual(
-    server.calls.slice(before),
-    [`/api/organizations/${ORG_ID}/secrets`],
-    'unchanged signature must only re-list'
+    after,
+    [`/api/organizations/${ORG_ID}/secrets`, '/api/secrets/tags'],
+    'unchanged signature must not re-fetch the full snapshot'
   );
+  assert.equal(after.some((url) => url.endsWith('/secrets/sync')), false, '不得重拉全量密文');
 });
 
 test('signature changed: the snapshot is replaced wholesale', async () => {
@@ -474,6 +493,41 @@ test('an empty organization still caches the wrap (offline shows an empty list, 
   assert.ok(offlineContext);
   const offline = await loadOfflineSecrets(offlineContext, CACHE_KEY);
   assert.deepEqual(offline?.secrets, []);
+});
+
+test('⭐ 标签：落盘的是密文、离线可解，且改标签不触发全量重传', async () => {
+  indexedDb.reset();
+  const userKey = randomKeyPair();
+  const { session, server } = await freshSetup(userKey);
+  const ctx = await ensureSecretsContext(server.authedFetch, session);
+  await primeOnlineSnapshot(server, ctx);
+
+  // ① 落盘的是密文（明文标签不得出现）
+  const record = await loadSecretsOfflineCache(CACHE_KEY);
+  assert.ok(record);
+  assert.equal(JSON.stringify(record).includes('生产'), false, '标签明文不得落盘');
+  assert.ok(record.tags.s1, 's1 的标签密文应在快照里');
+
+  // ② 离线能解出来（分组要用）
+  const offlineContext = await ensureOfflineSecretsContext(session, CACHE_KEY);
+  assert.ok(offlineContext);
+  const offlineTags = await loadOfflineSecretTags(offlineContext, CACHE_KEY);
+  assert.deepEqual(offlineTags.tagsBySecretId, { s1: '生产' });
+  assert.deepEqual(offlineTags.allTags, ['生产']);
+
+  // ③ ⭐ 只改标签（列表签名未变）⇒ 不得重新拉全量密文
+  server.tags = { s1: '生产', s2: '测试' };
+  const syncCallsBefore = server.calls.filter((url) => url.endsWith('/secrets/sync')).length;
+  await primeOnlineSnapshot(server, ctx);
+  assert.equal(
+    server.calls.filter((url) => url.endsWith('/secrets/sync')).length,
+    syncCallsBefore,
+    '改标签不得触发全量密文重传（标签不进签名）'
+  );
+
+  // 但标签本身要落盘（否则改完标签离线看不到）
+  const afterTagChange = await loadOfflineSecretTags(offlineContext, CACHE_KEY);
+  assert.deepEqual(afterTagChange.allTags, ['测试', '生产']);
 });
 
 test('cache never carries machine-account data', () => {
