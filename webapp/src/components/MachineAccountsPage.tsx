@@ -68,10 +68,15 @@ const EVENT_LABEL_KEYS: Record<number, string> = {
   2305: 'txt_sm_event_account_deleted',
 };
 
-/** 事件一行的人话。目标已不存在时用破折号占位 —— 事件本身仍要看得见。 */
-function eventLabel(event: MachineAccountEvent): string {
+/**
+ * 事件一行的人话（目标不存在时用破折号占位）。
+ * ⚠️ 名字两种来源：目标是机密 / 项目用解密名（服务端只放密文）；其余（23xx 机器账号类）的目标
+ * 就是本页这个账号 ⇒ 用它手里的明文名字，否则会显示成「新建了机器账号「—」」。
+ */
+function eventLabel(event: MachineAccountEvent, accountName: string): string {
   const key = EVENT_LABEL_KEYS[event.typeCode];
-  return key ? t(key, { name: event.name ?? '—' }) : `#${event.typeCode}`;
+  const name = event.secretId || event.projectId ? event.name ?? '—' : accountName;
+  return key ? t(key, { name }) : `#${event.typeCode}`;
 }
 
 /**
@@ -779,7 +784,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
               events.map((event) => (
                 <div key={event.id} className="kv-line">
                   <span>{stamp(event.creationDate)}</span>
-                  <strong>{eventLabel(event)}</strong>
+                  <strong>{eventLabel(event, selected.name)}</strong>
                 </div>
               ))
             )}
