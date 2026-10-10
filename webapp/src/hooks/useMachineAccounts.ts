@@ -35,10 +35,17 @@ export interface MachineAccountsManagerProps {
   projects: SecretProject[];
   /** 账号 id → 令牌列表。 */
   tokens: Record<string, MachineAccountToken[]>;
-  /** 静默重取（操作成功后、实时推送）：失败只返回文案，不弹提示。 */
-  onReload: () => Promise<string | null>;
   /** 「同步」按钮：手动触发时给成功 / 失败提示。 */
   onRefresh: () => Promise<void>;
+  /**
+   * 写成功后就地打补丁（与机密页同一套做法）：列表立刻反映改动 —— 整页重拉要 4 + N 个请求
+   * （每个账号各一次令牌），写完等它回来是明显卡顿。改动都经服务端确认，所以不需回滚。
+   */
+  onUpsertAccount: (account: MachineAccountDetail) => void;
+  onRemoveAccount: (id: string) => void;
+  onAddToken: (accountId: string, token: MachineAccountToken) => void;
+  /** 只重取**某一个**账号的令牌（撤销后要服务端的 `revokedAt`）—— 失败只返回文案。 */
+  onReloadAccountTokens: (accountId: string) => Promise<string | null>;
 }
 
 /**
@@ -173,11 +180,63 @@ export default function useMachineAccounts(options: UseMachineAccountsOptions): 
     void reload();
   }), [reload]);
 
+  /** 只重取一个账号的令牌（撤销后要服务端的 `revokedAt`）。 */
+  const reloadAccountTokens = useCallback(
+    async (accountId: string): Promise<string | null> => {
+      if (!context) return null;
+      try {
+        const nextTokens = await listMachineAccountTokens(fetcherRef.current, context, accountId);
+        setTokens((current) => ({ ...current, [accountId]: nextTokens }));
+        return null;
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
+    },
+    [context]
+  );
+
+  const upsertAccount = useCallback((account: MachineAccountDetail) => {
+    setAccounts((current) => {
+      const index = current.findIndex((item) => item.id === account.id);
+      if (index < 0) return [...current, account];
+      const next = current.slice();
+      next[index] = account;
+      return next;
+    });
+  }, []);
+
+  const removeAccount = useCallback((id: string) => {
+    setAccounts((current) => current.filter((item) => item.id !== id));
+    setTokens((current) => {
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
+  /** 追加到末尾：服务端按 `created_at` 升序返回，顺序与重拉后一致。 */
+  const addToken = useCallback((accountId: string, token: MachineAccountToken) => {
+    setTokens((current) => ({ ...current, [accountId]: [...(current[accountId] ?? []), token] }));
+  }, []);
+
   const refresh = useCallback(async (): Promise<void> => {
     const failure = await reload();
     if (failure) onNotify('error', failure);
     else onNotify('success', t('txt_secrets_synced'));
   }, [reload, onNotify]);
 
-  return { context, loading, error, offline, accounts, projects, tokens, onReload: reload, onRefresh: refresh };
+  return {
+    context,
+    loading,
+    error,
+    offline,
+    accounts,
+    projects,
+    tokens,
+    onRefresh: refresh,
+    onUpsertAccount: upsertAccount,
+    onRemoveAccount: removeAccount,
+    onAddToken: addToken,
+    onReloadAccountTokens: reloadAccountTokens,
+  };
 }

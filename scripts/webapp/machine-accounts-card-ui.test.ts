@@ -53,6 +53,23 @@ test('「添加访问令牌」按钮在令牌标题行里，且只有一个', ()
   );
 });
 
+test('⭐ 写动作就地打补丁，不再整页重拉', () => {
+  // 机器账号的整页重拉是 4 + N 个请求（每个账号各一次令牌）⇒ 写完等它回来会明显卡顿，
+  // 与密码库「请求成功后就地更新列表」也不一致。这里钉住页面只走 manager 的补丁接口。
+  const manager = readSource('webapp/src/hooks/useMachineAccounts.ts');
+  assert.ok(
+    !/reload: manager\.onReload/.test(page),
+    '走 `run` 的动作自带补丁，不得再把整页重拉挂在包装上'
+  );
+  for (const patch of ['onUpsertAccount', 'onRemoveAccount', 'onAddToken', 'onReloadAccountTokens']) {
+    assert.match(manager, new RegExp(`${patch}:`), `useMachineAccounts 要暴露 ${patch}`);
+  }
+  assert.match(page, /manager\.onUpsertAccount\(\{/, '保存名称 / 授权后就地更新那一条');
+  assert.match(page, /manager\.onAddToken\(activeId, created\.token\)/, '新建令牌直接追加，不等重拉');
+  assert.match(page, /manager\.onReloadAccountTokens\(accountId\)/, '撤销令牌只重取那一个账号');
+  assert.match(page, /manager\.onRemoveAccount\(target\.id\)/, '删除账号后就地从列表拿掉');
+});
+
 test('「添加项目」按钮也在项目标题行里，且不在卡片底部', () => {
   const title = '<h4 className="flush-title">{t(\'nav_secret_projects\')}</h4>';
   const titleIndex = page.indexOf(title);
