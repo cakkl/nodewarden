@@ -923,12 +923,12 @@
   min-width: 0;
 }
 
-/* 详情列里的下拉浮层：`.sort-menu` 默认 `right: 0`，而「新增项目」按钮在卡片左侧、
-   浮层宽 156px > 按钮宽 ⇒ 会向**左**溢出卡片。改成左对齐、向右展开。 */
+/* 详情列里的下拉浮层：两个「新增」都在卡片**右上角**，所以浮层靠右对齐、向左展开
+   （`.sort-menu` 默认就是 `right: 0`，这里显式写只是为了不被误改回左对齐）。 */
 .vault-grid.machine-accounts-grid .sort-menu-wrap .sort-menu {
-  left: 0;
-  right: auto;
-  transform-origin: top left;
+  right: 0;
+  left: auto;
+  transform-origin: top right;
 }
 
 .card h4 {

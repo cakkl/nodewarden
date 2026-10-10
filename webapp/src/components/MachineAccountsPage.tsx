@@ -14,11 +14,13 @@ import {
   setMachineAccountGrant,
   type MachineAccountEvent,
   type MachineAccountGrant,
+  type MachineAccountToken,
   type SecretProject,
 } from '@/lib/api/secrets';
 import { IS_DEMO_MODE } from '@/lib/demo';
 import { t } from '@/lib/i18n';
 import { SECRETS_DEMO_MACHINE_ACCOUNT_EVENTS } from '@/lib/secrets-demo';
+import { splitTokensByUsable, tokenInactiveReason } from '@/lib/sm-token-groups';
 import { useActionRunner, type AppNotify } from '@/hooks/useActionRunner';
 import type { MachineAccountsManagerProps } from '@/hooks/useMachineAccounts';
 
@@ -89,6 +91,8 @@ interface AccountDraft {
 function GrantPicker(props: {
   projects: SecretProject[];
   disabled: boolean;
+  /** 没有可加项目时按钮的说明（置灰用）。 */
+  emptyReason: string;
   onPick: (projectId: string, permission: 'read' | 'write') => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -103,7 +107,8 @@ function GrantPicker(props: {
     return () => document.removeEventListener('mousedown', onDocumentDown);
   }, [open]);
 
-  if (props.projects.length === 0) return null;
+  // ⚠️ 没有可加项目时保留按钮并置灰，绝不整颗消失 —— 不见了会让人以为这里没有「添加」功能。
+  const empty = props.projects.length === 0;
 
   return (
     <div className="sort-menu-wrap" ref={wrapRef}>
@@ -112,7 +117,9 @@ function GrantPicker(props: {
         className={`btn btn-secondary ${open ? 'active' : ''}`}
         aria-haspopup="menu"
         aria-expanded={open}
-        disabled={props.disabled}
+        disabled={props.disabled || empty}
+        aria-label={empty ? props.emptyReason : undefined}
+        title={empty ? props.emptyReason : undefined}
         onClick={() => setOpen((current) => !current)}
       >
         <Plus size={14} className="btn-icon" /> {t('txt_add')}
@@ -156,6 +163,11 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
   const [events, setEvents] = useState<MachineAccountEvent[]>([]);
   const [eventsHasMore, setEventsHasMore] = useState(false);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [revokedExpanded, setRevokedExpanded] = useState(false);
+
+  // ⚠️ 一次渲染只取一个「现在」：拆分与逐行判定同一时刻，边界上才不自相矛盾。
+  // 必须声明在用到它的 JSX **之前** —— 否则会撞上暂时性死区（Cannot access before initialization）。
+  const nowMs = Date.now();
 
   useEffect(() => {
     if (mobileLayout) return;
@@ -206,6 +218,10 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     return projects.filter((project) => !granted.has(project.id));
   }, [projects, draft]);
 
+  /** 「添加项目」按钮置灰时的说明：组织里还没建项目，与项目都授权过了，是两回事。 */
+  const grantEmptyReason =
+    projects.length === 0 ? t('txt_secret_projects_empty') : t('txt_all_projects_granted');
+
   const projectNameOf = useMemo(() => {
     const byId = new Map(projects.map((project) => [project.id, project.name]));
     return (id: string): string => byId.get(id) ?? id;
@@ -220,6 +236,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
   function openCreate(): void {
     setCreatedToken(null);
     setTokenDraft(null);
+    setRevokedExpanded(false);
     setDraft({ id: null, name: '', grants: [] });
     if (mobileLayout) setMobilePanel('detail');
   }
@@ -228,6 +245,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     if (!selected) return;
     setCreatedToken(null);
     setTokenDraft(null);
+    setRevokedExpanded(false);
     setDraft({ id: selected.id, name: selected.name, grants: selected.grants.map((grant) => ({ ...grant })) });
     if (mobileLayout) setMobilePanel('detail');
   }
@@ -237,6 +255,12 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     setDraft(null);
     setTokenDraft(null);
     setCreatedToken(null);
+    setRevokedExpanded(false);
+  }
+
+  /** 改草稿。行内控件的回调里 `draft` 已失去「非空」收窄 ⇒ 只能走函数式更新。 */
+  function updateDraft(change: (current: AccountDraft) => AccountDraft): void {
+    setDraft((current) => (current ? change(current) : current));
   }
 
   /** 保存名称 + 项目授权：一处提交，取消即全部丢弃。令牌另走即时接口。 */
@@ -276,6 +300,7 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       onNotify('success', t('txt_saved'));
       setDraft(null);
       setTokenDraft(null);
+      setRevokedExpanded(false);
       setSelectedId(accountId);
       await manager.onReload();
       await loadEvents(accountId);
@@ -388,7 +413,8 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
                     {t('nav_secret_projects')} {account.grants.length}
                     <span className="muted-inline">
                       {' · '}
-                      {t('txt_access_tokens')} {(tokens[account.id] ?? []).length}
+                      {/* 只数**可用**令牌：已失效的那批（撤销 / 过期）默认收起，总数会与详情对不上 */}
+                      {t('txt_access_tokens')} {splitTokensByUsable(tokens[account.id] ?? [], nowMs).active.length}
                     </span>
                   </span>
                 </div>
@@ -400,7 +426,171 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     </section>
   );
 
+  /** 项目授权一行（编辑视图）：权限下拉 + 移除。 */
+  function renderGrantRow(grant: MachineAccountGrant) {
+    const name = projectNameOf(grant.projectId);
+    return (
+      <div key={grant.projectId} className="kv-row">
+        <span className="kv-label" title={name}>
+          {name}
+        </span>
+        <div className="kv-main" />
+        <div className="kv-actions">
+          <select
+            className="input small"
+            aria-label={name}
+            value={grant.permission}
+            disabled={busy}
+            onInput={(event) => {
+              const next = (event.currentTarget as HTMLSelectElement).value as 'read' | 'write';
+              updateDraft((current) => ({
+                ...current,
+                grants: current.grants.map((item) =>
+                  item.projectId === grant.projectId ? { ...item, permission: next } : item
+                ),
+              }));
+            }}
+          >
+            <option value="read">{t('txt_permission_read')}</option>
+            <option value="write">{t('txt_permission_write')}</option>
+          </select>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            aria-label={t('txt_delete')}
+            disabled={busy}
+            onClick={() =>
+              updateDraft((current) => ({
+                ...current,
+                grants: current.grants.filter((item) => item.projectId !== grant.projectId),
+              }))
+            }
+          >
+            <X size={14} className="btn-icon" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  /** 令牌一行。`revokable` 只对编辑视图为真 —— 只读视图不给撤销入口。 */
+  function renderTokenRow(token: MachineAccountToken, revokable: boolean) {
+    const reason = tokenInactiveReason(token, nowMs);
+    return (
+      <div key={token.id} className="kv-row">
+        <span className="kv-label" title={token.name}>
+          {token.name}
+        </span>
+        <div className="kv-main machine-meta">
+          {/* 失效的令牌只说明「怎么失效的」：创建 / 过期时间对一张作废凭据没有意义 */}
+          {reason === 'revoked' && token.revokedAt ? (
+            <span>{t('txt_revoked_at_value', { value: day(token.revokedAt) })}</span>
+          ) : reason === 'expired' ? (
+            <span>{t('txt_expires_at_value', { value: day(token.expiresAt) })}</span>
+          ) : (
+            <>
+              <span>{t('txt_created_value', { value: day(token.creationDate) })}</span>
+              <span>{t('txt_expires_at_value', { value: day(token.expiresAt) })}</span>
+            </>
+          )}
+        </div>
+        {revokable ? (
+          <div className="kv-actions">
+            {reason ? (
+              <span className="list-badge">{reason === 'revoked' ? t('txt_revoked') : t('txt_expired')}</span>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                aria-label={t('txt_revoke')}
+                title={t('txt_revoke')}
+                disabled={busy}
+                onClick={() => setConfirmRevoke({ id: token.id, name: token.name })}
+              >
+                <Trash2 size={14} className="btn-icon" />
+              </button>
+            )}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  /** 已失效（撤销 / 过期）的令牌收在同一组、默认折叠。
+      ⚠️ 只收起**不隐藏**：撤销不写审计事件，`revoked_at` 是这件事唯一的痕迹。
+      展开状态不持久化（切页面 / 进出编辑模式都自动收起）。 */
+  function renderInactiveTokens(inactive: MachineAccountToken[], revokable: boolean) {
+    if (inactive.length === 0) return null;
+    return (
+      <>
+        <button
+          type="button"
+          className="list-group-head"
+          aria-expanded={revokedExpanded}
+          aria-label={revokedExpanded ? t('txt_collapse') : t('txt_expand')}
+          onClick={toggleRevokedExpanded}
+        >
+          <ChevronDown size={14} className={`btn-icon list-group-chevron${revokedExpanded ? '' : ' collapsed'}`} />
+          <span className="list-group-title">{t('txt_inactive_tokens')}</span>
+          <span className="list-group-count">{inactive.length}</span>
+        </button>
+        {revokedExpanded ? inactive.map((token) => renderTokenRow(token, revokable)) : null}
+      </>
+    );
+  }
+
+  function toggleRevokedExpanded(): void {
+    setRevokedExpanded((prev) => !prev);
+  }
+
   const accountTokens = activeId ? tokens[activeId] ?? [] : [];
+  const accountTokenGroups = splitTokensByUsable(accountTokens, nowMs);
+  const detailTokens = selected ? tokens[selected.id] ?? [] : [];
+  const detailTokenGroups = splitTokensByUsable(detailTokens, nowMs);
+
+  /** 新建令牌的行内表单（仅编辑视图）。
+      ⚠️ 归**可用**那批：掉到「已失效」组下面会像是在给废弃凭据填字段。 */
+  const tokenDraftRow = tokenDraft ? (
+    <div className="machine-inline-row">
+      <input
+        className="input"
+        autoFocus
+        aria-label={t('txt_name')}
+        placeholder={t('txt_name')}
+        value={tokenDraft.name}
+        onInput={(event) => setTokenDraft({ ...tokenDraft, name: (event.currentTarget as HTMLInputElement).value })}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') void submitToken();
+          if (event.key === 'Escape') setTokenDraft(null);
+        }}
+      />
+      <select
+        className="input small"
+        aria-label={t('txt_expiry')}
+        value={tokenDraft.days}
+        onInput={(event) =>
+          setTokenDraft({ ...tokenDraft, days: Number((event.currentTarget as HTMLSelectElement).value) })
+        }
+      >
+        {TOKEN_TTL_DAYS.map((days) => (
+          <option key={days} value={days}>
+            {t('txt_expires_in_days', { count: days })}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        className="btn btn-primary"
+        disabled={busy || !tokenDraft.name.trim()}
+        onClick={() => void submitToken()}
+      >
+        {t('txt_confirm')}
+      </button>
+      <button type="button" className="btn btn-secondary" onClick={() => setTokenDraft(null)}>
+        {t('txt_cancel')}
+      </button>
+    </div>
+  ) : null;
 
   const editor = draft ? (
     <div key={`machine-editor-${draft.id ?? 'new'}`} className="detail-switch-stage">
@@ -424,132 +614,32 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
 
       {/* 只列已授权的项目；没涉及的项目收在「添加」菜单里 */}
       <div className={`card ${grantCandidates.length > 0 ? 'card-menu-open' : ''}`}>
-        <h4>{t('nav_secret_projects')}</h4>
-        {draft.grants.map((grant) => (
-          <div key={grant.projectId} className="kv-row">
-            <span className="kv-label" title={projectNameOf(grant.projectId)}>
-              {projectNameOf(grant.projectId)}
-            </span>
-            <div className="kv-main" />
-            <div className="kv-actions">
-              <select
-                className="input small"
-                aria-label={projectNameOf(grant.projectId)}
-                value={grant.permission}
-                disabled={busy}
-                onInput={(event) => {
-                  const next = (event.currentTarget as HTMLSelectElement).value as 'read' | 'write';
-                  setDraft({
-                    ...draft,
-                    grants: draft.grants.map((item) =>
-                      item.projectId === grant.projectId ? { ...item, permission: next } : item
-                    ),
-                  });
-                }}
-              >
-                <option value="read">{t('txt_permission_read')}</option>
-                <option value="write">{t('txt_permission_write')}</option>
-              </select>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                aria-label={t('txt_delete')}
-                disabled={busy}
-                onClick={() =>
-                  setDraft({ ...draft, grants: draft.grants.filter((item) => item.projectId !== grant.projectId) })
-                }
-              >
-                <X size={14} className="btn-icon" />
-              </button>
-            </div>
-          </div>
-        ))}
-        <div className="detail-actions">
+        <div className="section-head">
+          <h4 className="flush-title">{t('nav_secret_projects')}</h4>
           <div className="actions">
             <GrantPicker
               projects={grantCandidates}
               disabled={busy}
+              emptyReason={grantEmptyReason}
               onPick={(projectId, permission) =>
                 setDraft({ ...draft, grants: [...draft.grants, { projectId, permission }] })
               }
             />
           </div>
         </div>
+        {draft.grants.length === 0 ? (
+          // 与只读视图同一口径：没有授权就一个破折号占位，别留一张只有标题的空卡片
+          <div className="detail-sub">—</div>
+        ) : (
+          draft.grants.map((grant) => renderGrantRow(grant))
+        )}
       </div>
 
       {/* 令牌：明文只在创建时出现一次，故即时生效；新建账号要先保存才有 id */}
       {draft.id ? (
         <div className="card">
-          <h4>{t('txt_access_tokens')}</h4>
-          {accountTokens.map((token) => (
-            <div key={token.id} className="kv-row">
-              <span className="kv-label" title={token.name}>
-                {token.name}
-              </span>
-              <div className="kv-main machine-meta">
-                <span>{t('txt_created_value', { value: day(token.creationDate) })}</span>
-                <span>{t('txt_expires_at_value', { value: day(token.expiresAt) })}</span>
-              </div>
-              <div className="kv-actions">
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  aria-label={t('txt_revoke')}
-                  title={t('txt_revoke')}
-                  disabled={busy || !!token.revokedAt}
-                  onClick={() => setConfirmRevoke({ id: token.id, name: token.name })}
-                >
-                  <Trash2 size={14} className="btn-icon" />
-                </button>
-              </div>
-            </div>
-          ))}
-
-          {tokenDraft ? (
-            <div className="machine-inline-row">
-              <input
-                className="input"
-                autoFocus
-                aria-label={t('txt_name')}
-                placeholder={t('txt_name')}
-                value={tokenDraft.name}
-                onInput={(event) =>
-                  setTokenDraft({ ...tokenDraft, name: (event.currentTarget as HTMLInputElement).value })
-                }
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void submitToken();
-                  if (event.key === 'Escape') setTokenDraft(null);
-                }}
-              />
-              <select
-                className="input small"
-                aria-label={t('txt_expiry')}
-                value={tokenDraft.days}
-                onInput={(event) =>
-                  setTokenDraft({ ...tokenDraft, days: Number((event.currentTarget as HTMLSelectElement).value) })
-                }
-              >
-                {TOKEN_TTL_DAYS.map((days) => (
-                  <option key={days} value={days}>
-                    {t('txt_expires_in_days', { count: days })}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={busy || !tokenDraft.name.trim()}
-                onClick={() => void submitToken()}
-              >
-                {t('txt_confirm')}
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setTokenDraft(null)}>
-                {t('txt_cancel')}
-              </button>
-            </div>
-          ) : null}
-
-          <div className="detail-actions">
+          <div className="section-head">
+            <h4 className="flush-title">{t('txt_access_tokens')}</h4>
             <div className="actions">
               <button
                 type="button"
@@ -561,6 +651,9 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
               </button>
             </div>
           </div>
+          {accountTokenGroups.active.map((token) => renderTokenRow(token, true))}
+          {tokenDraftRow}
+          {renderInactiveTokens(accountTokenGroups.inactive, true)}
         </div>
       ) : null}
 
@@ -642,20 +735,13 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
 
           <div className="card">
             <h4>{t('txt_access_tokens')}</h4>
-            {(tokens[selected.id] ?? []).length === 0 ? (
+            {detailTokens.length === 0 ? (
               <div className="detail-sub">—</div>
             ) : (
-              (tokens[selected.id] ?? []).map((token) => (
-                <div key={token.id} className="kv-row">
-                  <span className="kv-label" title={token.name}>
-                    {token.name}
-                  </span>
-                  <div className="kv-main machine-meta">
-                    <span>{t('txt_created_value', { value: day(token.creationDate) })}</span>
-                    <span>{t('txt_expires_at_value', { value: day(token.expiresAt) })}</span>
-                  </div>
-                </div>
-              ))
+              <>
+                {detailTokenGroups.active.map((token) => renderTokenRow(token, false))}
+                {renderInactiveTokens(detailTokenGroups.inactive, false)}
+              </>
             )}
           </div>
 
