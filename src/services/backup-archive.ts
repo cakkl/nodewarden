@@ -22,8 +22,11 @@ import {
 // - Runtime authentication state (devices, sessions, auth requests, remembered
 //   2FA devices, and one-time tokens) must never enter an instance backup.
 // - users.api_key is intentionally not exported.
-// - Secrets Manager tables (sm_*) are out of scope: never exported, and a
-//   restore must leave them untouched (see the keep-back in backup-import.ts).
+// - Secrets Manager data is part of an instance backup, minus its audit trail:
+//   the org key is wrapped by the user key that users.key already carries, so a
+//   restored instance can still decrypt it. sm_events stays out (same reason
+//   audit_logs does). Note that restoring rolls machine-account token revocation
+//   back to the backup's point in time.
 // - backup.settings.v1 is exported as portable-only; the current server runtime
 //   envelope must not leave the instance.
 type SqlRow = Record<string, string | number | null>;
@@ -86,6 +89,15 @@ export interface BackupPayload {
     ciphers: SqlRow[];
     attachments: SqlRow[];
     webauthn_credentials?: SqlRow[];
+    // 机密管理器：全部可选 —— 旧归档里没有这些键，必须当成空库而不是坏归档。
+    sm_organizations?: SqlRow[];
+    sm_org_keys?: SqlRow[];
+    sm_projects?: SqlRow[];
+    sm_machine_accounts?: SqlRow[];
+    sm_secrets?: SqlRow[];
+    sm_secret_projects?: SqlRow[];
+    sm_machine_account_projects?: SqlRow[];
+    sm_access_tokens?: SqlRow[];
   };
 }
 
@@ -313,6 +325,14 @@ function normalizeParsedBackupDb(value: unknown): BackupPayload['db'] {
     ciphers: source.ciphers as SqlRow[],
     attachments: source.attachments as SqlRow[],
     webauthn_credentials: source.webauthn_credentials as SqlRow[] | undefined,
+    sm_organizations: source.sm_organizations as SqlRow[] | undefined,
+    sm_org_keys: source.sm_org_keys as SqlRow[] | undefined,
+    sm_projects: source.sm_projects as SqlRow[] | undefined,
+    sm_machine_accounts: source.sm_machine_accounts as SqlRow[] | undefined,
+    sm_secrets: source.sm_secrets as SqlRow[] | undefined,
+    sm_secret_projects: source.sm_secret_projects as SqlRow[] | undefined,
+    sm_machine_account_projects: source.sm_machine_account_projects as SqlRow[] | undefined,
+    sm_access_tokens: source.sm_access_tokens as SqlRow[] | undefined,
   };
 }
 
@@ -500,6 +520,15 @@ export function validateBackupPayloadContents(
   const cipherRows = ensureRowArray(payload.db.ciphers, 'ciphers');
   const attachmentRows = ensureRowArray(payload.db.attachments, 'attachments');
   const accountPasskeyRows = ensureRowArray(payload.db.webauthn_credentials || [], 'webauthn_credentials');
+  // 机密管理器：旧归档没有这些表 ⇒ `|| []` 当成空库
+  const smOrgRows = ensureRowArray(payload.db.sm_organizations || [], 'sm_organizations');
+  const smOrgKeyRows = ensureRowArray(payload.db.sm_org_keys || [], 'sm_org_keys');
+  const smProjectRows = ensureRowArray(payload.db.sm_projects || [], 'sm_projects');
+  const smMachineAccountRows = ensureRowArray(payload.db.sm_machine_accounts || [], 'sm_machine_accounts');
+  const smSecretRows = ensureRowArray(payload.db.sm_secrets || [], 'sm_secrets');
+  const smSecretProjectRows = ensureRowArray(payload.db.sm_secret_projects || [], 'sm_secret_projects');
+  const smMachineAccountProjectRows = ensureRowArray(payload.db.sm_machine_account_projects || [], 'sm_machine_account_projects');
+  const smAccessTokenRows = ensureRowArray(payload.db.sm_access_tokens || [], 'sm_access_tokens');
   const declaredBlobs = declaredAttachmentBlobPaths(payload.manifest);
   // 同 parseBackupArchive：只读集合，直接复用
   const externalAttachmentKeys = options.allowExternalAttachmentBlobs ? declaredBlobs : new Set<string>();
@@ -589,6 +618,84 @@ export function validateBackupPayloadContents(
     accountPasskeyCredentialIds.add(credentialId);
   }
 
+  // 机密管理器：只需保证能原样写回而不违外键（换库是一整批提交，FK 报错会掀掉整次恢复）。
+  // 组织必须挂在备份里确实存在的用户上，否则恢复后会是无主数据。
+  const smOrgIds = new Set<string>();
+  for (const row of smOrgRows) {
+    const id = String(row.id || '').trim();
+    const ownerUserId = String(row.owner_user_id || '').trim();
+    if (!id || !userIds.has(ownerUserId)) {
+      throw new Error('Backup archive contains an invalid secrets manager organization row');
+    }
+    if (smOrgIds.has(id)) throw new Error(`Backup archive contains duplicate secrets manager organization id: ${id}`);
+    smOrgIds.add(id);
+  }
+
+  for (const row of smOrgKeyRows) {
+    const orgId = String(row.org_id || '').trim();
+    if (!orgId || !smOrgIds.has(orgId) || !String(row.wrapped_org_key || '').trim()) {
+      throw new Error('Backup archive contains an invalid secrets manager org key row');
+    }
+  }
+
+  const smProjectIds = new Set<string>();
+  for (const row of smProjectRows) {
+    const id = String(row.id || '').trim();
+    if (!id || !smOrgIds.has(String(row.org_id || '').trim()) || !String(row.name_encrypted || '').trim()) {
+      throw new Error('Backup archive contains an invalid secrets manager project row');
+    }
+    if (smProjectIds.has(id)) throw new Error(`Backup archive contains duplicate secrets manager project id: ${id}`);
+    smProjectIds.add(id);
+  }
+
+  const smMachineAccountIds = new Set<string>();
+  for (const row of smMachineAccountRows) {
+    const id = String(row.id || '').trim();
+    if (!id || !smOrgIds.has(String(row.org_id || '').trim()) || !String(row.name || '').trim()) {
+      throw new Error('Backup archive contains an invalid secrets manager machine account row');
+    }
+    if (smMachineAccountIds.has(id)) {
+      throw new Error(`Backup archive contains duplicate secrets manager machine account id: ${id}`);
+    }
+    smMachineAccountIds.add(id);
+  }
+
+  const smSecretIds = new Set<string>();
+  for (const row of smSecretRows) {
+    const id = String(row.id || '').trim();
+    if (!id || !smOrgIds.has(String(row.org_id || '').trim())) {
+      throw new Error('Backup archive contains an invalid secrets manager secret row');
+    }
+    if (smSecretIds.has(id)) throw new Error(`Backup archive contains duplicate secrets manager secret id: ${id}`);
+    smSecretIds.add(id);
+  }
+
+  for (const row of smSecretProjectRows) {
+    const secretId = String(row.secret_id || '').trim();
+    const projectId = String(row.project_id || '').trim();
+    if (!smSecretIds.has(secretId) || !smProjectIds.has(projectId)) {
+      throw new Error('Backup archive contains a secrets manager link to a missing secret or project');
+    }
+  }
+
+  for (const row of smMachineAccountProjectRows) {
+    const machineAccountId = String(row.machine_account_id || '').trim();
+    const projectId = String(row.project_id || '').trim();
+    if (!smMachineAccountIds.has(machineAccountId) || !smProjectIds.has(projectId)) {
+      throw new Error('Backup archive contains a secrets manager link to a missing machine account or project');
+    }
+  }
+
+  const smAccessTokenIds = new Set<string>();
+  for (const row of smAccessTokenRows) {
+    const id = String(row.id || '').trim();
+    const machineAccountId = String(row.machine_account_id || '').trim();
+    if (!id || !smMachineAccountIds.has(machineAccountId) || !smOrgIds.has(String(row.org_id || '').trim())) {
+      throw new Error('Backup archive contains an invalid secrets manager access token row');
+    }
+    if (smAccessTokenIds.has(id)) throw new Error(`Backup archive contains duplicate secrets manager access token id: ${id}`);
+    smAccessTokenIds.add(id);
+  }
 }
 
 export async function buildBackupArchive(
@@ -607,7 +714,7 @@ export async function buildBackupArchive(
     includeAttachments,
   });
   const encoder = new TextEncoder();
-  const [configRows, userRows, domainSettingsRows, revisionRows, folderRows, cipherRows, attachmentRows, accountPasskeyRows] = await Promise.all([
+  const [configRows, userRows, domainSettingsRows, revisionRows, folderRows, cipherRows, attachmentRows, accountPasskeyRows, smOrgRows, smOrgKeyRows, smProjectRows, smMachineAccountRows, smSecretRows, smSecretProjectRows, smMachineAccountProjectRows, smAccessTokenRows] = await Promise.all([
     queryRows(env.DB, 'SELECT key, value FROM config ORDER BY key ASC'),
     queryRows(env.DB, 'SELECT id, email, name, master_password_hint, master_password_hash, key, private_key, public_key, kdf_type, kdf_iterations, kdf_memory, kdf_parallelism, security_stamp, role, status, verify_devices, totp_secret, totp_recovery_code, yubikey_key1, yubikey_key2, yubikey_key3, yubikey_key4, yubikey_key5, yubikey_nfc, email_verified, locale, auto_locale, timezone, auto_timezone, mail_opt_in, two_factor_email_enabled, two_factor_default_provider, created_at, updated_at FROM users ORDER BY created_at ASC'),
     queryRows(env.DB, 'SELECT user_id, equivalent_domains, custom_equivalent_domains, excluded_global_equivalent_domains, updated_at FROM domain_settings ORDER BY user_id ASC'),
@@ -616,6 +723,15 @@ export async function buildBackupArchive(
     queryRows(env.DB, 'SELECT id, user_id, type, folder_id, name, notes, favorite, data, reprompt, key, created_at, updated_at, archived_at, deleted_at FROM ciphers ORDER BY created_at ASC'),
     queryRows(env.DB, 'SELECT id, cipher_id, file_name, size, size_name, key FROM attachments ORDER BY cipher_id ASC, id ASC'),
     queryRows(env.DB, 'SELECT id, user_id, purpose, name, public_key, credential_id, counter, type, aa_guid, transports, encrypted_user_key, encrypted_public_key, encrypted_private_key, supports_prf, created_at, updated_at FROM webauthn_credentials ORDER BY created_at ASC'),
+    // 机密管理器：按外键序导出（父在前），行顺序稳定便于逐行比对。
+    queryRows(env.DB, 'SELECT id, owner_user_id, created_at FROM sm_organizations ORDER BY created_at ASC'),
+    queryRows(env.DB, 'SELECT org_id, wrapped_org_key, created_at FROM sm_org_keys ORDER BY org_id ASC'),
+    queryRows(env.DB, 'SELECT id, org_id, name_encrypted, created_at, revision_date FROM sm_projects ORDER BY created_at ASC'),
+    queryRows(env.DB, 'SELECT id, org_id, name, created_at, revision_date FROM sm_machine_accounts ORDER BY created_at ASC'),
+    queryRows(env.DB, 'SELECT id, org_id, key_encrypted, value_encrypted, note_encrypted, tag_encrypted, created_at, revision_date, deleted_at FROM sm_secrets ORDER BY created_at ASC'),
+    queryRows(env.DB, 'SELECT secret_id, project_id FROM sm_secret_projects ORDER BY secret_id ASC, project_id ASC'),
+    queryRows(env.DB, 'SELECT machine_account_id, project_id, permission FROM sm_machine_account_projects ORDER BY machine_account_id ASC, project_id ASC'),
+    queryRows(env.DB, 'SELECT id, machine_account_id, org_id, name, secret_hash, encrypted_payload, expires_at, revoked_at, last_used_at, created_at FROM sm_access_tokens ORDER BY created_at ASC'),
   ]);
   const exportedConfigRows = sanitizeConfigRowsForExport(configRows);
   const exportedAttachmentRows = includeAttachments ? attachmentRows : [];
@@ -644,6 +760,14 @@ export async function buildBackupArchive(
       ciphers: cipherRows.length,
       attachments: exportedAttachmentRows.length,
       webauthn_credentials: accountPasskeyRows.length,
+      sm_organizations: smOrgRows.length,
+      sm_org_keys: smOrgKeyRows.length,
+      sm_projects: smProjectRows.length,
+      sm_machine_accounts: smMachineAccountRows.length,
+      sm_secrets: smSecretRows.length,
+      sm_secret_projects: smSecretProjectRows.length,
+      sm_machine_account_projects: smMachineAccountProjectRows.length,
+      sm_access_tokens: smAccessTokenRows.length,
     },
     includes: {
       attachments: includeAttachments,
@@ -667,6 +791,14 @@ export async function buildBackupArchive(
       ciphers: cipherRows,
       attachments: exportedAttachmentRows,
       webauthn_credentials: accountPasskeyRows,
+      sm_organizations: smOrgRows,
+      sm_org_keys: smOrgKeyRows,
+      sm_projects: smProjectRows,
+      sm_machine_accounts: smMachineAccountRows,
+      sm_secrets: smSecretRows,
+      sm_secret_projects: smSecretProjectRows,
+      sm_machine_account_projects: smMachineAccountProjectRows,
+      sm_access_tokens: smAccessTokenRows,
     }, null, BACKUP_JSON_INDENT)),
   };
 

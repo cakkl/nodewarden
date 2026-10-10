@@ -20,7 +20,7 @@ import {
   resolveInlineAttachmentBudgetBytes,
 } from '../src/services/backup-archive';
 import { BACKUP_SETTINGS_CONFIG_KEY } from '../src/services/backup-config';
-import { importBackupArchiveBytes } from '../src/services/backup-import';
+import { SECRETS_MANAGER_BACKUP_TABLES as SOURCE_OF_TRUTH_SM_TABLES, importBackupArchiveBytes } from '../src/services/backup-import';
 import { getAttachmentObjectKey } from '../src/services/blob-store';
 import { YUBICO_BOOTSTRAP_CLAIM_CONFIG_KEY } from '../src/services/yubico-config';
 import type { Env } from '../src/types';
@@ -132,20 +132,32 @@ function seedSource(handle: Handle): void {
   ).run('send-1', 'user-1', 0, 'enc-send-name', 'enc-send-data', 'send-key', NOW, NOW, NOW);
 }
 
-/** 机密管理器的表（外键序，父在前）—— 备份里没有它们，恢复也不该波及。 */
-const SECRETS_MANAGER_TABLES = [
-  'sm_organizations',
-  'sm_org_keys',
-  'sm_projects',
-  'sm_machine_accounts',
-  'sm_secrets',
-  'sm_secret_projects',
-  'sm_machine_account_projects',
-  'sm_access_tokens',
-  'sm_events',
-] as const;
+/** 有意不进备份的机密管理器表（审计流水，与 `audit_logs` 同一处置）。 */
+const INTENTIONALLY_EXCLUDED_SM_TABLES = ['sm_events'] as const;
 
-/** 机密管理器的最小数据集：每张表一行，用来验证「备份 / 恢复不波及它」。 */
+/** 机密管理器参与备份的表 —— 直接引用源码清单，避免测试自带副本与实现漂移。 */
+const SECRETS_MANAGER_BACKUP_TABLES = SOURCE_OF_TRUTH_SM_TABLES;
+
+/** 机密管理器的**全部**表（含不进备份的审计流水）—— 用于断言恢复后的整体形态。 */
+const SECRETS_MANAGER_TABLES: readonly string[] = [
+  ...SECRETS_MANAGER_BACKUP_TABLES,
+  ...INTENTIONALLY_EXCLUDED_SM_TABLES,
+];
+
+/** 逐行比对用的稳定排序键（并列主键的关联表用复合键）。 */
+const SECRETS_MANAGER_ORDER_BY: Record<string, string> = {
+  sm_organizations: 'id',
+  sm_org_keys: 'org_id',
+  sm_projects: 'id',
+  sm_machine_accounts: 'id',
+  sm_secrets: 'id',
+  sm_secret_projects: 'secret_id, project_id',
+  sm_machine_account_projects: 'machine_account_id, project_id',
+  sm_access_tokens: 'id',
+  sm_events: 'id',
+};
+
+/** 机密管理器的最小数据集：每张表一行，用来验证「随备份往返（审计流水除外）」。 */
 function seedSecretsManager(handle: Handle, userId: string, suffix = '1'): void {
   const db = handle.connection;
   const org = `org-${suffix}`;
@@ -177,16 +189,6 @@ function seedSecretsManager(handle: Handle, userId: string, suffix = '1'): void 
   ).run(`event-${suffix}`, org, 'machine', machine, 2100, secret, project, machine, '127.0.0.1', NOW);
 }
 
-/** 逐表取出行（每表一行，不依赖顺序）。 */
-function secretsManagerRows(handle: Handle): Record<string, Row[]> {
-  return Object.fromEntries(
-    SECRETS_MANAGER_TABLES.map((table) => [
-      table,
-      handle.connection.prepare(`SELECT * FROM ${table}`).all() as Row[],
-    ])
-  );
-}
-
 async function exportBytes(handle: Handle, includeAttachments = false): Promise<Uint8Array> {
   const bundle = await buildBackupArchive(envFor(handle), new Date(NOW), { includeAttachments });
   return bundle.bytes;
@@ -206,7 +208,7 @@ async function roundTrip(): Promise<{ source: Handle; target: Handle; sourceByte
 
 // ------------------------------------------------------------------ 导出侧
 
-test('导出覆盖文档化的 8 张表，且不包含运行时认证状态', async () => {
+test('导出覆盖文档化的 16 张表，且不包含运行时认证状态与审计流水', async () => {
   const handle = freshDatabase();
   seedSource(handle);
   const parsed = parseBackupArchive(await exportBytes(handle)).payload.db as unknown as Record<string, unknown>;
@@ -220,7 +222,8 @@ test('导出覆盖文档化的 8 张表，且不包含运行时认证状态', as
     'user_revisions',
     'users',
     'webauthn_credentials',
-  ]);
+    ...SECRETS_MANAGER_BACKUP_TABLES,
+  ].sort());
 
   for (const forbidden of [
     'devices',
@@ -229,8 +232,11 @@ test('导出覆盖文档化的 8 张表，且不包含运行时认证状态', as
     'trusted_two_factor_device_tokens',
     'account_passkey_challenges',
     'used_attachment_download_tokens',
+    // 审计流水：与 audit_logs 同一处置（不随备份迁移）
+    'sm_events',
+    'audit_logs',
   ]) {
-    assert.ok(!tableNames.includes(forbidden), `导出不应包含运行时认证表 ${forbidden}`);
+    assert.ok(!tableNames.includes(forbidden), `导出不应包含 ${forbidden}`);
   }
   handle.close();
 });
@@ -343,55 +349,60 @@ test('不对称 4：恢复会强制把实例标记为 registered', async () => {
   target.close();
 });
 
-test('不对称 5：机密管理器不参与备份，恢复也不波及它', async () => {
+test('不对称 5：机密管理器参与备份，逐表原样往返（审计流水除外）', async () => {
   const source = freshDatabase();
   seedSource(source);
+  seedSecretsManager(source, 'user-1');
   const bytes = await exportBytes(source);
 
   const exported = parseBackupArchive(bytes).payload.db as unknown as Record<string, unknown>;
-  for (const table of SECRETS_MANAGER_TABLES) {
-    assert.ok(!(table in exported), `导出的 db.json 不应含 ${table}`);
+  for (const table of SECRETS_MANAGER_BACKUP_TABLES) {
+    assert.ok(table in exported, `导出的 db.json 应含 ${table}`);
   }
+  assert.ok(!('sm_events' in exported), '审计流水（sm_events）不进备份');
 
   const target = freshDatabase();
-  seedSource(target);
-  // 机密挂在 `user-1` 上 —— 与备份里的那个 user id 相同，恢复后应当原样仍在
-  seedSecretsManager(target, 'user-1');
-  const before = secretsManagerRows(target);
-
   await importBackupArchiveBytes(bytes, envFor(target), 'actor-1', true);
 
-  assert.deepStrictEqual(secretsManagerRows(target), before, '恢复不该动机密管理器的数据');
-  assert.equal(
-    selectAll(target, 'ciphers', 'id').length,
-    CIPHER_TYPES.length,
-    '密码库照旧被备份替换（只有机密管理器例外）'
-  );
+  for (const table of SECRETS_MANAGER_BACKUP_TABLES) {
+    assert.deepStrictEqual(
+      selectAll(target, table, SECRETS_MANAGER_ORDER_BY[table]),
+      selectAll(source, table, SECRETS_MANAGER_ORDER_BY[table]),
+      `${table} 应逐行往返`
+    );
+  }
+  // 目标库本来没有审计流水 ⇒ 恢复后也仍是空的（它不属于备份内容）
+  assert.equal(selectAll(target, 'sm_events', 'id').length, 0, '审计流水不该随备份写入');
 
   source.close();
   target.close();
 });
 
-test('不对称 5b：属主不在备份里时，该组织的机密随之消失且不留孤儿', async () => {
+test('不对称 5b：不含机密数据的老归档会把目标实例的机密一起替换掉', async () => {
   const source = freshDatabase();
   seedSource(source);
   const bytes = await exportBytes(source);
 
   const target = freshDatabase();
   seedSource(target);
-  // 复制出一个「备份里没有的」用户，把机密挂在它名下
-  target.connection.exec('CREATE TEMP TABLE users_copy AS SELECT * FROM users');
-  target.connection.exec("UPDATE users_copy SET id = 'user-2', email = 'bob@example.test'");
-  target.connection.exec('INSERT INTO users SELECT * FROM users_copy');
-  target.connection.exec('DROP TABLE users_copy');
-  seedSecretsManager(target, 'user-2', '2');
+  seedSecretsManager(target, 'user-1');
+  assert.ok(selectAll(target, 'sm_secrets', 'id').length > 0, '前置：目标实例确实有机密数据');
 
   await importBackupArchiveBytes(bytes, envFor(target), 'actor-1', true);
 
+  // 老归档没有 sm_* 键 ⇒ 当成空库：整实例替换，机密不再被「保命」留下
   for (const table of SECRETS_MANAGER_TABLES) {
-    const row = target.connection.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as Row;
-    assert.equal(Number(row.count), 0, `${table} 不该留下无主的数据（属主已被备份移除）`);
+    assert.equal(
+      selectAll(target, table, SECRETS_MANAGER_ORDER_BY[table]).length,
+      0,
+      `${table} 应随整实例替换一起清空`
+    );
   }
+  assert.equal(
+    selectAll(target, 'ciphers', 'id').length,
+    CIPHER_TYPES.length,
+    '密码库照旧被备份替换'
+  );
 
   source.close();
   target.close();
@@ -932,4 +943,33 @@ test('附件 18：恢复失败时不得留下无人引用的附件对象（备�
 
   source.close();
   target.close();
+});
+
+// ---------------------------------------------------------------- 覆盖面护栏
+
+test('⭐ 每张 sm_ 表都要在「参与备份」或「显式排除」里出现一次', () => {
+  const migration = readFileSync(path.join(REPO_ROOT, 'migrations', '0001_init.sql'), 'utf8');
+  const schemaTables = Array.from(
+    migration.matchAll(/CREATE TABLE IF NOT EXISTS (sm_[a-z_]+)/g),
+    (match) => match[1]
+  ).sort();
+
+  assert.deepStrictEqual(
+    schemaTables,
+    [...SECRETS_MANAGER_BACKUP_TABLES, ...INTENTIONALLY_EXCLUDED_SM_TABLES].sort(),
+    '新增 / 移除 sm_ 表后，必须同步更新 SECRETS_MANAGER_BACKUP_TABLES（它参与备份）或 INTENTIONALLY_EXCLUDED_SM_TABLES'
+  );
+});
+
+test('运行时 schema 与迁移文件里的 sm_ 表集合一致（备份契约依赖表结构）', () => {
+  const migration = readFileSync(path.join(REPO_ROOT, 'migrations', '0001_init.sql'), 'utf8');
+  const runtime = readFileSync(path.join(REPO_ROOT, 'src/services/storage-schema.ts'), 'utf8');
+  const names = (source: string, pattern: RegExp) =>
+    Array.from(source.matchAll(pattern), (match) => match[1]).sort();
+
+  assert.deepStrictEqual(
+    names(runtime, /CREATE TABLE IF NOT EXISTS (sm_[a-z_]+)\s*\(/g),
+    names(migration, /CREATE TABLE IF NOT EXISTS (sm_[a-z_]+)/g),
+    '两处 schema 必须同步（否则恢复会在缺表的实例上失败）'
+  );
 });
