@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import { OfflineRequestError, type AuthedFetch } from '@/lib/api/shared';
 import {
-  ensureSecretsContext,
   listMachineAccountTokens,
   listMachineAccounts,
   listSecretProjects,
+  resolveSecretsContext,
   type MachineAccountDetail,
   type MachineAccountToken,
   type SecretProject,
@@ -128,7 +128,7 @@ export default function useMachineAccounts(options: UseMachineAccountsOptions): 
     setLoading(true);
     setError('');
     try {
-      const nextContext = await ensureSecretsContext(fetcher, currentSession);
+      const nextContext = await resolveSecretsContext(fetcher, currentSession);
       const [nextAccounts, nextProjects] = await Promise.all([
         listMachineAccounts(fetcher, nextContext),
         listSecretProjects(fetcher, nextContext),

@@ -40,6 +40,7 @@ import {
 } from '@/lib/api/auth-requests';
 import { clearAuditLogs, getAuditLogSettings, listAdminInvites, listAdminUsers, listAuditLogs, saveAuditLogSettings, type AuditLogFilters } from '@/lib/api/admin';
 import { getDomainRules, saveDomainRules } from '@/lib/api/domains';
+import { clearSecretsContextCache } from '@/lib/api/secrets';
 import { getSendById, getSends } from '@/lib/api/send';
 import { getCipherById, getFolderById, repairCipherKeyMismatches, repairCipherUriChecksums } from '@/lib/api/vault-lazy';
 import { getCachedVaultCoreSnapshot, invalidateVaultCoreSyncSnapshot, loadVaultCoreSyncSnapshot, saveVaultCoreSyncSnapshot } from '@/lib/api/vault-sync';
@@ -459,7 +460,11 @@ export default function App() {
   }, [phase, profile, session]);
 
   useEffect(() => {
-    if (phase !== 'app') clearPasswordSecurityCache();
+    if (phase !== 'app') {
+      clearPasswordSecurityCache();
+      // 组织密钥在模块作用域里 ⇒ 非解锁态一并清掉
+      clearSecretsContextCache();
+    }
   }, [phase]);
 
   useEffect(() => {

@@ -6,7 +6,7 @@ import {
   deleteSecretProjects,
   deleteSecrets,
   ensureOfflineSecretsContext,
-  ensureSecretsContext,
+  resolveSecretsContext,
   getOfflineSecretDetail,
   getOfflineTrashedSecretDetail,
   getSecretsByIds,
@@ -388,8 +388,14 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     [loadDetail, setOfflineState, rememberRevisions, warmRawDetails]
   );
 
-  /** 返回失败文案；`null` = 成功 —— 是否给反馈由调用点决定（自动加载 / 实时推送不弹）。 */
-  const refresh = useCallback(async (): Promise<string | null> => {
+  /**
+   * 重新取数。`null` = 成功；返回文案表示失败 —— 是否给反馈由调用点决定
+   * （自动加载 / 实时推送不弹，手动「同步」才弹）。
+   *
+   * `skipTags` / `skipTrash` = 写操作之后的**轻量校准**：标签已由就地补丁维护、回收站的离线副本
+   * 晚一步更新（在线打开回收站页时有自己的请求）⇒ 一次写完之后只剩「列表 + 续写快照」。
+   */
+  const refresh = useCallback(async (options?: { skipTags?: boolean; skipTrash?: boolean }): Promise<string | null> => {
     const current = sessionRef.current;
     if (demoMode || !current) return null;
     setLoading(true);
@@ -402,11 +408,12 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         setError(offlineMessage);
         return offlineMessage;
       }
-      const nextContext = await ensureSecretsContext(fetcherRef.current, current);
-      // 标签与列表并行取（多一次请求，换来分组与候选；失败不影响主流程）
+      const nextContext = await resolveSecretsContext(fetcherRef.current, current);
+      // 标签与列表并行取（多一次请求，换来分组与候选；失败不影响主流程）。
+      // 写后校准（`skipTags`）不取：标签已由就地补丁维护。
       const [listed, tags] = await Promise.all([
         listSecrets(fetcherRef.current, nextContext),
-        listSecretTags(fetcherRef.current, nextContext).catch(() => null),
+        options?.skipTags ? Promise.resolve(null) : listSecretTags(fetcherRef.current, nextContext).catch(() => null),
       ]);
       setOfflineState(false);
       setContext(nextContext);
@@ -419,14 +426,15 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         setTagsBySecretId(tags.tagsBySecretId);
         setAllTags(tags.allTags);
       }
-      // 后台补快照：签名没变时它不做全量拉取（标签单独比对，见 `refreshSecretsOfflineSnapshot`）
-      // `null` = 这次没取到标签 ⇒ 让它保留缓存里的旧标签，别抹掉
+      // 后台补快照：签名没变时它一次请求都不发；变了也只取变更的那几条密文
+      // （见 `refreshSecretsOfflineSnapshot`）。`null` = 这次没取到标签 ⇒ 保留缓存里的旧标签，别抹掉
       void refreshSecretsOfflineSnapshot(
         fetcherRef.current,
         nextContext,
         offlineCacheKeyRef.current,
         listed.raw,
-        tags?.raw ?? null
+        tags?.raw ?? null,
+        { skipTrash: options?.skipTrash }
       ).then((secrets) => {
         // 快照交回的那批密文直接建索引（省掉再读一遍 IndexedDB）；没交回时回退读盘
         if (secrets) rememberRawDetails(nextContext, secrets);
@@ -534,8 +542,12 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   /**
    * 统一的操作包装（成功提示 / 刷新 / 失败透出文案见 `useActionRunner`）。
    * 这里只多一层：把已就绪的组织上下文交给调用方。
+   * 校准分两条：默认**轻量**（就地补丁已维护标签与回收站）；会改变「按标签分组」的动作
+   * （恢复回收站条目）用完整的。
    */
-  const run = useActionRunner({ onNotify, demoMode, reload: refresh });
+  const calibrate = useCallback(() => refresh({ skipTags: true, skipTrash: true }), [refresh]);
+  const run = useActionRunner({ onNotify, demoMode, reload: calibrate });
+  const runWithTags = useActionRunner({ onNotify, demoMode, reload: refresh });
 
   /**
    * 标签只在**真的变了**时才发请求（避免每次编辑都白写一次），空串 = 清除。
@@ -551,7 +563,12 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     []
   );
   const runAction = useCallback(
-    async (action: (ctx: SecretsContext) => Promise<unknown>, successText: string): Promise<void> => {
+    async (
+      action: (ctx: SecretsContext) => Promise<unknown>,
+      successText: string,
+      /** 恢复回收站条目会连标签一起变（条目回到带标签的分组）⇒ 校准要完整跑一次 */
+      options?: { withTags?: boolean }
+    ): Promise<void> => {
       // 离线只读：写操作在本地拦下（按钮保留，反馈走既有 toast 机制，与密码库同一口径）
       if (offlineRef.current) {
         onNotify('error', t('txt_sm_offline_readonly'));
@@ -560,7 +577,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       const current = context;
       // 还没有组织上下文 ⇒ 静默返回（不是失败，不该弹错误）
       if (!current) return;
-      await run(() => action(current), successText);
+      await (options?.withTags ? runWithTags : run)(() => action(current), successText);
     },
     [context, run, onNotify]
   );
@@ -675,7 +692,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       runAction(async (ctx) => {
         await restoreTrashedSecrets(fetcherRef.current, ctx, ids);
         setLiveTrash(await listTrashedSecrets(fetcherRef.current, ctx));
-      }, t('txt_restored')),
+      }, t('txt_restored'), { withTags: true }),
     onPurgeTrash: (ids) =>
       runAction(async (ctx) => {
         await purgeTrashedSecrets(fetcherRef.current, ctx, ids);

@@ -6,7 +6,9 @@
 // ③ **宁旧勿空** —— 同步失败 / 回空时必须保留旧快照，不能把用户的离线数据清掉；
 // ④ **包裹自愈** —— 换了账号或主密码后旧包裹解不开，必须返回 `null` 而不是抛错；
 // ⑤ **交回那批密文** —— 写快照的函数要把刚落盘的含值密文返回给调用方（内存索引不必再读一遍）；
-// ⑥ **「没读到」≠「读到空」** —— 前者返回 `null`，否则调用方会把还能用的索引清掉、点击全退回网络。
+// ⑥ **「没读到」≠「读到空」** —— 前者返回 `null`，否则调用方会把还能用的索引清掉、点击全退回网络；
+// ⑦ **增量** —— 列表变了也只取比快照最新那条更新的行（起点是服务端时间戳，与本机时钟无关），
+//    补不齐就退回全量；写后校准连回收站那次也省掉。
 //
 // Node 没有 IndexedDB，因此注入内存桩（仓库内首次）：只实现本项目用到的那几个方法。
 //
@@ -203,14 +205,18 @@ function createServer(orgKey: Uint8Array, wrappedOrgKey: string): FakeServer {
         return jsonResponse({ object: 'list', secrets: secretItems, projects: [] });
       }
 
-      if (url === `/api/organizations/${ORG_ID}/secrets/sync`) {
+      if (url === `/api/organizations/${ORG_ID}/secrets/sync` || url.startsWith(`/api/organizations/${ORG_ID}/secrets/sync?`)) {
         if (server.syncFailure !== null) return new Response('boom', { status: server.syncFailure });
         if (server.syncEmpty) return jsonResponse({ hasChanges: false });
+        // 官方增量：`lastSyncedDate` 省略 = 回全量；给了就只回 `revision_date` 晚于它的行
+        const since = new URL(url, 'http://local').searchParams.get('lastSyncedDate') ?? '';
+        const changed = since ? server.secrets.filter((secret) => secret.revisionDate > since) : server.secrets;
+        if (since && changed.length === 0) return jsonResponse({ hasChanges: false });
         return jsonResponse({
           hasChanges: true,
           secrets: {
             data: await Promise.all(
-              server.secrets.map(async (secret) => ({
+              changed.map(async (secret) => ({
                 object: 'secret',
                 id: secret.id,
                 organizationId: ORG_ID,
@@ -309,11 +315,12 @@ async function freshSetup(
 /** 走一遍在线流程：拿上下文 + 列表 + 标签 + 落快照。 */
 async function primeOnlineSnapshot(
   server: FakeServer,
-  ctx: Awaited<ReturnType<typeof ensureSecretsContext>>
+  ctx: Awaited<ReturnType<typeof ensureSecretsContext>>,
+  options?: { skipTrash?: boolean }
 ): Promise<void> {
   const listed = await listSecrets(server.authedFetch, ctx);
   const tags = await listSecretTags(server.authedFetch, ctx);
-  await refreshSecretsOfflineSnapshot(server.authedFetch, ctx, CACHE_KEY, listed.raw, tags.raw);
+  await refreshSecretsOfflineSnapshot(server.authedFetch, ctx, CACHE_KEY, listed.raw, tags.raw, options);
 }
 
 test('online snapshot: stores ciphertext only and rebuilds the list offline', async () => {
@@ -600,6 +607,121 @@ test('⭐ 标签取不到时（null）不得清掉缓存里的标签', async () 
 
   const after = await loadSecretsOfflineCache(CACHE_KEY);
   assert.deepEqual(after?.tags, before.tags, '取不到标签时必须保留旧值（不是当成「标签被删光了」）');
+});
+
+test('⭐ 增量：只回变更的那几条，未变的沿用缓存里的密文', async () => {
+  indexedDb.reset();
+  const userKey = randomKeyPair();
+  const { session, server } = await freshSetup(userKey);
+  const ctx = await ensureSecretsContext(server.authedFetch, session);
+  await primeOnlineSnapshot(server, ctx);
+
+  const before = await loadSecretsOfflineCache(CACHE_KEY);
+  const s2Before = before?.secrets.find((row) => row.id === 's2');
+  assert.ok(s2Before);
+
+  // 只改 s1：新时间戳晚于快照里最新那条（s2 的 10-02）
+  server.secrets[0].value = 'P1ain-DB-Value-2';
+  server.secrets[0].revisionDate = '2026-10-09T00:00:00.000Z';
+  const beforeCalls = server.calls.length;
+  await primeOnlineSnapshot(server, ctx);
+
+  const syncCall = server.calls.slice(beforeCalls).find((url) => url.includes('/secrets/sync'));
+  assert.equal(
+    syncCall,
+    `/api/organizations/${ORG_ID}/secrets/sync?lastSyncedDate=${encodeURIComponent('2026-10-02T00:00:00.000Z')}`,
+    '增量起点取快照里最新的 revisionDate（服务端时钟，与本机时钟无关）'
+  );
+
+  const after = await loadSecretsOfflineCache(CACHE_KEY);
+  assert.deepEqual(
+    after?.secrets.find((row) => row.id === 's2'),
+    s2Before,
+    '未变的条目要逐字沿用缓存里的密文（服务端根本没回它 ⇒ 密文不会变）'
+  );
+  assert.equal(after?.secrets.length, 2, '不得多出或丢掉条目');
+
+  const offlineContext = await ensureOfflineSecretsContext(session, CACHE_KEY);
+  assert.ok(offlineContext);
+  assert.equal((await getOfflineSecretDetail(offlineContext, CACHE_KEY, 's1'))?.value, 'P1ain-DB-Value-2');
+  assert.equal((await getOfflineSecretDetail(offlineContext, CACHE_KEY, 's2'))?.value, 'P1ain-Api-Value');
+});
+
+test('⭐ 增量补不齐（例如回收站恢复回来的老条目）⇒ 整份回全量', async () => {
+  indexedDb.reset();
+  const userKey = randomKeyPair();
+  const { session, server } = await freshSetup(userKey);
+  const ctx = await ensureSecretsContext(server.authedFetch, session);
+  await primeOnlineSnapshot(server, ctx);
+
+  // 从回收站恢复：列表里多一条，但它的 `revision_date` 比快照起点还旧 ⇒ 增量不会回它
+  server.trash = [];
+  server.secrets.push({
+    id: 't1',
+    name: '已删机密',
+    value: 'P1ain-Trash-Value',
+    note: '',
+    revisionDate: '2026-09-01T00:00:00.000Z',
+  });
+  const beforeCalls = server.calls.length;
+  await primeOnlineSnapshot(server, ctx);
+
+  const syncs = server.calls.slice(beforeCalls).filter((url) => url.includes('/secrets/sync'));
+  assert.equal(syncs.length, 2, '先试增量，补不齐再回全量');
+  assert.ok(syncs[0].includes('lastSyncedDate='), '第一次必须是增量');
+  assert.equal(syncs[1], `/api/organizations/${ORG_ID}/secrets/sync`, '第二次退回全量');
+
+  const offlineContext = await ensureOfflineSecretsContext(session, CACHE_KEY);
+  assert.ok(offlineContext);
+  const offline = await loadOfflineSecrets(offlineContext, CACHE_KEY);
+  assert.deepEqual(offline?.secrets.map((secret) => secret.name).sort(), ['API 密钥', '已删机密', '数据库口令']);
+  assert.equal((await getOfflineSecretDetail(offlineContext, CACHE_KEY, 't1'))?.value, 'P1ain-Trash-Value');
+});
+
+test('⭐ 写后校准（skipTrash）：不取回收站，但密文快照照常更新', async () => {
+  indexedDb.reset();
+  const userKey = randomKeyPair();
+  const { session, server } = await freshSetup(userKey);
+  const ctx = await ensureSecretsContext(server.authedFetch, session);
+  await primeOnlineSnapshot(server, ctx);
+
+  // 机密与回收站都变了：写后校准只该管前者
+  server.secrets[0].revisionDate = '2026-10-09T00:00:00.000Z';
+  server.trash = [];
+  const beforeCalls = server.calls.length;
+  await primeOnlineSnapshot(server, ctx, { skipTrash: true });
+
+  const calls = server.calls.slice(beforeCalls);
+  assert.ok(calls.some((url) => url.includes('/secrets/sync')), '密文快照仍要更新');
+  assert.equal(
+    calls.some((url) => url.endsWith('/api/secrets/trash')),
+    false,
+    '写后校准不取回收站（在线打开回收站页另有自己的请求）'
+  );
+
+  const record = await loadSecretsOfflineCache(CACHE_KEY);
+  assert.equal(record?.trash.length, 1, '回收站的离线副本保持原样，等下次完整刷新');
+  const offlineContext = await ensureOfflineSecretsContext(session, CACHE_KEY);
+  assert.ok(offlineContext);
+  assert.deepEqual(
+    (await loadOfflineSecrets(offlineContext, CACHE_KEY))?.secrets.map((secret) => secret.name).sort(),
+    ['API 密钥', '数据库口令']
+  );
+});
+
+test('增量的兜底：快照久未全量核对过就回全量（陈旧程度有上界）', () => {
+  const source = readFileSync(new URL('../../webapp/src/lib/api/secrets.ts', import.meta.url), 'utf8');
+  assert.match(source, /const SNAPSHOT_FULL_RESYNC_MS = 24 \* 60 \* 60 \* 1000;/, '要有全量兜底周期');
+  assert.match(
+    source,
+    /Date\.now\(\) - scoped\.savedAt < SNAPSHOT_FULL_RESYNC_MS/,
+    '条件是「快照比兜底周期新」才走增量'
+  );
+  assert.match(
+    source,
+    /if \(\[\.\.\.liveIds\]\.every\(\(id\) => byId\.has\(id\)\)\) secrets = \[\.\.\.byId\.values\(\)\]/,
+    '合并补不齐必须退回全量，不能把缺值的快照当权威'
+  );
 });
 
 test('cache never carries machine-account data', () => {
