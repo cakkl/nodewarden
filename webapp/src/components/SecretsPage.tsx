@@ -4,6 +4,7 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
+  Copy,
   Eye,
   EyeOff,
   Folder as FolderIcon,
@@ -24,6 +25,7 @@ import type { MobileFilterOption } from '@/components/MobileFilterMenu';
 import type { SecretsManagerProps } from '@/hooks/useSecretsManager';
 import type { SecretInput } from '@/lib/api/secrets';
 import { groupSecretsByTag } from '@/lib/sm-tag-groups';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import { applyProjectToggles, commonProjectIds, projectCheckState } from '@/lib/secrets-project-selection';
 import { t } from '@/lib/i18n';
 
@@ -1027,6 +1029,11 @@ export default function SecretsPage(props: SecretsPageProps) {
                 <button type="button" className="btn btn-secondary" onClick={openEdit}>
                   <Pencil size={14} className="btn-icon" />
                   {t('txt_edit')}
+                </button>
+                {/* 机密 id 平时只能从 API / CLI 拿到 ⇒ 给个复制按钮（复制的是 `id`，即 `bws secret get <id>` 的入参） */}
+                <button type="button" className="btn btn-secondary" onClick={() => void copyTextToClipboard(selected.id)}>
+                  <Copy size={14} className="btn-icon" />
+                  {t('txt_copy')}
                 </button>
               </div>
               <button type="button" className="btn btn-danger" onClick={() => setConfirmDeleteSecretId(selected.id)}>
