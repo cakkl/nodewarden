@@ -6,6 +6,32 @@
   .vault-grid {
     grid-template-columns: 230px minmax(280px, 36%) minmax(280px, 1fr);
   }
+
+  /* 详情列在这一带只有 280–330px：动作列会被压到 min-content ⇒「显示 / 复制」竖排。
+     提前切成与 ≤1180px 一致的图标形态（值列可自由让位，按钮保持一排）。 */
+  .kv-row {
+    grid-template-columns: minmax(64px, 80px) minmax(0, 1fr) auto;
+  }
+
+  .kv-actions {
+    width: auto;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+
+  .kv-actions .btn.small {
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    padding: 0;
+    font-size: 0;
+    gap: 0;
+    border-radius: 999px;
+  }
+
+  .kv-actions .btn.small .btn-icon {
+    margin: 0;
+  }
 }
 
 @media (max-width: 1180px) {

@@ -108,6 +108,11 @@ export interface AdminBackupImportCounts {
   ciphers: number;
   attachments: number;
   attachmentFiles: number;
+  /** 机密管理器：旧版服务端不返回这些字段，声明为可选。 */
+  smProjects?: number;
+  smSecrets?: number;
+  smMachineAccounts?: number;
+  smAccessTokens?: number;
 }
 
 export interface AdminBackupImportSkippedItem {

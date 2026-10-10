@@ -366,6 +366,8 @@
   color: #175ddc;
 }
 
+/* ⚠️ 条目不限量（项目 / 设备 / 域名都可能几十条），必须由菜单自己封顶并滚动 ——
+   否则会一路顶出屏幕。`100dvh` 兜住矮视口（横屏手机），`100vw` 兜住长名称撑宽后的横向越界。 */
 .sort-menu {
   @apply absolute right-0 z-30 min-w-[156px] rounded-2xl border p-1.5;
   top: calc(100% + 6px);
@@ -374,6 +376,16 @@
   box-shadow: var(--shadow-md);
   transform-origin: top right;
   animation: menu-in 190ms var(--ease-out-strong) both;
+  max-height: min(320px, calc(100dvh - 24px));
+  max-width: calc(100vw - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* 手机筛选菜单刻意更矮（贴着工具条、下方还有整张列表）。
+   ⚠️ 必须写在 `.sort-menu` 之后：两者同为 (0,1,0)，靠加载顺序决定 280px 还是 320px。 */
+.mobile-vault-filter-menu {
+  max-height: 280px;
 }
 
 .sort-menu-item {
@@ -399,6 +411,20 @@
 
 .sort-menu-check-placeholder {
   @apply h-3.5 w-3.5 shrink-0;
+}
+
+/* 标签输入的候选面板：贴着输入框、铺满其宽度（`.sort-menu` 默认靠右、按内容宽）。 */
+.tag-suggest-wrap {
+  @apply relative;
+}
+
+.tag-suggest-menu {
+  left: 0;
+  right: auto;
+  width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  transform-origin: top left;
 }
 
 .desktop-create-menu-wrap {
@@ -868,8 +894,8 @@
   margin-top: 10px;
 }
 
-/* basis 220px：手机宽度下名称输入框先换到独占一整行，有效期 + 两个按钮留在下一行；
-   桌面宽度（行宽 ≈ 600px）一行放得下全部 ⇒ 不换行。 */
+/* basis 220px：中间宽度（641–1180px）放不下整行时先让名称换到下一行起头；
+   手机区（≤640px）由下面的媒体查询改成「名称与有效期各占半行」，不再走这条。 */
 .vault-grid.machine-accounts-grid .machine-inline-row > .input {
   flex: 1 1 220px;
   width: auto;
@@ -890,6 +916,18 @@
   flex: 1 1 auto;
   white-space: nowrap;
   height: 38px;
+}
+
+/* 手机端固定两行：第一行「名称 + 有效期」，第二行两个按钮，各自等分整行。
+   ⚠️ 不平分就会出三行；⚠️ `responsive.css` 的 `.input.small { width: 100% }` 在后加载，靠特异性压住。 */
+@media (max-width: 640px) {
+  .vault-grid.machine-accounts-grid .machine-inline-row > .input,
+  .vault-grid.machine-accounts-grid .machine-inline-row > .input.small,
+  .vault-grid.machine-accounts-grid .machine-inline-row > .btn {
+    flex: 1 1 calc(50% - 3px);
+    width: auto;
+    min-width: 0;
+  }
 }
 
 /* 行内项目权限下拉：与同行按钮等高、同样按内容自适应（英文 "Can read, write" 也放得下） */
@@ -980,9 +1018,11 @@
 
 .kv-row {
   @apply grid items-center gap-2.5 py-2.5;
-  /* Floor the value column so the auto-sized actions column wraps its
-     buttons instead of collapsing the value to 0 width. */
-  grid-template-columns: minmax(0px, 80px) minmax(min(35%, 140px), 1fr) auto;
+  /* 给值列一个下限：宁可值自己换行，也不让自动宽的动作列被压到折行。
+     ⚠️ 下限不能给大 —— 动作列放「显示 + 复制」两个带文字按钮要 145px，
+     行宽一旦 < 80 + 2×10 + 下限 + 145，“显示 / 复制”就竖排成两行（实测临界 ≈ 382px）。
+     110px 给 >1400px 的行宽留出余量；≤1400px 由 responsive.css 切图标形态。 */
+  grid-template-columns: minmax(0px, 80px) minmax(min(35%, 110px), 1fr) auto;
   border-bottom: 1px solid rgba(154, 172, 205, 0.22);
 }
 

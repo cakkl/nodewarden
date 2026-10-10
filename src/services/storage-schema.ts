@@ -328,7 +328,7 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
   'CREATE INDEX IF NOT EXISTS idx_sm_machine_account_projects_project ON sm_machine_account_projects(project_id)',
 
   // secret 级的直接授权曾预留 `sm_secret_access`（principal_type / permission）—— 本仓没有多租户，
-  // 该表**从未被读写**（只在 schema 与备份寄存清单里出现），已移除（2026-10-10）。
+  // 该表**从未被读写**（只出现在 schema 清单里），已移除（2026-10-10）。
   // DROP 让老库一并清掉；新装不建（`STORAGE_SCHEMA_VERSION` 已 bump，老库会重跑一遍这些语句）。
   'DROP TABLE IF EXISTS sm_secret_access',
 

@@ -23,6 +23,8 @@ import {
 // - Do not import users.api_key, even if an older backup contains it.
 // - Do not import, clear, or replace runtime authentication state such as
 //   devices, sessions, auth requests, or remembered 2FA device tokens.
+// - The Secrets Manager audit trail (sm_events) stays out, like audit_logs;
+//   everything else under sm_* is part of the instance and is replaced.
 type SqlRow = Record<string, string | number | null>;
 type BackupTableName =
   | 'config'
@@ -32,7 +34,28 @@ type BackupTableName =
   | 'webauthn_credentials'
   | 'folders'
   | 'ciphers'
-  | 'attachments';
+  | 'attachments'
+  | 'sm_organizations'
+  | 'sm_org_keys'
+  | 'sm_projects'
+  | 'sm_machine_accounts'
+  | 'sm_secrets'
+  | 'sm_secret_projects'
+  | 'sm_machine_account_projects'
+  | 'sm_access_tokens';
+
+/** 机密管理器在备份里的表（外键序，父在前）。`sm_events` 是审计流水，与 `audit_logs` 一样不进备份。
+ *  导出给护栏测试：新增 `sm_*` 表时必须有意识地决定要不要进备份。 */
+export const SECRETS_MANAGER_BACKUP_TABLES = [
+  'sm_organizations',
+  'sm_org_keys',
+  'sm_projects',
+  'sm_machine_accounts',
+  'sm_secrets',
+  'sm_secret_projects',
+  'sm_machine_account_projects',
+  'sm_access_tokens',
+] as const satisfies readonly BackupTableName[];
 
 const BACKUP_TABLES: BackupTableName[] = [
   'config',
@@ -43,6 +66,7 @@ const BACKUP_TABLES: BackupTableName[] = [
   'folders',
   'ciphers',
   'attachments',
+  ...SECRETS_MANAGER_BACKUP_TABLES,
 ];
 
 function shadowTableName(table: BackupTableName): string {
@@ -61,6 +85,11 @@ export interface BackupImportResultBody {
     ciphers: number;
     attachments: number;
     attachmentFiles: number;
+    /** 机密管理器：只报用户看得懂的四项（关联表行数不单报）。 */
+    smProjects: number;
+    smSecrets: number;
+    smMachineAccounts: number;
+    smAccessTokens: number;
   };
   skipped: {
     reason: string | null;
@@ -144,90 +173,35 @@ async function validateShadowTableCounts(
   }));
 }
 
-/**
- * 机密管理器（独立产品）的表，外键序：父在前。实例备份**不包含它们**，恢复也不该波及 —— 但换库那步
- * 的 `DELETE FROM users` 会级联删光，所以先寄存到 `*__keep`、换库后按「属主仍在」写回。过滤列即各自
- * 的直接外键：父行没写回，子行也不能写回。
- */
-const SECRETS_MANAGER_KEEP_TABLES: ReadonlyArray<readonly [table: string, keepFilter: string]> = [
-  ['sm_organizations', 'owner_user_id IN (SELECT id FROM users)'],
-  ['sm_org_keys', 'org_id IN (SELECT id FROM sm_organizations)'],
-  ['sm_projects', 'org_id IN (SELECT id FROM sm_organizations)'],
-  ['sm_machine_accounts', 'org_id IN (SELECT id FROM sm_organizations)'],
-  ['sm_secrets', 'org_id IN (SELECT id FROM sm_organizations)'],
-  ['sm_secret_projects', 'secret_id IN (SELECT id FROM sm_secrets) AND project_id IN (SELECT id FROM sm_projects)'],
-  [
-    'sm_machine_account_projects',
-    'machine_account_id IN (SELECT id FROM sm_machine_accounts) AND project_id IN (SELECT id FROM sm_projects)',
-  ],
-  [
-    'sm_access_tokens',
-    'machine_account_id IN (SELECT id FROM sm_machine_accounts) AND org_id IN (SELECT id FROM sm_organizations)',
-  ],
-  ['sm_events', 'org_id IN (SELECT id FROM sm_organizations)'],
-];
-
-function keepTableName(table: string): string {
-  return `${table}__keep`;
-}
-
-/**
- * 换库前寄存机密管理器的行；本来就没数据（新实例）时只清掉可能残留的 `__keep` 并返回 false。
- * ⚠️ 计数查询失败要让恢复整体失败 —— 不能默默跳过，那等于默默把机密数据交给级联删掉。
- */
-async function stashSecretsManagerRows(db: D1Database): Promise<boolean> {
-  const countRow = await db.prepare('SELECT COUNT(*) AS count FROM sm_organizations').first<{ count: number }>();
-  const hasRows = Number(countRow?.count || 0) > 0;
-  const statements: D1PreparedStatement[] = [];
-  for (const [table] of SECRETS_MANAGER_KEEP_TABLES) {
-    statements.push(db.prepare(`DROP TABLE IF EXISTS ${keepTableName(table)}`));
+/** 影子表写入后要逐表核对行数：期望值就是归档里各表的行数（附件另算，失败项会被剔除）。 */
+function expectedShadowCounts(
+  db: BackupPayload['db'],
+  attachments: number
+): Partial<Record<BackupTableName, number>> {
+  const counts: Partial<Record<BackupTableName, number>> = {
+    config: (db.config || []).length,
+    users: (db.users || []).length,
+    domain_settings: (db.domain_settings || []).length,
+    user_revisions: (db.user_revisions || []).length,
+    webauthn_credentials: (db.webauthn_credentials || []).length,
+    folders: (db.folders || []).length,
+    ciphers: (db.ciphers || []).length,
+    attachments,
+  };
+  const tables = db as unknown as Record<string, SqlRow[] | undefined>;
+  for (const table of SECRETS_MANAGER_BACKUP_TABLES) {
+    counts[table] = (tables[table] || []).length;
   }
-  if (hasRows) {
-    for (const [table] of SECRETS_MANAGER_KEEP_TABLES) {
-      statements.push(db.prepare(`CREATE TABLE ${keepTableName(table)} AS SELECT * FROM ${table}`));
-    }
-  }
-  await db.batch(statements);
-  return hasRows;
-}
-
-/** 换库后写回寄存的行（只保留属主仍在的）。 */
-function buildSecretsManagerKeepBackStatements(db: D1Database): D1PreparedStatement[] {
-  return SECRETS_MANAGER_KEEP_TABLES.map(([table, keepFilter]) =>
-    db.prepare(`INSERT INTO ${table} SELECT * FROM ${keepTableName(table)} WHERE ${keepFilter}`)
-  );
-}
-
-async function dropSecretsManagerKeepTables(db: D1Database): Promise<void> {
-  await db.batch(
-    SECRETS_MANAGER_KEEP_TABLES.slice()
-      .reverse()
-      .map(([table]) => db.prepare(`DROP TABLE IF EXISTS ${keepTableName(table)}`))
-  );
+  return counts;
 }
 
 async function swapShadowTablesIntoPlace(db: D1Database): Promise<void> {
-  // 机密管理器与密码管理器是两套产品：恢复不该动它。而换库里的 `DELETE FROM users` 会级联删光，
-  // 所以先寄存、再与换库放同一批写回 —— 同一批提交，不会出现「机密短暂消失」的窗口。
-  const stashed = await stashSecretsManagerRows(db);
-  try {
-    const statements: D1PreparedStatement[] = [];
-    // Commit by replacing live table contents from validated shadow tables.
-    // This avoids D1 schema-rename edge cases while keeping current data intact
-    // until the final batch succeeds.
-    for (const sql of buildResetImportTargetStatements(db)) {
-      statements.push(sql);
-    }
-    for (const table of BACKUP_TABLES) {
-      statements.push(db.prepare(`INSERT INTO ${table} SELECT * FROM ${shadowTableName(table)}`));
-    }
-    for (const statement of stashed ? buildSecretsManagerKeepBackStatements(db) : []) {
-      statements.push(statement);
-    }
-    await db.batch(statements);
-  } finally {
-    if (stashed) await dropSecretsManagerKeepTables(db).catch(() => undefined);
-  }
+  // 一整批提交：换库前活库不动，最后一批同时清空 + 写回；中途失败则活库原样保留。
+  const statements: D1PreparedStatement[] = [
+    ...buildResetImportTargetStatements(db),
+    ...BACKUP_TABLES.map((table) => db.prepare(`INSERT INTO ${table} SELECT * FROM ${shadowTableName(table)}`)),
+  ];
+  await db.batch(statements);
 }
 
 async function ensureImportTargetIsFresh(db: D1Database): Promise<void> {
@@ -236,6 +210,9 @@ async function ensureImportTargetIsFresh(db: D1Database): Promise<void> {
     db.prepare('SELECT COUNT(*) AS count FROM folders').first<{ count: number }>(),
     db.prepare('SELECT COUNT(*) AS count FROM attachments').first<{ count: number }>(),
     db.prepare('SELECT COUNT(*) AS count FROM sends').first<{ count: number }>(),
+    // 机密管理器现在也参与备份 ⇒ 它的数据同样会被覆盖，必须同样纳入「实例非空」判定。
+    // 组织行只在真正写过组织密钥（即用过机密管理器）时才存在，适合当探针。
+    db.prepare('SELECT COUNT(*) AS count FROM sm_organizations').first<{ count: number }>(),
   ]);
   const total = counts.reduce((sum, row) => sum + Number(row?.count || 0), 0);
   if (total > 0) {
@@ -245,6 +222,17 @@ async function ensureImportTargetIsFresh(db: D1Database): Promise<void> {
 
 function buildResetImportTargetStatements(db: D1Database): D1PreparedStatement[] {
   return [
+    // ⚠️ `sm_events` 不在备份里，但必须一起清：它是「换库」那把 `DELETE FROM users` 的**级联**产物，
+    // 一旦实例没开外键约束就会留下指向已删组织的悬空行。
+    'DELETE FROM sm_events',
+    'DELETE FROM sm_secret_projects',
+    'DELETE FROM sm_machine_account_projects',
+    'DELETE FROM sm_access_tokens',
+    'DELETE FROM sm_secrets',
+    'DELETE FROM sm_projects',
+    'DELETE FROM sm_org_keys',
+    'DELETE FROM sm_machine_accounts',
+    'DELETE FROM sm_organizations',
     'DELETE FROM attachments',
     'DELETE FROM ciphers',
     'DELETE FROM folders',
@@ -854,6 +842,50 @@ async function importBackupRows(db: D1Database, payload: BackupPayload['db'], us
     payload.ciphers || []
   );
   await insertRows(db, tableName('attachments'), ['id', 'cipher_id', 'file_name', 'size', 'size_name', 'key'], payload.attachments || []);
+  // 机密管理器：列清单必须与导出侧 SELECT 一致（少了列会静默丢数据）。
+  await insertRows(
+    db,
+    tableName('sm_organizations'),
+    ['id', 'owner_user_id', 'created_at'],
+    payload.sm_organizations || []
+  );
+  await insertRows(db, tableName('sm_org_keys'), ['org_id', 'wrapped_org_key', 'created_at'], payload.sm_org_keys || []);
+  await insertRows(
+    db,
+    tableName('sm_projects'),
+    ['id', 'org_id', 'name_encrypted', 'created_at', 'revision_date'],
+    payload.sm_projects || []
+  );
+  await insertRows(
+    db,
+    tableName('sm_machine_accounts'),
+    ['id', 'org_id', 'name', 'created_at', 'revision_date'],
+    payload.sm_machine_accounts || []
+  );
+  await insertRows(
+    db,
+    tableName('sm_secrets'),
+    ['id', 'org_id', 'key_encrypted', 'value_encrypted', 'note_encrypted', 'tag_encrypted', 'created_at', 'revision_date', 'deleted_at'],
+    payload.sm_secrets || []
+  );
+  await insertRows(
+    db,
+    tableName('sm_secret_projects'),
+    ['secret_id', 'project_id'],
+    payload.sm_secret_projects || []
+  );
+  await insertRows(
+    db,
+    tableName('sm_machine_account_projects'),
+    ['machine_account_id', 'project_id', 'permission'],
+    payload.sm_machine_account_projects || []
+  );
+  await insertRows(
+    db,
+    tableName('sm_access_tokens'),
+    ['id', 'machine_account_id', 'org_id', 'name', 'secret_hash', 'encrypted_payload', 'expires_at', 'revoked_at', 'last_used_at', 'created_at'],
+    payload.sm_access_tokens || []
+  );
 }
 
 export async function importBackupArchiveBytes(
@@ -901,16 +933,7 @@ export async function importBackupArchiveBytes(
       replaceExisting,
     });
     const db = await importPreparedBackupRows(env.DB, prepared.payload.db, env);
-    await validateShadowTableCounts(env.DB, {
-      config: (db.config || []).length,
-      users: (db.users || []).length,
-      domain_settings: (db.domain_settings || []).length,
-      user_revisions: (db.user_revisions || []).length,
-      webauthn_credentials: (db.webauthn_credentials || []).length,
-      folders: (db.folders || []).length,
-      ciphers: (db.ciphers || []).length,
-      attachments: (db.attachments || []).length,
-    });
+    await validateShadowTableCounts(env.DB, expectedShadowCounts(db, (db.attachments || []).length));
 
     await reportProgress(progress, {
       source: 'local',
@@ -926,16 +949,7 @@ export async function importBackupArchiveBytes(
     const restoredAttachmentKeys = new Set((restored.restoredAttachments || []).map(attachmentRowKey));
     const failedRestoreRows = (db.attachments || []).filter((row) => !restoredAttachmentKeys.has(attachmentRowKey(row)));
     await removeAttachmentRows(env.DB, failedRestoreRows, true).catch(() => undefined);
-    await validateShadowTableCounts(env.DB, {
-      config: (db.config || []).length,
-      users: (db.users || []).length,
-      domain_settings: (db.domain_settings || []).length,
-      user_revisions: (db.user_revisions || []).length,
-      webauthn_credentials: (db.webauthn_credentials || []).length,
-      folders: (db.folders || []).length,
-      ciphers: (db.ciphers || []).length,
-      attachments: restored.restoredAttachments.length,
-    });
+    await validateShadowTableCounts(env.DB, expectedShadowCounts(db, restored.restoredAttachments.length));
     await reportProgress(progress, {
       source: 'local',
       step: 'local_finalize',
@@ -977,6 +991,10 @@ export async function importBackupArchiveBytes(
           ciphers: (db.ciphers || []).length,
           attachments: restored.restoredAttachments.length,
           attachmentFiles: restored.imported,
+          smProjects: (db.sm_projects || []).length,
+          smSecrets: (db.sm_secrets || []).length,
+          smMachineAccounts: (db.sm_machine_accounts || []).length,
+          smAccessTokens: (db.sm_access_tokens || []).length,
         },
         skipped: {
           reason: restored.skipped.reason || prepared.skipped.reason,
@@ -1048,16 +1066,7 @@ export async function importRemoteBackupArchiveBytes(
       replaceExisting,
     });
     const db = await importPreparedBackupRows(env.DB, preparedRemote.payload.db, env);
-    await validateShadowTableCounts(env.DB, {
-      config: (db.config || []).length,
-      users: (db.users || []).length,
-      domain_settings: (db.domain_settings || []).length,
-      user_revisions: (db.user_revisions || []).length,
-      webauthn_credentials: (db.webauthn_credentials || []).length,
-      folders: (db.folders || []).length,
-      ciphers: (db.ciphers || []).length,
-      attachments: (db.attachments || []).length,
-    });
+    await validateShadowTableCounts(env.DB, expectedShadowCounts(db, (db.attachments || []).length));
 
     await reportProgress(progress, {
       source: 'remote',
@@ -1073,16 +1082,7 @@ export async function importRemoteBackupArchiveBytes(
     const restoredAttachmentKeys = new Set((restored.restoredAttachments || []).map(attachmentRowKey));
     const failedRestoreRows = (db.attachments || []).filter((row) => !restoredAttachmentKeys.has(attachmentRowKey(row)));
     await removeAttachmentRows(env.DB, failedRestoreRows, true).catch(() => undefined);
-    await validateShadowTableCounts(env.DB, {
-      config: (db.config || []).length,
-      users: (db.users || []).length,
-      domain_settings: (db.domain_settings || []).length,
-      user_revisions: (db.user_revisions || []).length,
-      webauthn_credentials: (db.webauthn_credentials || []).length,
-      folders: (db.folders || []).length,
-      ciphers: (db.ciphers || []).length,
-      attachments: restored.restoredAttachments.length,
-    });
+    await validateShadowTableCounts(env.DB, expectedShadowCounts(db, restored.restoredAttachments.length));
     await reportProgress(progress, {
       source: 'remote',
       step: 'remote_finalize',
@@ -1130,6 +1130,10 @@ export async function importRemoteBackupArchiveBytes(
           ciphers: (db.ciphers || []).length,
           attachments: restored.restoredAttachments.length,
           attachmentFiles: restored.imported,
+          smProjects: (db.sm_projects || []).length,
+          smSecrets: (db.sm_secrets || []).length,
+          smMachineAccounts: (db.sm_machine_accounts || []).length,
+          smAccessTokens: (db.sm_access_tokens || []).length,
         },
         skipped: {
           reason: finalSkippedReason,
