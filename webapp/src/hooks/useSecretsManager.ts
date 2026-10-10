@@ -268,15 +268,20 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         return offlineMessage;
       }
       const nextContext = await ensureSecretsContext(fetcherRef.current, current);
-      const listed = await listSecrets(fetcherRef.current, nextContext);
-      // 标签：与列表并行取（多一次请求，但换来分组与候选；失败不影响主流程）
-      const tags = await listSecretTags(fetcherRef.current, nextContext).catch(() => null);
+      // 标签与列表并行取（多一次请求，换来分组与候选；失败不影响主流程）
+      const [listed, tags] = await Promise.all([
+        listSecrets(fetcherRef.current, nextContext),
+        listSecretTags(fetcherRef.current, nextContext).catch(() => null),
+      ]);
       setOfflineState(false);
       setContext(nextContext);
       setLiveSecrets(listed.secrets);
       setLiveProjects(listed.projects);
-      setTagsBySecretId(tags?.tagsBySecretId ?? {});
-      setAllTags(tags?.allTags ?? []);
+      // 取失败时**保留上一次的**标签：宁可分组稍旧，也不要凭空把分组抹掉（类似快照的「宁旧勿空」）。
+      if (tags) {
+        setTagsBySecretId(tags.tagsBySecretId);
+        setAllTags(tags.allTags);
+      }
       // 后台补快照：签名没变时它不做全量拉取（标签单独比对，见 `refreshSecretsOfflineSnapshot`）
       void refreshSecretsOfflineSnapshot(
         fetcherRef.current,

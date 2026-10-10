@@ -44,7 +44,6 @@ const day = (iso: string): string => (iso ? iso.slice(0, 10) : '—');
 
 /**
  * 折叠的标签按**浏览器**存（与服务端无关，换设备各存各的，性质同列表排序偏好）。
- * ⚠️ 标签是密文解出来的明文，只存在本地，服务端看不到。
  */
 const TAG_COLLAPSED_STORAGE_KEY = 'nodewarden.sm.tag-collapsed.v1';
 
@@ -193,9 +192,8 @@ export default function SecretsPage(props: SecretsPageProps) {
   const checkedCount = checkedIds.size;
 
   /**
-   * 按标签把**已筛选**的条目分组（分组来源是筛后条目 ⇒ 结构上不可能出现空组）。
-   *
-   * ⚠️ 与「编辑器候选」是两份不同的数据：候选用全局标签清单（与当前筛选无关），否则筛着
+   * 按标签把**已筛选**的条目分组（分组从筛后条目聚合 ⇒ 结构上不可能出现空组）。
+   * ⚠️ 与「编辑器候选」是两份数据：候选用全局标签清单（与筛选无关），否则筛着
    * 「生产环境」时就补全不到别的标签。
    */
   const tagGroups = useMemo(
@@ -203,11 +201,11 @@ export default function SecretsPage(props: SecretsPageProps) {
     [manager.tags, view, visibleSecrets]
   );
 
-  // 折叠记录得跟着标签生命期走：标签消失了还留着「已折叠」的话，以后同名标签一出现就是收起的。
-  // ⚠️ 两个坑（都实测踩过）：
-  // ① 判据用**全局**标签集（`manager.tags`），不是当前筛选后的分组 —— 用后者的话，一筛项目
-  //    就会把别的标签的折叠状态当孤儿清掉；
-  // ② 加载完成前（列表为空）不清理 —— 挂载瞬间标签集是空的，一清理就把状态全抹了。
+  /**
+   * 清理「标签已不存在」的折叠记录（留着的话，以后同名标签一出现就是收起的）。
+   * ⚠️ 两个坑都实测踩过：① 判据要用**全局**标签集 —— 用筛选后的分组会把别的标签当孤儿清掉；
+   * ② 加载完成前不清理 —— 挂载瞬间标签集是空的，一清理就把状态全抹了。
+   */
   useEffect(() => {
     if (manager.secrets.length === 0) return;
     const alive = new Set(

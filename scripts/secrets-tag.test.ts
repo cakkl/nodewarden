@@ -140,6 +140,10 @@ test('标签校验：非密文 / 非法 secretId / 不存在或已删除的条�
   const noId = await dispatch(h, '/api/secrets/tags', 'PUT', { tag: ENC_TAG });
   assert.equal(noId.status, 400);
 
+  // 类型不对时宁可拒绝：静默「当成清除标签」会让手滑的调用方悄悄清掉标签
+  const wrongType = await dispatch(h, '/api/secrets/tags', 'PUT', { secretId: 's1', tag: 42 });
+  assert.equal(wrongType.status, 400);
+
   const missing = await dispatch(h, '/api/secrets/tags', 'PUT', { secretId: 'nope', tag: ENC_TAG });
   assert.equal(missing.status, 404);
 
