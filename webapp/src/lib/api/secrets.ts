@@ -178,6 +178,17 @@ async function toDetail(raw: RawSecretDetail, keyPair: SmKeyPair): Promise<Secre
 }
 
 /**
+ * 把一条**含值密文**解成详情（不碰网络、不读盘）。
+ * 点条目时用它处理内存索引里的那份：只有解密 ⇒ 同一帧内完成，不会先画一帧「加载中」。
+ */
+export async function decryptSecretDetail(
+  raw: RawSecretDetail,
+  ctx: SecretsContext
+): Promise<SecretDetail | null> {
+  return toDetail(raw, ctx.keyPair);
+}
+
+/**
  * 取组织密钥（首次进入时生成并上传），得到可用的会话上下文。
  *
  * ⚠️ 首次上传后要用**服务端回吐的**包裹：两个标签页并发首次进入会各生成一把，后写的那把
@@ -728,14 +739,36 @@ export async function loadOfflineTrash(
   );
 }
 
-/** 离线取单条机密：缓存里存的是**全量含值密文** ⇒ 离线时看内容永远不成问题。 */
+/**
+ * 缓存里那批**含值密文**（一次读出，供调用方在内存里建索引）。
+ *
+ * ⚠️ 点条目时读一遍 IndexedDB 是**一个宏任务**，够浏览器画出一帧（那帧只能显示旧内容或
+ * 「加载中」）⇒ 详情要先把密文读进内存，点击时只剩解密（同帧完成）。
+ * ⚠️ 与 `getOfflineSecretDetail` 同规矩：记录的组织必须与上下文一致，否则返回空。
+ */
+export async function loadOfflineSecretDetails(
+  ctx: SecretsContext,
+  cacheKey: string
+): Promise<RawSecretDetail[]> {
+  const record = await loadSecretsOfflineCache(cacheKey);
+  if (!record || record.organizationId !== ctx.organizationId) return [];
+  return record.secrets;
+}
+
+/**
+ * 缓存里单条机密的明文详情（缓存存的是**全量含值密文**）。
+ * 调用方拿返回的 `revisionDate` 与列表项比对：一致才说明这份密文没落后。
+ *
+ * ⚠️ 记录的组织必须与上下文一致：别家组织那份密文不是这把密钥加密的，解出来是乱码。
+ */
 export async function getOfflineSecretDetail(
   ctx: SecretsContext,
   cacheKey: string,
   id: string
 ): Promise<SecretDetail | null> {
   const record = await loadSecretsOfflineCache(cacheKey);
-  const raw = record?.secrets.find((item) => item.id === id);
+  if (!record || record.organizationId !== ctx.organizationId) return null;
+  const raw = record.secrets.find((item) => item.id === id);
   if (!raw) return null;
   return toDetail(raw, ctx.keyPair);
 }
