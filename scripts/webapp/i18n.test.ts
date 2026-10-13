@@ -111,6 +111,28 @@ test('translateServerError：前后空白会被裁掉后再查表', () => {
   assert.equal(padded, bare, '两侧空白不应影响映射结果');
 });
 
+// 机密接口（`src/handlers/secrets-api.ts`）的时间戳格式校验：文案在后端、映射表在前端，
+// 两边靠**字符串**相连 ⇒ 后端改措辞不会有任何编译期报错，用户直接看到英文原文。
+// 所以样例从**后端源码**取，而不是手写 —— 手写的话后端一改这里就继续绿。
+test('translateServerError：机密接口的时间戳校验文案都落到本地化文案（样例取自后端源码）', () => {
+  const source = readFileSync(
+    path.resolve(import.meta.dirname, '../..', 'src/handlers/secrets-api.ts'),
+    'utf8'
+  );
+  const messages = [...source.matchAll(/errorResponse\('([^']*RFC3339[^']*)'/g)].map((match) => match[1]);
+  assert.ok(messages.length >= 2, `时间戳文案应至少两条（扫到 ${messages.length} 条），扫不到就要更新这条护栏`);
+  assert.ok(
+    messages.some((message) => message.startsWith('lastSyncedDate')) &&
+      messages.some((message) => message.startsWith('revisionDate')),
+    `两个字段名都要覆盖到，实际：${messages.join(' / ')}`
+  );
+  for (const message of messages) {
+    const translated = translateServerError(message, 'fallback');
+    assert.notEqual(translated, message, `未映射 ⇒ 非英文界面会看到英文原文：${message}`);
+    assert.notEqual(translated, 'fallback', `不该回退成调用方的兜底文案：${message}`);
+  }
+});
+
 // ---------------------------------------------------------------- 远端备份超时
 //
 // 为什么值得测：后端把远端超时消息写成「WebDAV upload timed out after 15000 ms」这种**毫秒**形态，
