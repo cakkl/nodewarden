@@ -2,7 +2,8 @@
  * 机密管理器的实时事件总线：`App.tsx` 是唯一持有 socket 的地方，刷新由具体页面执行 ——
  * 用一张极小的订阅表把两边接起来，免得把页面引用塞进 `App`。
  */
-export type SecretsManagerRealtimeKind = 'secrets' | 'machine-accounts';
+/** 与服务端 `SmRealtimeKind` 一一对应：`secrets` = 机密集合；`secrets-tags` = 标签映射（含恢复回收站）。 */
+export type SecretsManagerRealtimeKind = 'secrets' | 'secrets-tags' | 'machine-accounts';
 
 /** 服务端读取的请求头：机密管理器的「标签页」上下文。 */
 export const SECRETS_MANAGER_CONTEXT_HEADER = 'X-NodeWarden-Sm-Context-Id';

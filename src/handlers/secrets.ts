@@ -143,7 +143,8 @@ export async function handleSecretsTrashRoute(
     for (const id of body.ids as string[]) {
       if (await restoreSecret(env.DB, organization.id, id)) restored.push(id);
     }
-    broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets' });
+    // 归到「标签变了」：软删不会清掉标签，恢复回来的条目要重新回到它原本的分组里
+    broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets-tags' });
     await recordSecretsEvents({
       db: env.DB,
       request,
@@ -284,7 +285,7 @@ export async function handleSecretsTagRoute(
   const updated = await updateSecretTag(env.DB, organization.id, body.secretId, tag);
   if (!updated) return errorResponse('Not found', 404);
   // 让**同一用户的其它 Web 标签页**刷新（自己那页按标签页标识挡掉回声）。
-  // 可以放心广播：推送类型 103/104 是**本站自有**号段（官方 SM 没有推送、只有拉取式同步）。
-  broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets' });
+  // 可以放心广播：推送类型 103–105 是**本站自有**号段（官方 SM 没有推送、只有拉取式同步）。
+  broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets-tags' });
   return jsonResponse({ object: 'secretTag', id: body.secretId, tag });
 }

@@ -480,8 +480,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   useEffect(
     () =>
       onSecretsManagerChange((kind) => {
-        if (kind !== 'secrets') return;
-        void refresh();
+        if (kind === 'machine-accounts') return;
+        // 集合变更不影响标签映射（改标签 / 恢复回收站会推 `secrets-tags`）⇒ 省掉一次
+        // O(条目数) 的标签请求与整批解密；`secrets-tags` 走完整刷新。
+        void refresh(kind === 'secrets' ? { skipTags: true } : undefined);
       }),
     [refresh]
   );
