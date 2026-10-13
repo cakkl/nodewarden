@@ -346,7 +346,13 @@ export default function SecretsPage(props: SecretsPageProps) {
 
   function openEdit(): void {
     if (!selected) return;
-    const input = { key: selected.name, value: selected.value, note: selected.note, projectIds: selected.projectIds };
+    const input = {
+      key: selected.name,
+      value: selected.value,
+      note: selected.note,
+      projectIds: selected.projectIds,
+      revisionDate: selected.revisionDate,
+    };
     // 记住原始内容：只改了标签时不该发官方 PUT（它会无谓推进 `revision_date`）。
     setDraft({ id: selected.id, input, original: input, tag: manager.tags[selected.id] ?? '' });
   }
@@ -725,6 +731,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                   <button
                     type="button"
                     className="btn btn-secondary small"
+                    disabled={!manager.ready}
                     onClick={() => {
                       const ids = [...checkedIds];
                       setCheckedIds(new Set());
@@ -738,12 +745,13 @@ export default function SecretsPage(props: SecretsPageProps) {
                   <button
                     type="button"
                     className="btn btn-secondary small"
+                    disabled={!manager.ready}
                     onClick={openProjectsDialog}
                   >
                     <FolderInput size={14} className="btn-icon" /> {t('txt_secret_project')}
                   </button>
                 )}
-                <button type="button" className="btn btn-danger small" onClick={() => setConfirmBulk(view === 'trash' ? 'purge' : 'delete')}>
+                <button type="button" className="btn btn-danger small" disabled={!manager.ready} onClick={() => setConfirmBulk(view === 'trash' ? 'purge' : 'delete')}>
                   <Trash2 size={14} className="btn-icon" />{' '}
                   {view === 'trash' ? t('txt_delete_permanently') : t('txt_delete_selected')}
                 </button>
@@ -962,7 +970,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={!draft.input.key.trim()}
+                  disabled={!manager.ready || !draft.input.key.trim()}
                   onClick={() => void saveDraft()}
                 >
                   <Check size={14} className="btn-icon" />
@@ -974,7 +982,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                 </button>
               </div>
               {draft.id ? (
-                <button type="button" className="btn btn-danger" onClick={() => setConfirmDeleteSecretId(draft.id)}>
+                <button type="button" className="btn btn-danger" disabled={!manager.ready} onClick={() => setConfirmDeleteSecretId(draft.id)}>
                   <Trash2 size={14} className="btn-icon" />
                   {t('txt_delete')}
                 </button>
@@ -1033,7 +1041,7 @@ export default function SecretsPage(props: SecretsPageProps) {
             </div>
             <div className="detail-actions">
               <div className="actions">
-                <button type="button" className="btn btn-secondary" onClick={openEdit}>
+                <button type="button" className="btn btn-secondary" disabled={!manager.ready} onClick={openEdit}>
                   <Pencil size={14} className="btn-icon" />
                   {t('txt_edit')}
                 </button>
@@ -1043,7 +1051,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                   {t('txt_copy')}
                 </button>
               </div>
-              <button type="button" className="btn btn-danger" onClick={() => setConfirmDeleteSecretId(selected.id)}>
+              <button type="button" className="btn btn-danger" disabled={!manager.ready} onClick={() => setConfirmDeleteSecretId(selected.id)}>
                 <Trash2 size={14} className="btn-icon" />
                 {t('txt_delete')}
               </button>

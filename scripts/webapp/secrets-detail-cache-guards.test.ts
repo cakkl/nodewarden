@@ -1,6 +1,8 @@
 // 机密详情三级取数：**内存索引（只解密）→ 本地快照（读一次 IndexedDB）→ 网络 `get-by-ids`**。
 // 顺序与「加载态放在哪」都不能改：一次 IndexedDB 读就是一个宏任务、够浏览器画出一帧，
-// 那是「切换条目先闪一帧加载中」的成因（密码库数据本来就在内存里）。运行：`npm run test:webapp-lib`
+// 那是「切换条目先闪一帧加载中」的成因（密码库数据本来就在内存里）。
+// 另外：**首屏先用本地快照铺底**（零等待可见），对账完成前写入口保持禁用（避免用旧内容覆盖服务端）。
+// 运行：`npm run test:webapp-lib`
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -97,7 +99,11 @@ test('六个写动作都就地打补丁（列表不必等整页刷新）', () =>
   assert.match(hookSource, /applySecretWrite\(await updateSecret\(/, '更新成功后同样就地补进列表');
   assert.match(hookSource, /removeSecretsLocally\(\[id\]\)/, '单条删除后要就地从列表拿掉');
   assert.match(hookSource, /removeSecretsLocally\(ids\)/, '批量删除同理');
-  assert.match(hookSource, /applySecretProjectsLocally\(assignments\)/, '批量调项目后就地改 projectIds');
+  assert.match(
+    hookSource,
+    /for \(const detail of await setSecretsProjects\(/,
+    '批量调项目要用响应回填：每次 PUT 都会推进 `revision_date`，只改 `projectIds` 会让下一次编辑拿旧版本去比'
+  );
   assert.match(hookSource, /applyTagLocally\(created\.id, tag\)/, '新增后的标签也要写进本地映射（否则分组等下次刷新才变）');
 });
 
@@ -155,6 +161,46 @@ test('两份缓存读出都只认自己组织的那一份', () => {
   }
   const guards = apiSource.match(/record\.organizationId !== ctx\.organizationId/g) ?? [];
   assert.equal(guards.length, 2, '两个读出都要卡组织：别家的密文不是这把密钥加密的，解出来是乱码');
+});
+
+test('首屏先用本地快照铺底：零等待可见，写入口不因对账而禁用', () => {
+  const seedAt = hookSource.indexOf('await applyOfflineSnapshot(current, { provisional: true })');
+  const networkAt = hookSource.indexOf('const nextContext = await resolveSecretsContext(');
+  assert.ok(seedAt > 0, `没在 ${HOOK} 里找到首屏铺底（改名了就要更新这条护栏）`);
+  assert.ok(networkAt > 0, `没在 ${HOOK} 里找到联网取列表`);
+  assert.ok(seedAt < networkAt, '铺底要排在网络请求之前 —— 这是「零等待可见」的全部意义');
+  assert.match(
+    hookSource,
+    /if \(!snapshotSeededRef\.current && \(await applyOfflineSnapshot\(current, \{ provisional: true \}\)\)\)/,
+    '只铺一次：之后的刷新（写后校准 / 手动同步 / 推送）手里已有更新的数据，不能被旧快照盖回'
+  );
+  assert.match(
+    hookSource,
+    /if \(!options\?\.provisional\) setOfflineState\(true\);/,
+    '铺底不置离线态（网络仍在后台对账），只有真走离线兜底才置 —— 后者会让整页变只读'
+  );
+  assert.match(
+    hookSource,
+    /const ready = demoMode \|\| !!context/,
+    '`ready` 只表示「组织密钥就绪」：版本一致由服务端 `revisionDate` 兜底，不再另设对账状态拦写'
+  );
+  assert.match(
+    hookSource,
+    /finally \{\s*setLoading\(false\);\s*\}/,
+    '加载态在 `finally` 里清：铺底那条路不走网络，漏清会一直停在按钮禁用态'
+  );
+  assert.doesNotMatch(
+    hookSource,
+    /calibrating/,
+    '对账期不留兜底状态：版本一致完全由服务端 `revisionDate` 判定，前端不必再拦'
+  );
+  assert.ok(
+    (hookSource.match(/txt_sm_offline_readonly/g) ?? []).length >= 2,
+    '「后端不可达」那条拦截（`runAction` + `syncNow`）必须保留 —— 首屏铺底不能把它挤掉'
+  );
+  const page = readSource('webapp/src/components/SecretsPage.tsx');
+  const guarded = (page.match(/disabled=\{!manager\.ready\}/g) ?? []).length;
+  assert.ok(guarded >= 8, `写入口都要挂上 ready（现在 ${guarded} 处）—— 少挂一处就会让对账期写入口失效`);
 });
 
 test('判据能识破「先点亮加载态 / 先走网络」的负例', () => {

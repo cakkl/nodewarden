@@ -226,8 +226,8 @@ test('批量改项目：先取明细再逐条 PUT，且每条用**各自**的集
     if (input === '/api/secrets/get-by-ids') {
       return jsonResponse({
         data: [
-          { id: 's1', key: await encryptField('DATABASE_URL', keyPair), value: await encryptField('v1', keyPair), note: await encryptField('n1', keyPair), projects: [{ id: 'old' }] },
-          { id: 's2', key: await encryptField('API_KEY', keyPair), value: await encryptField('v2', keyPair), note: await encryptField('', keyPair), projects: [] },
+          { id: 's1', key: await encryptField('DATABASE_URL', keyPair), value: await encryptField('v1', keyPair), note: await encryptField('n1', keyPair), revisionDate: '2026-01-01T00:00:00.000Z', projects: [{ id: 'old' }] },
+          { id: 's2', key: await encryptField('API_KEY', keyPair), value: await encryptField('v2', keyPair), note: await encryptField('', keyPair), revisionDate: '2026-01-01T00:00:00.000Z', projects: [] },
         ],
       });
     }
@@ -237,6 +237,7 @@ test('批量改项目：先取明细再逐条 PUT，且每条用**各自**的集
       return jsonResponse({
         id: input.split('/').pop(),
         key: (JSON.parse(String(init?.body)) as Record<string, unknown>).key,
+        revisionDate: '2026-01-02T00:00:00.000Z',
         projects: [{ id: 'p9' }],
       });
     }
@@ -244,12 +245,22 @@ test('批量改项目：先取明细再逐条 PUT，且每条用**各自**的集
   };
 
   // 逐条各自的集合：多选时「没动过的项目」对每条是保持原样的，不能共用一个集合
-  await setSecretsProjects(moveServer, ctx, [
+  const written = await setSecretsProjects(moveServer, ctx, [
     { id: 's1', projectIds: ['p9', 'keep'] },
     { id: 's2', projectIds: [] },
   ]);
 
   assert.deepEqual(puts.map((call) => call.url), ['/api/secrets/s1', '/api/secrets/s2'], '每条都要 PUT');
+  assert.equal(
+    puts[0].body.revisionDate,
+    '2026-01-01T00:00:00.000Z',
+    '要带上取回明细时的版本 —— 服务端据此拒绝过期写入'
+  );
+  assert.deepEqual(
+    written.map((detail) => detail.revisionDate),
+    ['2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z'],
+    '要回吐写入后的明细：每次 PUT 都推进了版本，调用方得把列表项换成新版本，否则下一次编辑会被当成冲突'
+  );
   assert.deepEqual(puts[0].body.projectIds, ['p9', 'keep'], '第一条用给它自己的集合');
   assert.deepEqual(puts[1].body.projectIds, [], '第二条清空 = 未分配');
   for (const call of puts) {

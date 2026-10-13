@@ -240,16 +240,6 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     tagsRef.current = tags;
     setTagsBySecretId(tags);
   }, []);
-  /** 批量调整项目后就地改列表里的 `projectIds`（改动是我们发出去的，不必等回应）。 */
-  const applySecretProjectsLocally = useCallback(
-    (assignments: ReadonlyArray<{ id: string; projectIds: string[] }>) => {
-      const byId = new Map(assignments.map((item) => [item.id, item.projectIds]));
-      setLiveSecrets((current) =>
-        current.map((item) => (byId.has(item.id) ? { ...item, projectIds: byId.get(item.id) ?? [] } : item))
-      );
-    },
-    []
-  );
   const accessToken = session?.accessToken ?? '';
   const keyMaterial = `${session?.symEncKey ?? ''}|${session?.symMacKey ?? ''}`;
 
@@ -304,6 +294,9 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     setOffline(value);
   }, []);
 
+  /** 本页面生命周期内是否已铺过底 —— 只铺一次：之后的刷新手里已有更新的数据，不能被旧快照盖回。 */
+  const snapshotSeededRef = useRef(false);
+
   /**
    * 取某条机密的详情（列表里根本没有 value / note，所以详情得单独取）。
    *
@@ -354,12 +347,13 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   );
 
   /**
-   * 用本地快照重建整套数据（离线只读）。
+   * 用本地快照重建整套数据。`provisional` = 首屏铺底（网络仍在后台对账 ⇒ **不置离线态**）；
+   * 省略 = 离线兜底（整页离线只读）。
    * ⚠️ 组织密钥从缓存里的**包裹**解出（用户密钥加密）；拿不到（没缓存 / 换过账号或主密码）
    * 就返回 `false`，让调用方把真实的联网错误透给用户。
    */
   const applyOfflineSnapshot = useCallback(
-    async (currentSession: SessionState): Promise<boolean> => {
+    async (currentSession: SessionState, options?: { provisional?: boolean }): Promise<boolean> => {
       const cacheKey = offlineCacheKeyRef.current;
       if (!cacheKey) return false;
       try {
@@ -367,8 +361,8 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         if (!nextContext) return false;
         const listed = await loadOfflineSecrets(nextContext, cacheKey);
         if (!listed) return false;
-        // 先翻状态再取详情：`loadDetail` 据此走离线分支
-        setOfflineState(true);
+        // 先翻状态再取详情：`loadDetail` 据此走快照分支
+        if (!options?.provisional) setOfflineState(true);
         setContext(nextContext);
         setLiveSecrets(listed.secrets);
         rememberRevisions(listed.secrets);
@@ -400,6 +394,11 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     if (demoMode || !current) return null;
     setLoading(true);
     setError('');
+    // 首屏先把本地快照画上（一次 IndexedDB 读 + 解密，不等网络），网络在后台对账 ——
+    // 延迟高时这一下省掉 1–3 个往返的空白。⚠️ 只铺一次：之后的刷新手里已有更新的数据。
+    if (!snapshotSeededRef.current && (await applyOfflineSnapshot(current, { provisional: true }))) {
+      snapshotSeededRef.current = true;
+    }
     try {
       // 后端不可达（含浏览器自报离线）⇒ 不白等两个必然失败的请求
       if (backendUnreachable()) {
@@ -526,6 +525,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   }, [selectedId]);
 
   const selectedSecret = demoMode ? demoDetail : liveDetail;
+  /** 组织密钥就绪（未解锁 / 还没拿到上下文时为 false）：写入口据此置灰。 */
   const ready = demoMode || !!context;
 
   const selectSecret = useCallback(
@@ -606,8 +606,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     onRefresh: syncNow,
     onSetSecretsProjects: (assignments) =>
       runAction(async (ctx) => {
-        await setSecretsProjects(fetcherRef.current, ctx, assignments);
-        applySecretProjectsLocally(assignments);
+        // 用响应回填：每次 PUT 都会推进 `revision_date`，只改 `projectIds` 会把列表项留在旧版本上
+        for (const detail of await setSecretsProjects(fetcherRef.current, ctx, assignments)) {
+          applySecretWrite(detail);
+        }
       }, t('txt_saved')),
     onCreateProject: (name) =>
       runAction((ctx) => createSecretProject(fetcherRef.current, ctx, name), t('txt_saved')),

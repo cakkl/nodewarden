@@ -108,6 +108,7 @@ export interface SecretInput {
   value: string;
   note: string;
   projectIds: string[];
+  revisionDate?: string;
 }
 
 /** 批量操作的逐项结果（照官方：成功时 `error` 为 `null`）。 */
@@ -407,6 +408,7 @@ async function encryptInput(input: SecretInput, ctx: SecretsContext): Promise<Re
     // 每个 secret 的 key / value / note 都按 EncString 解析，收到空串会直接报错。
     note: await encryptField(input.note ?? '', ctx.keyPair),
     projectIds: input.projectIds,
+    ...(input.revisionDate ? { revisionDate: input.revisionDate } : {}),
   };
 }
 
@@ -450,30 +452,37 @@ export async function updateSecret(
 /**
  * 批量调整所属项目。
  * ⚠️ 官方只有**单条** PUT，且要求一并带上 key / value / note ⇒ 先取回明细（含明文）再逐条提交。
- * 逐条给**各自**的集合：多选时「没动过的项目」对每条机密是保持原样的，不能共用一个集合。
+ * 逐条给**各自**的集合：多选时「没动过的项目」对每条机密是保持原样的。
+ * 返回写入后的明细：PUT 会推进 `revision_date`，调用方不更新列表项的话，下次编辑会被当成「别处改过」拒掉。
  */
 export async function setSecretsProjects(
   authedFetch: AuthedFetch,
   ctx: SecretsContext,
   assignments: ReadonlyArray<{ id: string; projectIds: string[] }>
-): Promise<void> {
-  if (!assignments.length) return;
+): Promise<SecretDetail[]> {
+  if (!assignments.length) return [];
   const details = await getSecretsByIds(
     authedFetch,
     ctx,
     assignments.map((assignment) => assignment.id)
   );
   const byId = new Map(details.map((detail) => [detail.id, detail]));
+  const written: SecretDetail[] = [];
   for (const assignment of assignments) {
     const detail = byId.get(assignment.id);
     if (!detail) continue;
-    await updateSecret(authedFetch, ctx, assignment.id, {
-      key: detail.name,
-      value: detail.value,
-      note: detail.note,
-      projectIds: assignment.projectIds,
-    });
+    written.push(
+      await updateSecret(authedFetch, ctx, assignment.id, {
+        key: detail.name,
+        value: detail.value,
+        note: detail.note,
+        projectIds: assignment.projectIds,
+        // 明细刚取来 ⇒ 带上它的版本：逐条写入之间若被别处改过，服务端会拒而不是被覆盖
+        revisionDate: detail.revisionDate,
+      })
+    );
   }
+  return written;
 }
 
 /** 软删（进回收站，满 30 天由服务端 scheduled 物理清除）。 */

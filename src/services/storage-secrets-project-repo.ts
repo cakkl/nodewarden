@@ -1,8 +1,8 @@
 /**
  * 机密管理器 project 的存储层。
  *
- * 目前只有「按组织取单个」——授权路径需要它来确认 project 属于**本组织**（否则外键会以
- * 500 的形式炸出来，且等于允许引用别人的项目）。project 的增删改随 CRUD 那一步补齐。
+ * ⚠️ 除 `createProject` 外都按 `org_id` 限定：project 归属靠它确认，否则要么等于允许引用
+ * 别人的项目，要么让外键以 500 的形式炸出来。
  */
 
 export interface SmProject {

@@ -422,6 +422,44 @@ test('更新：projectIds 缺省不改关联；给了就整体替换，给空数
   }
 });
 
+test('更新：旧 revisionDate 必须拒绝，缺省仍兼容旧客户端', async () => {
+  const h = await createHarness();
+  try {
+    const token = await issueToken(h);
+    const projectId = await createProject(h, token);
+    const id = await createSecret(h, token, [projectId]);
+
+    const serverRevision = '2099-01-02T00:00:00.000Z';
+    h.connection
+      .prepare('UPDATE sm_secrets SET revision_date = ? WHERE id = ?')
+      .run(serverRevision, id);
+
+    const stale = await call(h, `/api/secrets/${id}`, 'PUT', token, {
+      key: ENC_KEY,
+      value: ENC_VALUE,
+      note: ENC_NOTE,
+      projectIds: [projectId],
+      revisionDate: '2000-01-01T00:00:00.000Z',
+    });
+    assert.equal(stale?.status, 400, '客户端拿到比服务端更旧的 revisionDate 时必须拒绝');
+
+    const rowBefore = h.connection.prepare('SELECT revision_date FROM sm_secrets WHERE id = ?').get(id) as {
+      revision_date: string;
+    };
+    assert.equal(rowBefore.revision_date, serverRevision, '旧 revisionDate 的写入必须被拒绝，不改数据库');
+
+    const legacy = await call(h, `/api/secrets/${id}`, 'PUT', token, {
+      key: ENC_KEY,
+      value: ENC_VALUE,
+      note: ENC_NOTE,
+      projectIds: [projectId],
+    });
+    assert.equal(legacy?.status, 200, '缺省 revisionDate 必须兼容老客户端');
+  } finally {
+    h.handle.close();
+  }
+});
+
 test('同步：lastSyncedDate 可省、必须合法；secrets 是列表信封且元素带值', async () => {
   const h = await createHarness();
   try {
