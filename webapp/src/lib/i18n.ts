@@ -208,6 +208,12 @@ export function translateServerError(message: string | null | undefined, fallbac
     return t('txt_rate_limit_try_again_seconds', { seconds: rateLimitMatch[1] });
   }
 
+  // 机密接口的时间戳字段（`lastSyncedDate` / `revisionDate`）格式非法：只可能是调用方写错了参数，
+  // 归入既有的「参数错误」文案，别让用户看到英文原文。两种措辞：`an RFC3339` / `a valid RFC3339`。
+  if (/^\w+ must be (?:an|a valid) RFC3339 timestamp$/i.test(normalized)) {
+    return t('txt_server_error_parameter_error');
+  }
+
   const backupDestinationLimitMatch = normalized.match(/^You can save up to (\d+) backup destinations$/i);
   if (backupDestinationLimitMatch) {
     return t('txt_backup_error_destination_limit', { count: backupDestinationLimitMatch[1] });
@@ -282,6 +288,7 @@ export function translateServerError(message: string | null | undefined, fallbac
   const key = {
     'Account is disabled': 'txt_server_error_account_disabled',
     'The client copy of this cipher is out of date. Resync the client and try again.': 'txt_item_changed_elsewhere',
+    'The client copy of this secret is out of date. Resync the client and try again.': 'txt_item_changed_elsewhere',
     'Another backup or restore run is already in progress': 'txt_backup_error_another_backup_or_restore_running',
     'Another backup run is already in progress': 'txt_backup_error_another_backup_running',
     'Backup archive has no attachment files; restore it from the remote destination instead':

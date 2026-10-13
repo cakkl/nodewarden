@@ -4,8 +4,11 @@ import { notifyUserSecretsManagerUpdate } from '../durable/notifications-hub';
 import { readActingDeviceIdentifier } from '../utils/device';
 import { getOrganizationById } from './storage-secrets-repo';
 
-/** 变了什么：机密 / 项目 / 回收站，还是机器账号 / 授权 / 令牌 —— 两张页面各自整页刷新。 */
-export type SmRealtimeKind = 'secrets' | 'machine-accounts';
+/** 变了什么 —— 决定收端要重取什么：
+ * - `secrets`：机密集合（增删改 / 项目归属 / 回收站名单）；标签映射不受影响。
+ * - `secrets-tags`：标签映射（改标签；恢复回收站也算 —— 软删不清标签，条目要回原分组）。
+ * - `machine-accounts`：机器账号 / 授权 / 令牌。 */
+export type SmRealtimeKind = 'secrets' | 'secrets-tags' | 'machine-accounts';
 
 export interface SmChangeOptions {
   env: Env;

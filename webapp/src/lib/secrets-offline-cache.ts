@@ -12,7 +12,8 @@ import type {
  *
  * 三条有意的取舍：
  * - 机器账号 / 访问令牌 / 授权**不入缓存**（凭据一旦落盘就是明文）。
- * - 回收站没有批量详情接口（`get-by-ids` 跳过已删除的）⇒ 内容只能靠看过的条目惰性积累。
+ * - 回收站内容单独存：官方没有批量详情接口（`get-by-ids` 跳过已删除的），本站另加了
+ *   `/secrets/trash/get-by-ids`，打开回收站面板时预热进快照；点开单条时也会补上那一条。
  * - 分区键只用「用户」：离线时拿不到组织 id（要联网反查），而本产品一人只有一个隐式组织
  *   ⇒ 两者等价，组织 id 记在记录里。
  */
@@ -39,7 +40,7 @@ export interface SecretsOfflineCacheRecord {
   /** 机密 id → 标签密文（仅 Web 扩展字段；官方 `sync` 载荷里没有它，得另存）。 */
   tags: Record<string, string>;
   trash: RawTrashedSecret[];
-  /** 看过内容的回收站条目（键为机密 id）。 */
+  /** 缓存的回收站条目内容（键为机密 id）—— 面板预热与点开单条时写入。 */
   trashDetails: Record<string, RawTrashedSecretDetail>;
 }
 
@@ -152,6 +153,25 @@ export async function saveCachedSecretsOfflineTags(
 }
 
 /**
+ * 把回收站**列表**写进快照（打开面板 / 恢复 / 彻底删之后调）—— 离线界面靠它列出条目，
+ * 内容是挂在列表上的。顺带按这份列表清理内容：已恢复 / 已永久删除的不该再占位置。
+ */
+export async function saveCachedSecretsOfflineTrash(
+  cacheKey: string,
+  trash: readonly RawTrashedSecret[]
+): Promise<void> {
+  const normalized = String(cacheKey || '').trim();
+  if (!normalized) return;
+  const record = await loadSecretsOfflineCache(normalized);
+  if (!record) return;
+  const alive = new Set(trash.map((row) => row.id).filter((rowId): rowId is string => !!rowId));
+  const trashDetails = Object.fromEntries(
+    Object.entries(record.trashDetails).filter(([id]) => alive.has(id))
+  );
+  await withStore('readwrite', (store) => writeRecord(store, { ...record, trash: [...trash], trashDetails }));
+}
+
+/**
  * 补一条「看过内容」的回收站条目。
  *
  * 读-改-写分两个事务：同一事务里先 `get` 再 `put` 会在部分浏览器上撞
@@ -163,14 +183,33 @@ export async function saveCachedSecretsOfflineTrashDetail(
   id: string,
   detail: RawTrashedSecretDetail
 ): Promise<void> {
+  await saveCachedSecretsOfflineTrashDetails(cacheKey, [{ ...detail, id }]);
+}
+
+/**
+ * 批量补回收站条目的内容。与单条版同样读-改-写分两个事务；批量版给「打开面板时预热」用，
+ * 一次事务写入整批，而不是每条各读写一遍整份快照。
+ */
+export async function saveCachedSecretsOfflineTrashDetails(
+  cacheKey: string,
+  details: readonly RawTrashedSecretDetail[]
+): Promise<void> {
   const normalized = String(cacheKey || '').trim();
-  if (!normalized || !id) return;
+  const rows = details.filter((detail) => !!detail?.id);
+  if (!normalized || !rows.length) return;
   const record = await loadSecretsOfflineCache(normalized);
   if (!record) return;
-  // 垃圾回收：只保留还在回收站里的条目，避免长期累积。
+  // 垃圾回收：只留「还在回收站里」的，避免长期累积。判据 = 快照列表 ∪ **本次刚写进来的这些 id**
+  // —— 后者是服务端刚刚确认还在回收站的（单取 404 / 批量跳过都走不到这里），只按（可能过期的）
+  // 列表过滤会丢掉「别处刚删、本页列表还没刷新」的内容。快照重写时仍以当时的列表为准 ⇒ 会收敛。
   const aliveIds = new Set(record.trash.map((row) => row.id).filter((rowId): rowId is string => !!rowId));
+  const merged = { ...record.trashDetails };
+  for (const detail of rows) {
+    merged[detail.id as string] = detail;
+    aliveIds.add(detail.id as string);
+  }
   const trashDetails = Object.fromEntries(
-    Object.entries({ ...record.trashDetails, [id]: detail }).filter(([key]) => aliveIds.has(key))
+    Object.entries(merged).filter(([key]) => aliveIds.has(key))
   );
   await withStore('readwrite', (store) => writeRecord(store, { ...record, trashDetails }));
 }

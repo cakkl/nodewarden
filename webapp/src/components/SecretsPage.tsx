@@ -346,7 +346,13 @@ export default function SecretsPage(props: SecretsPageProps) {
 
   function openEdit(): void {
     if (!selected) return;
-    const input = { key: selected.name, value: selected.value, note: selected.note, projectIds: selected.projectIds };
+    const input = {
+      key: selected.name,
+      value: selected.value,
+      note: selected.note,
+      projectIds: selected.projectIds,
+      revisionDate: selected.revisionDate,
+    };
     // 记住原始内容：只改了标签时不该发官方 PUT（它会无谓推进 `revision_date`）。
     setDraft({ id: selected.id, input, original: input, tag: manager.tags[selected.id] ?? '' });
   }
@@ -367,30 +373,31 @@ export default function SecretsPage(props: SecretsPageProps) {
     // 允许一个 project 都不选（官方 `project_ids` 也是可选）：这类机密只对 Web 会话可见，
     // 机器账号按 project 授权过滤 ⇒ 看不到它。
     if (!input.key.trim()) return;
-    if (draft.id) {
-      // 编辑时一定带 `original`（新建才为 null）⇒ 没带就当作内容变了，宁可多发一次 PUT
-      const contentChanged = draft.original ? contentChangedFrom(draft.original, input) : true;
-      await onUpdateSecret(draft.id, input, draft.tag, contentChanged);
-    } else {
-      await onCreateSecret(input, draft.tag);
-    }
-    setDraft(null);
+    // 编辑时一定带 `original`（新建才为 null）⇒ 没带就当作内容变了，宁可多发一次 PUT
+    const contentChanged = draft.original ? contentChangedFrom(draft.original, input) : true;
+    const written = draft.id
+      ? await onUpdateSecret(draft.id, input, draft.tag, contentChanged)
+      : await onCreateSecret(input, draft.tag);
+    // 失败时保留表单：冲突提示要求用户「复制需要的修改」，表单一关就什么都复制不到了
+    if (written) setDraft(null);
   }
 
   async function submitNewProject(): Promise<void> {
     const trimmed = newProjectName.trim();
     if (!trimmed) return;
-    await manager.onCreateProject(trimmed);
-    setNewProjectName('');
-    setCreatingProject(false);
+    // 失败时保留输入：名字重打一遍很烦，而错误提示就在眼前
+    if (await manager.onCreateProject(trimmed)) {
+      setNewProjectName('');
+      setCreatingProject(false);
+    }
   }
 
   async function submitRenameProject(): Promise<void> {
     if (!renamingProject) return;
     const trimmed = renamingProject.name.trim();
     if (!trimmed) return;
-    await manager.onRenameProject(renamingProject.id, trimmed);
-    setRenamingProject(null);
+    // 同上：重命名失败时把原来的输入留在框里
+    if (await manager.onRenameProject(renamingProject.id, trimmed)) setRenamingProject(null);
   }
 
   function selectSecret(id: string): void {
@@ -725,6 +732,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                   <button
                     type="button"
                     className="btn btn-secondary small"
+                    disabled={!manager.ready}
                     onClick={() => {
                       const ids = [...checkedIds];
                       setCheckedIds(new Set());
@@ -738,12 +746,13 @@ export default function SecretsPage(props: SecretsPageProps) {
                   <button
                     type="button"
                     className="btn btn-secondary small"
+                    disabled={!manager.ready}
                     onClick={openProjectsDialog}
                   >
                     <FolderInput size={14} className="btn-icon" /> {t('txt_secret_project')}
                   </button>
                 )}
-                <button type="button" className="btn btn-danger small" onClick={() => setConfirmBulk(view === 'trash' ? 'purge' : 'delete')}>
+                <button type="button" className="btn btn-danger small" disabled={!manager.ready} onClick={() => setConfirmBulk(view === 'trash' ? 'purge' : 'delete')}>
                   <Trash2 size={14} className="btn-icon" />{' '}
                   {view === 'trash' ? t('txt_delete_permanently') : t('txt_delete_selected')}
                 </button>
@@ -962,7 +971,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={!draft.input.key.trim()}
+                  disabled={!manager.ready || !draft.input.key.trim()}
                   onClick={() => void saveDraft()}
                 >
                   <Check size={14} className="btn-icon" />
@@ -974,7 +983,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                 </button>
               </div>
               {draft.id ? (
-                <button type="button" className="btn btn-danger" onClick={() => setConfirmDeleteSecretId(draft.id)}>
+                <button type="button" className="btn btn-danger" disabled={!manager.ready} onClick={() => setConfirmDeleteSecretId(draft.id)}>
                   <Trash2 size={14} className="btn-icon" />
                   {t('txt_delete')}
                 </button>
@@ -1033,7 +1042,7 @@ export default function SecretsPage(props: SecretsPageProps) {
             </div>
             <div className="detail-actions">
               <div className="actions">
-                <button type="button" className="btn btn-secondary" onClick={openEdit}>
+                <button type="button" className="btn btn-secondary" disabled={!manager.ready} onClick={openEdit}>
                   <Pencil size={14} className="btn-icon" />
                   {t('txt_edit')}
                 </button>
@@ -1043,7 +1052,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                   {t('txt_copy')}
                 </button>
               </div>
-              <button type="button" className="btn btn-danger" onClick={() => setConfirmDeleteSecretId(selected.id)}>
+              <button type="button" className="btn btn-danger" disabled={!manager.ready} onClick={() => setConfirmDeleteSecretId(selected.id)}>
                 <Trash2 size={14} className="btn-icon" />
                 {t('txt_delete')}
               </button>

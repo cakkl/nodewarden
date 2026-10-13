@@ -251,3 +251,64 @@ test('单取：列表不带值，值走 `/trash/{id}`；**没软删的取不到*
     h.handle.close();
   }
 });
+
+test('批量取内容：只回在回收站里的那些，正常条目与陌生 id 静默跳过', async () => {
+  const h = await createHarness();
+  try {
+    await seedProject(h, 'project-1');
+    await seedSecret(h, 'trashed-a', null, 'project-1');
+    await seedSecret(h, 'trashed-b', null, 'project-1');
+    await seedSecret(h, 'alive', null, 'project-1');
+    await softDeleteSecrets(h.env.DB, h.orgId, ['trashed-a', 'trashed-b'], new Date(NOW - DAY_MS).toISOString());
+
+    const response = await callTrash(h, '/api/secrets/trash/get-by-ids', 'POST', {
+      ids: ['trashed-a', 'alive', 'missing'],
+    });
+    assert.equal(response?.status, 200);
+    const body = (await response!.json()) as {
+      object: string;
+      secrets: Array<{ id: string; value: string; note: string; deletedAt: string; projectIds: string[] }>;
+    };
+    assert.equal(body.object, 'trashList');
+    assert.deepEqual(body.secrets.map((row) => row.id), ['trashed-a'], '只回在回收站里的那条');
+    assert.equal(body.secrets[0].value, ENC_VALUE, '必须带值 —— 离线快照靠它');
+    assert.deepEqual(body.secrets[0].projectIds, ['project-1']);
+
+    // 参数校验与既有批量端点同一口径
+    assert.equal((await callTrash(h, '/api/secrets/trash/get-by-ids', 'POST', { ids: 'x' }))?.status, 400);
+    assert.equal((await callTrash(h, '/api/secrets/trash/get-by-ids', 'POST', {}))?.status, 400);
+    assert.equal((await callTrash(h, '/api/secrets/trash/get-by-ids', 'POST', { ids: [''] }))?.status, 400);
+    assert.equal((await callTrash(h, '/api/secrets/trash/get-by-ids', 'GET'))?.status, 405);
+  } finally {
+    h.handle.close();
+  }
+});
+
+test('批量取内容：没有组织时回空列表（不凭空建组织）', async () => {
+  const h = await createHarness(false);
+  try {
+    const response = await callTrash(h, '/api/secrets/trash/get-by-ids', 'POST', { ids: ['any'] });
+    assert.equal(response?.status, 200);
+    assert.deepEqual(((await response!.json()) as { secrets: unknown[] }).secrets, []);
+    assert.equal(selectIds(h, 'sm_organizations').length, 0, '一次 GET 不该建出组织');
+  } finally {
+    h.handle.close();
+  }
+});
+
+test('批量取内容：超过 D1 绑定上限的 id 数量也能分块取全', async () => {
+  const h = await createHarness();
+  try {
+    await seedProject(h, 'project-1');
+    const ids = Array.from({ length: 105 }, (_, index) => `trash-${String(index).padStart(3, '0')}`);
+    for (const id of ids) await seedSecret(h, id, null, 'project-1');
+    await softDeleteSecrets(h.env.DB, h.orgId, ids, new Date(NOW - DAY_MS).toISOString());
+
+    const response = await callTrash(h, '/api/secrets/trash/get-by-ids', 'POST', { ids });
+    assert.equal(response?.status, 200);
+    const body = (await response!.json()) as { secrets: Array<{ id: string }> };
+    assert.equal(body.secrets.length, 105, `分块不能漏（每块还要占一个 org_id 参数）：拿到 ${body.secrets.length} 条`);
+  } finally {
+    h.handle.close();
+  }
+});

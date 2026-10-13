@@ -163,6 +163,7 @@ const SIGNALR_UPDATE_TYPE_BACKUP_RESTORE_PROGRESS = 102;
 // 机密管理器（不是官方号段：官方 SM 没有推送，只有拉取式同步）
 const SIGNALR_UPDATE_TYPE_SM_SECRETS = 103;
 const SIGNALR_UPDATE_TYPE_SM_MACHINE_ACCOUNTS = 104;
+const SIGNALR_UPDATE_TYPE_SM_SECRETS_TAGS = 105;
 const TWO_FACTOR_PROVIDER_EMAIL = 1;
 const TWO_FACTOR_PROVIDER_YUBIKEY = 3;
 const TWO_FACTOR_PROVIDER_WEBAUTHN = 7;
@@ -2073,6 +2074,7 @@ export default function App() {
           if (contextId && contextId === getCurrentDeviceIdentifier()) continue;
           if (
             updateType === SIGNALR_UPDATE_TYPE_SM_SECRETS ||
+            updateType === SIGNALR_UPDATE_TYPE_SM_SECRETS_TAGS ||
             updateType === SIGNALR_UPDATE_TYPE_SM_MACHINE_ACCOUNTS
           ) {
             // 自己这个**标签页**刚改的不用刷（CLI 那路没有这个字段 ⇒ 照常刷）。
@@ -2083,7 +2085,11 @@ export default function App() {
               window.clearTimeout(secretsManagerRefreshTimerRef.current);
             }
             const kind =
-              updateType === SIGNALR_UPDATE_TYPE_SM_SECRETS ? 'secrets' : 'machine-accounts';
+              updateType === SIGNALR_UPDATE_TYPE_SM_SECRETS
+                ? 'secrets'
+                : updateType === SIGNALR_UPDATE_TYPE_SM_SECRETS_TAGS
+                  ? 'secrets-tags'
+                  : 'machine-accounts';
             secretsManagerRefreshTimerRef.current = window.setTimeout(() => {
               secretsManagerRefreshTimerRef.current = null;
               emitSecretsManagerChange(kind);

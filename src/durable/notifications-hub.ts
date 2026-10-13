@@ -19,9 +19,11 @@ const SIGNALR_UPDATE_TYPE_SYNC_SEND_DELETE = 14;
 const SIGNALR_UPDATE_TYPE_AUTH_REQUEST = 15;
 const SIGNALR_UPDATE_TYPE_AUTH_REQUEST_RESPONSE = 16;
 const SIGNALR_UPDATE_TYPE_BACKUP_RESTORE_PROGRESS = 102;
-// 机密管理器：官方客户端不听这两个（官方 SM 只有拉取式同步）⇒ 不占官方号段，从 103 起。
+// 机密管理器：官方客户端不听这几个（官方 SM 只有拉取式同步）⇒ 不占官方号段，从 103 起。
 const SIGNALR_UPDATE_TYPE_SM_SECRETS = 103;
 const SIGNALR_UPDATE_TYPE_SM_MACHINE_ACCOUNTS = 104;
+/** 标签映射（分组维度）变了 —— 含恢复回收站条目 —— ⇒ 收端要连标签一起重取。 */
+const SIGNALR_UPDATE_TYPE_SM_SECRETS_TAGS = 105;
 const WEBSOCKET_CONNECTION_TOKEN_PREFIX = 'ws-token:';
 const WEBSOCKET_CONNECTION_TOKEN_TTL_MS = 60 * 1000;
 
@@ -523,12 +525,16 @@ export function notifyUserVaultSync(
 export function notifyUserSecretsManagerUpdate(
   env: Env,
   userId: string,
-  kind: 'secrets' | 'machine-accounts',
+  kind: 'secrets' | 'secrets-tags' | 'machine-accounts',
   revisionDate: string,
   contextId?: string | null
 ): void {
   const updateType =
-    kind === 'secrets' ? SIGNALR_UPDATE_TYPE_SM_SECRETS : SIGNALR_UPDATE_TYPE_SM_MACHINE_ACCOUNTS;
+    kind === 'secrets'
+      ? SIGNALR_UPDATE_TYPE_SM_SECRETS
+      : kind === 'secrets-tags'
+        ? SIGNALR_UPDATE_TYPE_SM_SECRETS_TAGS
+        : SIGNALR_UPDATE_TYPE_SM_MACHINE_ACCOUNTS;
   waitUntil(
     notifyUserUpdate(env, userId, updateType, revisionDate, contextId ?? null, null, null, true)
   );

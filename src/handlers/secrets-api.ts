@@ -506,6 +506,16 @@ async function handleSecretById(
       return errorResponse('key, value and note must be EncStrings of type 2', 400);
     }
 
+    // 可选版本闸门：官方契约里没有版本字段，只有自家前端会发；单向比较（客户端更旧才拒），时钟偏差不误杀
+    const incomingRevision = typeof body?.revisionDate === 'string' ? body.revisionDate : null;
+    if (incomingRevision) {
+      const parsed = Date.parse(incomingRevision);
+      if (!Number.isFinite(parsed)) return errorResponse('revisionDate must be a valid RFC3339 timestamp', 400);
+      if (Date.parse(existing.revisionDate) > parsed) {
+        return errorResponse('The client copy of this secret is out of date. Resync the client and try again.', 400);
+      }
+    }
+
     // 省略 `projectIds` = 不改关联；显式 `[]` = 清空（变成「未分配」）
     const resolved = await resolveProjectIds(env, principal, body?.projectIds);
     if (!resolved.ok) return errorResponse('projectIds must reference projects in this organization', 400);
@@ -518,7 +528,11 @@ async function handleSecretById(
       noteEncrypted: (body!.note as string | undefined) ?? '',
       revisionDate,
     };
-    await updateSecret(env.DB, updated);
+    const written = await updateSecret(env.DB, updated, incomingRevision ? existing.revisionDate : null);
+    // 预检读的是更早的副本：读取与写入之间被别处改过就写不进去，交给客户端重新同步
+    if (!written) {
+      return errorResponse('The client copy of this secret is out of date. Resync the client and try again.', 400);
+    }
     if (resolved.ids !== null) await setSecretProjects(env.DB, id, resolved.ids);
     broadcastSmChange(env, request, principal, 'secrets');
     await recordSecretsEvents({

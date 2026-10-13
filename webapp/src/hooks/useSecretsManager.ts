@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
+  cacheTrashedSecretList,
   createSecret,
   createSecretProject,
   decryptSecretDetail,
@@ -19,6 +20,7 @@ import {
   loadOfflineSecretTags,
   saveSecretTag,
   loadOfflineTrash,
+  prefetchTrashedSecretDetails,
   purgeTrashedSecrets,
   refreshSecretsOfflineSnapshot,
   restoreTrashedSecrets,
@@ -83,23 +85,23 @@ export interface SecretsManagerProps {
   onClearSelection: () => void;
   onRefresh: () => Promise<void>;
   /** 批量调整所属项目（逐条给各自的集合）。 */
-  onSetSecretsProjects: (assignments: ReadonlyArray<{ id: string; projectIds: string[] }>) => Promise<void>;
-  onCreateProject: (name: string) => Promise<void>;
-  onRenameProject: (id: string, name: string) => Promise<void>;
-  onDeleteProject: (id: string) => Promise<void>;
+  onSetSecretsProjects: (assignments: ReadonlyArray<{ id: string; projectIds: string[] }>) => Promise<boolean>;
+  onCreateProject: (name: string) => Promise<boolean>;
+  onRenameProject: (id: string, name: string) => Promise<boolean>;
+  onDeleteProject: (id: string) => Promise<boolean>;
   /**
    * 新建 / 更新机密。
    * 标签**不进 `SecretInput`**（那是官方线格式的形状），作为独立参数传：空串 = 清除标签。
    * `contentChanged` = 名称 / 值 / 备注 / 项目是否有变：**只改了标签时不发官方 PUT**，
    * 否则那条 PUT 会无谓推进 `revision_date`（CLI 会以为机密变了、离线快照也会整份重拉）。
    */
-  onCreateSecret: (input: SecretInput, tag: string) => Promise<void>;
-  onUpdateSecret: (id: string, input: SecretInput, tag: string, contentChanged: boolean) => Promise<void>;
-  onDeleteSecret: (id: string) => Promise<void>;
-  onDeleteSecrets: (ids: string[]) => Promise<void>;
+  onCreateSecret: (input: SecretInput, tag: string) => Promise<boolean>;
+  onUpdateSecret: (id: string, input: SecretInput, tag: string, contentChanged: boolean) => Promise<boolean>;
+  onDeleteSecret: (id: string) => Promise<boolean>;
+  onDeleteSecrets: (ids: string[]) => Promise<boolean>;
   onLoadTrash: () => Promise<void>;
-  onRestoreTrash: (ids: string[]) => Promise<void>;
-  onPurgeTrash: (ids: string[]) => Promise<void>;
+  onRestoreTrash: (ids: string[]) => Promise<boolean>;
+  onPurgeTrash: (ids: string[]) => Promise<boolean>;
 }
 
 function messageOf(error: unknown): string {
@@ -240,16 +242,6 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     tagsRef.current = tags;
     setTagsBySecretId(tags);
   }, []);
-  /** 批量调整项目后就地改列表里的 `projectIds`（改动是我们发出去的，不必等回应）。 */
-  const applySecretProjectsLocally = useCallback(
-    (assignments: ReadonlyArray<{ id: string; projectIds: string[] }>) => {
-      const byId = new Map(assignments.map((item) => [item.id, item.projectIds]));
-      setLiveSecrets((current) =>
-        current.map((item) => (byId.has(item.id) ? { ...item, projectIds: byId.get(item.id) ?? [] } : item))
-      );
-    },
-    []
-  );
   const accessToken = session?.accessToken ?? '';
   const keyMaterial = `${session?.symEncKey ?? ''}|${session?.symMacKey ?? ''}`;
 
@@ -304,6 +296,9 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     setOffline(value);
   }, []);
 
+  /** 本页面生命周期内是否已铺过底 —— 只铺一次：之后的刷新手里已有更新的数据，不能被旧快照盖回。 */
+  const snapshotSeededRef = useRef(false);
+
   /**
    * 取某条机密的详情（列表里根本没有 value / note，所以详情得单独取）。
    *
@@ -354,12 +349,13 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   );
 
   /**
-   * 用本地快照重建整套数据（离线只读）。
+   * 用本地快照重建整套数据。`provisional` = 首屏铺底（网络仍在后台对账 ⇒ **不置离线态**）；
+   * 省略 = 离线兜底（整页离线只读）。
    * ⚠️ 组织密钥从缓存里的**包裹**解出（用户密钥加密）；拿不到（没缓存 / 换过账号或主密码）
    * 就返回 `false`，让调用方把真实的联网错误透给用户。
    */
   const applyOfflineSnapshot = useCallback(
-    async (currentSession: SessionState): Promise<boolean> => {
+    async (currentSession: SessionState, options?: { provisional?: boolean }): Promise<boolean> => {
       const cacheKey = offlineCacheKeyRef.current;
       if (!cacheKey) return false;
       try {
@@ -367,8 +363,8 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         if (!nextContext) return false;
         const listed = await loadOfflineSecrets(nextContext, cacheKey);
         if (!listed) return false;
-        // 先翻状态再取详情：`loadDetail` 据此走离线分支
-        setOfflineState(true);
+        // 先翻状态再取详情：`loadDetail` 据此走快照分支
+        if (!options?.provisional) setOfflineState(true);
         setContext(nextContext);
         setLiveSecrets(listed.secrets);
         rememberRevisions(listed.secrets);
@@ -400,6 +396,11 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     if (demoMode || !current) return null;
     setLoading(true);
     setError('');
+    // 首屏先把本地快照画上（一次 IndexedDB 读 + 解密，不等网络），网络在后台对账 ——
+    // 延迟高时这一下省掉 1–3 个往返的空白。⚠️ 只铺一次：之后的刷新手里已有更新的数据。
+    if (!snapshotSeededRef.current && (await applyOfflineSnapshot(current, { provisional: true }))) {
+      snapshotSeededRef.current = true;
+    }
     try {
       // 后端不可达（含浏览器自报离线）⇒ 不白等两个必然失败的请求
       if (backendUnreachable()) {
@@ -463,13 +464,15 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     void refresh();
   }, [refresh, accessToken, keyMaterial]);
 
-  // 网络恢复 ⇒ 自动切回在线数据（离线时页面上挂的是旧快照）
+  // 网络变化：恢复 ⇒ 切回在线数据（离线时页面上挂的是旧快照）；断开 ⇒ 立即转离线只读。
+  // ⚠️ 断开必须马上置位：否则 `offline` 仍是 false，点开详情 / 回收站条目会去撞必然失败的请求。
   useEffect(
     () =>
       subscribeNetworkStatus((status) => {
         if (status === 'online') void refresh();
+        else setOfflineState(true);
       }),
-    [refresh]
+    [refresh, setOfflineState]
   );
 
   // 别人（CLI / 其它设备）改了机密与项目 ⇒ 整页刷新（列表、项目与选中项详情）。
@@ -477,8 +480,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   useEffect(
     () =>
       onSecretsManagerChange((kind) => {
-        if (kind !== 'secrets') return;
-        void refresh();
+        if (kind === 'machine-accounts') return;
+        // 集合变更不影响标签映射（改标签 / 恢复回收站会推 `secrets-tags`）⇒ 省掉一次
+        // O(条目数) 的标签请求与整批解密；`secrets-tags` 走完整刷新。
+        void refresh(kind === 'secrets' ? { skipTags: true } : undefined);
       }),
     [refresh]
   );
@@ -526,6 +531,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   }, [selectedId]);
 
   const selectedSecret = demoMode ? demoDetail : liveDetail;
+  /** 组织密钥就绪（未解锁 / 还没拿到上下文时为 false）：写入口据此置灰。 */
   const ready = demoMode || !!context;
 
   const selectSecret = useCallback(
@@ -568,18 +574,18 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       successText: string,
       /** 恢复回收站条目会连标签一起变（条目回到带标签的分组）⇒ 校准要完整跑一次 */
       options?: { withTags?: boolean }
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       // 离线只读：写操作在本地拦下（按钮保留，反馈走既有 toast 机制，与密码库同一口径）
       if (offlineRef.current) {
         onNotify('error', t('txt_sm_offline_readonly'));
-        return;
+        return false;
       }
       const current = context;
-      // 还没有组织上下文 ⇒ 静默返回（不是失败，不该弹错误）
-      if (!current) return;
-      await (options?.withTags ? runWithTags : run)(() => action(current), successText);
+      // 还没有组织上下文 ⇒ 静默返回（不是失败，不该弹错误）；但也没写进去，调用方不能当成功
+      if (!current) return false;
+      return (options?.withTags ? runWithTags : run)(() => action(current), successText);
     },
-    [context, run, onNotify]
+    [context, run, runWithTags, onNotify]
   );
 
   return {
@@ -606,8 +612,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     onRefresh: syncNow,
     onSetSecretsProjects: (assignments) =>
       runAction(async (ctx) => {
-        await setSecretsProjects(fetcherRef.current, ctx, assignments);
-        applySecretProjectsLocally(assignments);
+        // 用响应回填：每次 PUT 都会推进 `revision_date`，只改 `projectIds` 会把列表项留在旧版本上
+        for (const detail of await setSecretsProjects(fetcherRef.current, ctx, assignments)) {
+          applySecretWrite(detail);
+        }
       }, t('txt_saved')),
     onCreateProject: (name) =>
       runAction((ctx) => createSecretProject(fetcherRef.current, ctx, name), t('txt_saved')),
@@ -655,7 +663,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
           if (cached) setLiveTrash(cached);
           return;
         }
-        setLiveTrash(await listTrashedSecrets(fetcherRef.current, current));
+        const listed = await listTrashedSecrets(fetcherRef.current, current);
+        setLiveTrash(listed.items);
+        // 后台把列表与内容补进离线快照（不 `await`）：离线时也能列出来并看到内容
+        void prefetchTrashedSecretDetails(fetcherRef.current, current, listed.raw, offlineCacheKeyRef.current);
       } catch (err) {
         onNotify('error', messageOf(err));
       } finally {
@@ -669,8 +680,9 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         if (demoMode) return;
         const current = context;
         if (!current) return;
-        if (offlineRef.current) {
-          // 回收站没有批量详情接口 ⇒ 只有「在线看过内容」的那几条在本地有密文
+        // 与列表同一判据（`browserReportsOffline`）：离线事件可能还没传到，别为此去撞必然失败的请求
+        if (offlineRef.current || browserReportsOffline()) {
+          // 离线时回收站只有「在线看过 / 面板预热过」的那几条有密文
           void getOfflineTrashedSecretDetail(current, offlineCacheKeyRef.current, id)
             .then((detail) => {
               setLiveTrashDetail(detail);
@@ -691,12 +703,17 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     onRestoreTrash: (ids) =>
       runAction(async (ctx) => {
         await restoreTrashedSecrets(fetcherRef.current, ctx, ids);
-        setLiveTrash(await listTrashedSecrets(fetcherRef.current, ctx));
+        const listed = await listTrashedSecrets(fetcherRef.current, ctx);
+        setLiveTrash(listed.items);
+        // 名单变了 ⇒ 同步进快照，否则离线时还会列着已经恢复的条目
+        void cacheTrashedSecretList(listed.raw, offlineCacheKeyRef.current);
       }, t('txt_restored'), { withTags: true }),
     onPurgeTrash: (ids) =>
       runAction(async (ctx) => {
         await purgeTrashedSecrets(fetcherRef.current, ctx, ids);
-        setLiveTrash(await listTrashedSecrets(fetcherRef.current, ctx));
+        const listed = await listTrashedSecrets(fetcherRef.current, ctx);
+        setLiveTrash(listed.items);
+        void cacheTrashedSecretList(listed.raw, offlineCacheKeyRef.current);
       }, t('txt_deleted')),
   };
 }

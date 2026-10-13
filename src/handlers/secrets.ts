@@ -4,6 +4,7 @@ import {
   getImplicitOrganization,
   getOrgKey,
   getTrashedSecret,
+  getTrashedSecretsByIds,
   listSecretProjectIds,
   listSecretTags,
   listTrashedSecrets,
@@ -72,12 +73,27 @@ export async function handlePutSecretsOrganizationKey(request: Request, env: Env
 const TRASH_PATH = '/api/secrets/trash';
 const TRASH_RESTORE_PATH = '/api/secrets/trash/restore';
 const TRASH_PURGE_PATH = '/api/secrets/trash/purge';
+/** 批量取内容（含值），供离线快照预热 —— 官方没有这个端点，属本站 Web 的追加式扩展。 */
+const TRASH_BY_IDS_PATH = '/api/secrets/trash/get-by-ids';
 /** ⚠️ 必须排在上面几个**之后**判定：`/trash/purge` 也会被这条匹配到（id = "purge"）。 */
 const TRASH_ITEM_PATH = /^\/api\/secrets\/trash\/([^/]+)$/;
 
 /** 列表项只回渲染需要的字段；值 / 备注走单取（`TRASH_ITEM_PATH`），与正常机密列表同一规矩。 */
 function trashItem(secret: SmSecret, projectIds: string[]): Record<string, unknown> {
   return { id: secret.id, key: secret.keyEncrypted, deletedAt: secret.deletedAt, projectIds };
+}
+
+/** 含值 / 备注的那一条（单取与批量取共用一个形状）。 */
+function trashDetail(secret: SmSecret, projectIds: string[]): Record<string, unknown> {
+  return {
+    object: 'secret',
+    id: secret.id,
+    key: secret.keyEncrypted,
+    value: secret.valueEncrypted,
+    note: secret.noteEncrypted,
+    deletedAt: secret.deletedAt,
+    projectIds,
+  };
 }
 
 /**
@@ -127,7 +143,8 @@ export async function handleSecretsTrashRoute(
     for (const id of body.ids as string[]) {
       if (await restoreSecret(env.DB, organization.id, id)) restored.push(id);
     }
-    broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets' });
+    // 归到「标签变了」：软删不会清掉标签，恢复回来的条目要重新回到它原本的分组里
+    broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets-tags' });
     await recordSecretsEvents({
       db: env.DB,
       request,
@@ -166,6 +183,30 @@ export async function handleSecretsTrashRoute(
     return jsonResponse({ object: 'trashPurge', purged });
   }
 
+  if (path === TRASH_BY_IDS_PATH) {
+    if (method !== 'POST') return errorResponse('Method not allowed', 405);
+
+    let body: { ids?: unknown };
+    try {
+      body = (await request.json()) as { ids?: unknown };
+    } catch {
+      return errorResponse('Invalid JSON body', 400);
+    }
+    if (!Array.isArray(body.ids) || body.ids.some((id) => typeof id !== 'string' || !id)) {
+      return errorResponse('ids must be an array of secret ids', 400);
+    }
+
+    const organization = await getImplicitOrganization(env.DB, userId);
+    if (!organization) return jsonResponse({ object: 'trashList', secrets: [] });
+
+    const secrets = await getTrashedSecretsByIds(env.DB, organization.id, body.ids as string[]);
+    const links = await listSecretProjectIds(env.DB, organization.id);
+    return jsonResponse({
+      object: 'trashList',
+      secrets: secrets.map((secret) => trashDetail(secret, links.get(secret.id) ?? [])),
+    });
+  }
+
   // ⚠️ 放在最后：`/trash/purge` 这类固定子路径也会被这个正则匹配到
   const trashItemMatch = path.match(TRASH_ITEM_PATH);
   if (trashItemMatch) {
@@ -178,15 +219,7 @@ export async function handleSecretsTrashRoute(
     if (!secret) return errorResponse('Not found', 404);
 
     const links = await listSecretProjectIds(env.DB, organization.id);
-    return jsonResponse({
-      object: 'secret',
-      id: secret.id,
-      key: secret.keyEncrypted,
-      value: secret.valueEncrypted,
-      note: secret.noteEncrypted,
-      deletedAt: secret.deletedAt,
-      projectIds: links.get(secret.id) ?? [],
-    });
+    return jsonResponse(trashDetail(secret, links.get(secret.id) ?? []));
   }
 
   return null;
@@ -252,7 +285,7 @@ export async function handleSecretsTagRoute(
   const updated = await updateSecretTag(env.DB, organization.id, body.secretId, tag);
   if (!updated) return errorResponse('Not found', 404);
   // 让**同一用户的其它 Web 标签页**刷新（自己那页按标签页标识挡掉回声）。
-  // 可以放心广播：推送类型 103/104 是**本站自有**号段（官方 SM 没有推送、只有拉取式同步）。
-  broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets' });
+  // 可以放心广播：推送类型 103–105 是**本站自有**号段（官方 SM 没有推送、只有拉取式同步）。
+  broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'secrets-tags' });
   return jsonResponse({ object: 'secretTag', id: body.secretId, tag });
 }

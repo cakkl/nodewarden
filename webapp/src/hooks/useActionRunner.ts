@@ -19,25 +19,29 @@ export interface ActionRunnerOptions {
  *
  * ⚠️ `successText` 是**成功后**弹的提示语 —— 传「已保存 / 已删除 / 已撤销」这类完成态，
  * 别把按钮名或失败文案（如 `txt_save_failed`）传进来，否则保存成功却显示「保存失败」。
+ *
+ * 返回是否成功：**表单类调用方必须据此决定要不要关表单** —— 失败时关掉，用户就再也拿不回输入了。
  */
 export function useActionRunner(
   options: ActionRunnerOptions
-): (action: () => Promise<unknown>, successText: string) => Promise<void> {
+): (action: () => Promise<unknown>, successText: string) => Promise<boolean> {
   const { onNotify, demoMode, reload, onBusyChange } = options;
 
   return useCallback(
-    async (action: () => Promise<unknown>, successText: string): Promise<void> => {
+    async (action: () => Promise<unknown>, successText: string): Promise<boolean> => {
       if (demoMode) {
         onNotify('warning', t('txt_demo_readonly_message'));
-        return;
+        return false;
       }
       onBusyChange?.(true);
       try {
         await action();
         onNotify('success', successText);
         await reload();
+        return true;
       } catch (err) {
         onNotify('error', err instanceof Error ? err.message : String(err));
+        return false;
       } finally {
         onBusyChange?.(false);
       }

@@ -121,6 +121,9 @@ export interface SmSecret {
 const SECRET_COLUMNS =
   'id, org_id, key_encrypted, value_encrypted, note_encrypted, tag_encrypted, created_at, revision_date, deleted_at';
 
+/** D1 单条语句的绑定参数上限。 */
+const MAX_BIND_PARAMS = 100;
+
 function mapSecretRow(row: any): SmSecret {
   return {
     id: row.id,
@@ -215,24 +218,35 @@ export async function listSecretTags(db: D1Database, orgId: string): Promise<Arr
   return (result.results ?? []).map((row: any) => ({ id: row.id, tagEncrypted: row.tag_encrypted ?? null }));
 }
 
+/**
+ * 写入机密内容。
+ *
+ * 传 `expectedRevision` 时把「版本仍是它」写进同一条语句：读取与写入之间被别处改过就匹配 0 行。
+ * 调用方据此拒掉这次写入 —— 预检只是提前告知，真正的互斥靠这里。省略则为无条件写入。
+ * 返回是否真的写入了。
+ */
 export async function updateSecret(
   db: D1Database,
-  secret: Pick<SmSecret, 'orgId' | 'id' | 'keyEncrypted' | 'valueEncrypted' | 'noteEncrypted' | 'revisionDate'>
-): Promise<void> {
-  await db
+  secret: Pick<SmSecret, 'orgId' | 'id' | 'keyEncrypted' | 'valueEncrypted' | 'noteEncrypted' | 'revisionDate'>,
+  expectedRevision?: string | null
+): Promise<boolean> {
+  const values = [
+    secret.keyEncrypted,
+    secret.valueEncrypted,
+    secret.noteEncrypted,
+    secret.revisionDate,
+    secret.orgId,
+    secret.id,
+  ];
+  if (expectedRevision) values.push(expectedRevision);
+  const result = await db
     .prepare(
       'UPDATE sm_secrets SET key_encrypted = ?, value_encrypted = ?, note_encrypted = ?, revision_date = ? ' +
-        'WHERE org_id = ? AND id = ? AND deleted_at IS NULL'
+        `WHERE org_id = ? AND id = ? AND deleted_at IS NULL${expectedRevision ? ' AND revision_date = ?' : ''}`
     )
-    .bind(
-      secret.keyEncrypted,
-      secret.valueEncrypted,
-      secret.noteEncrypted,
-      secret.revisionDate,
-      secret.orgId,
-      secret.id
-    )
+    .bind(...values)
     .run();
+  return Number(result.meta.changes ?? 0) > 0;
 }
 
 /** 软删（进 Trash）。已经删过的不重复写，保留首次删除时间。 */
@@ -268,6 +282,36 @@ export async function getTrashedSecret(db: D1Database, orgId: string, id: string
     .bind(orgId, id)
     .first<any>();
   return row ? mapSecretRow(row) : null;
+}
+
+/**
+ * 按 id 批量取回收站条目的**完整内容**（含值 / 备注），供离线快照预热。
+ *
+ * 只回「确实在本组织回收站里」的那些：id 里混进正常条目或别人的条目一律跳过 ——
+ * 这是给「把面板里的内容补进离线缓存」用的，缺几条不影响，但绝不能把没删的当成已删。
+ * `IN (...)` 按 D1 参数上限分块（每块还要占一个 `org_id`，所以少绑一个）。
+ */
+export async function getTrashedSecretsByIds(
+  db: D1Database,
+  orgId: string,
+  ids: readonly string[]
+): Promise<SmSecret[]> {
+  const unique = [...new Set(ids.filter((id): id is string => !!id))];
+  const chunkSize = MAX_BIND_PARAMS - 1;
+  const found: SmSecret[] = [];
+  for (let start = 0; start < unique.length; start += chunkSize) {
+    const chunk = unique.slice(start, start + chunkSize);
+    const placeholders = chunk.map(() => '?').join(', ');
+    const result = await db
+      .prepare(
+        `SELECT ${SECRET_COLUMNS} FROM sm_secrets ` +
+          `WHERE org_id = ? AND deleted_at IS NOT NULL AND id IN (${placeholders})`
+      )
+      .bind(orgId, ...chunk)
+      .all<any>();
+    for (const row of result.results ?? []) found.push(mapSecretRow(row));
+  }
+  return found;
 }
 
 /**
