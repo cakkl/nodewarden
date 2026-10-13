@@ -18,7 +18,9 @@ import {
 import {
   loadSecretsOfflineCache,
   saveCachedSecretsOfflineTags,
+  saveCachedSecretsOfflineTrash,
   saveCachedSecretsOfflineTrashDetail,
+  saveCachedSecretsOfflineTrashDetails,
   saveSecretsOfflineCache,
   secretsOfflineSignature,
 } from '../secrets-offline-cache';
@@ -504,22 +506,23 @@ export async function deleteSecrets(
 
 // ── 回收站 ──────────────────────────────────────────────────────────────────
 
-export async function listTrashedSecrets(authedFetch: AuthedFetch, ctx: SecretsContext): Promise<TrashedSecret[]> {
-  const body = await readJsonOrThrow<{ secrets?: Array<{ id?: string; key?: string; deletedAt?: string; projectIds?: string[] }> }>(
+/**
+ * 回收站列表。交回 `raw` 是因为调用方要把这份**列表**写进离线快照 —— 离线界面靠它列出条目，
+ * 只有内容没有列表的话用户点不到任何东西。
+ */
+export async function listTrashedSecrets(
+  authedFetch: AuthedFetch,
+  ctx: SecretsContext
+): Promise<{ items: TrashedSecret[]; raw: RawTrashedSecret[] }> {
+  const body = await readJsonOrThrow<{ secrets?: RawTrashedSecret[] }>(
     await authedFetch('/api/secrets/trash'),
     t('txt_load_failed')
   );
-  const rows = (body.secrets ?? []).filter(
-    (row): row is { id: string; key: string; deletedAt?: string; projectIds?: string[] } => !!row?.id && !!row.key
+  const raw = (body.secrets ?? []).filter(
+    (row): row is RawTrashedSecret & { id: string; key: string } => !!row?.id && !!row.key
   );
-  return Promise.all(
-    rows.map(async (row) => ({
-      id: row.id,
-      name: await decryptOrFallback(row.key, ctx.keyPair),
-      deletedAt: row.deletedAt ?? '',
-      projectIds: row.projectIds ?? [],
-    }))
-  );
+  const decoded = await Promise.all(raw.map((row) => toTrashedSummary(row, ctx.keyPair)));
+  return { items: decoded.filter((item): item is TrashedSecret => !!item), raw };
 }
 
 /** 取回收站里单条的完整内容（含值 / 备注）。传了 `cacheKey` 就顺手把这份密文补进离线缓存。 */
@@ -534,14 +537,77 @@ export async function getTrashedSecret(
   const body = await parseJson<RawTrashedSecretDetail>(resp);
   if (!body?.id || !body.key) return null;
   if (cacheKey) void saveCachedSecretsOfflineTrashDetail(cacheKey, body.id, body);
-  return {
-    id: body.id,
-    name: await decryptOrFallback(body.key, ctx.keyPair),
-    value: body.value ? await decryptOrFallback(body.value, ctx.keyPair) : '',
-    note: body.note ? await decryptOrFallback(body.note, ctx.keyPair) : '',
-    deletedAt: body.deletedAt ?? '',
-    projectIds: body.projectIds ?? [],
-  };
+  return toTrashedDetail({ ...body, id: body.id, key: body.key }, ctx.keyPair);
+}
+
+/**
+ * 批量取回收站条目的完整内容（含值 / 备注）。
+ *
+ * 本站 Web 的**追加式扩展**（官方没有，`secrets/get-by-ids` 又会跳过已删除的），
+ * 用途是打开回收站面板时预热离线快照。
+ * ⚠️ 不在回收站里 / 不属于本组织的 id 会被**静默跳过** ⇒ 返回条数可能少于请求数，
+ * 所以**不能**用它判断某条是否还在（存活判断以列表为准）。
+ */
+export async function getTrashedSecretsByIds(
+  authedFetch: AuthedFetch,
+  ctx: SecretsContext,
+  ids: string[],
+  cacheKey?: string
+): Promise<TrashedSecretDetail[]> {
+  if (!ids.length) return [];
+  const body = await readJsonOrThrow<{ secrets?: RawTrashedSecretDetail[] }>(
+    await authedFetch('/api/secrets/trash/get-by-ids', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }),
+    t('txt_load_failed')
+  );
+  const rows = (body.secrets ?? []).filter(
+    (row): row is RawTrashedSecretDetail & { id: string; key: string } => !!row?.id && !!row.key
+  );
+  if (cacheKey && rows.length) void saveCachedSecretsOfflineTrashDetails(cacheKey, rows);
+  return Promise.all(rows.map((row) => toTrashedDetail(row, ctx.keyPair)));
+}
+
+/**
+ * 预热回收站的离线副本：写列表 + 把**还没缓存内容**的条目批量取回。
+ *
+ * 幂等、尽力而为 —— 全部错误都吞掉（离线时看不到内容属于既有行为，不该为此弹提示），
+ * 调用方不用 `await`。⚠️ 列表必须一起写：离线界面是「先列条目、再看内容」。
+ */
+export async function prefetchTrashedSecretDetails(
+  authedFetch: AuthedFetch,
+  ctx: SecretsContext,
+  rawTrash: readonly RawTrashedSecret[],
+  cacheKey?: string
+): Promise<void> {
+  if (!cacheKey) return;
+  try {
+    await saveCachedSecretsOfflineTrash(cacheKey, rawTrash);
+    const record = await loadSecretsOfflineCache(cacheKey);
+    const cached = new Set(Object.keys(record?.trashDetails ?? {}));
+    const missing = rawTrash
+      .map((row) => row.id)
+      .filter((id): id is string => !!id && !cached.has(id));
+    if (!missing.length) return;
+    await getTrashedSecretsByIds(authedFetch, ctx, missing, cacheKey);
+  } catch {
+    // 预热失败不影响在线使用，下次打开面板再试
+  }
+}
+
+/** 只写列表（恢复 / 彻底删之后调）：名单变了，离线快照里的回收站也得跟着变。 */
+export async function cacheTrashedSecretList(
+  rawTrash: readonly RawTrashedSecret[],
+  cacheKey?: string
+): Promise<void> {
+  if (!cacheKey) return;
+  try {
+    await saveCachedSecretsOfflineTrash(cacheKey, rawTrash);
+  } catch {
+    // 同上：写不进缓存不该影响在线操作
+  }
 }
 
 /** 从回收站还原；返回真的被还原的 id。 */
@@ -701,7 +767,7 @@ export async function refreshSecretsOfflineSnapshot(
       secrets = rows;
     }
 
-    // 回收站：列表端点不含它，只能另取一次（没有批量详情接口 ⇒ 内容靠惰性积累）。
+    // 回收站：列表端点不含它，只能另取一次（内容由打开面板时的预热补齐）
     let trash = scoped?.trash ?? [];
     if (!options?.skipTrash) {
       const trashResponse = await authedFetch('/api/secrets/trash');
@@ -797,6 +863,21 @@ async function toTrashedSummary(raw: RawTrashedSecret, keyPair: SmKeyPair): Prom
   return {
     id: raw.id,
     name: await decryptOrFallback(raw.key, keyPair),
+    deletedAt: raw.deletedAt ?? '',
+    projectIds: raw.projectIds ?? [],
+  };
+}
+
+/** 回收站条目的明文详情（单取与批量取共用）。 */
+async function toTrashedDetail(
+  raw: RawTrashedSecretDetail & { id: string; key: string },
+  keyPair: SmKeyPair
+): Promise<TrashedSecretDetail> {
+  return {
+    id: raw.id,
+    name: await decryptOrFallback(raw.key, keyPair),
+    value: raw.value ? await decryptOrFallback(raw.value, keyPair) : '',
+    note: raw.note ? await decryptOrFallback(raw.note, keyPair) : '',
     deletedAt: raw.deletedAt ?? '',
     projectIds: raw.projectIds ?? [],
   };

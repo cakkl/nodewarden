@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import {
+  cacheTrashedSecretList,
   createSecret,
   createSecretProject,
   decryptSecretDetail,
@@ -19,6 +20,7 @@ import {
   loadOfflineSecretTags,
   saveSecretTag,
   loadOfflineTrash,
+  prefetchTrashedSecretDetails,
   purgeTrashedSecrets,
   refreshSecretsOfflineSnapshot,
   restoreTrashedSecrets,
@@ -462,13 +464,15 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     void refresh();
   }, [refresh, accessToken, keyMaterial]);
 
-  // 网络恢复 ⇒ 自动切回在线数据（离线时页面上挂的是旧快照）
+  // 网络变化：恢复 ⇒ 切回在线数据（离线时页面上挂的是旧快照）；断开 ⇒ 立即转离线只读。
+  // ⚠️ 断开必须马上置位：否则 `offline` 仍是 false，点开详情 / 回收站条目会去撞必然失败的请求。
   useEffect(
     () =>
       subscribeNetworkStatus((status) => {
         if (status === 'online') void refresh();
+        else setOfflineState(true);
       }),
-    [refresh]
+    [refresh, setOfflineState]
   );
 
   // 别人（CLI / 其它设备）改了机密与项目 ⇒ 整页刷新（列表、项目与选中项详情）。
@@ -657,7 +661,10 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
           if (cached) setLiveTrash(cached);
           return;
         }
-        setLiveTrash(await listTrashedSecrets(fetcherRef.current, current));
+        const listed = await listTrashedSecrets(fetcherRef.current, current);
+        setLiveTrash(listed.items);
+        // 后台把列表与内容补进离线快照（不 `await`）：离线时也能列出来并看到内容
+        void prefetchTrashedSecretDetails(fetcherRef.current, current, listed.raw, offlineCacheKeyRef.current);
       } catch (err) {
         onNotify('error', messageOf(err));
       } finally {
@@ -671,8 +678,9 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         if (demoMode) return;
         const current = context;
         if (!current) return;
-        if (offlineRef.current) {
-          // 回收站没有批量详情接口 ⇒ 只有「在线看过内容」的那几条在本地有密文
+        // 与列表同一判据（`browserReportsOffline`）：离线事件可能还没传到，别为此去撞必然失败的请求
+        if (offlineRef.current || browserReportsOffline()) {
+          // 离线时回收站只有「在线看过 / 面板预热过」的那几条有密文
           void getOfflineTrashedSecretDetail(current, offlineCacheKeyRef.current, id)
             .then((detail) => {
               setLiveTrashDetail(detail);
@@ -693,12 +701,17 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     onRestoreTrash: (ids) =>
       runAction(async (ctx) => {
         await restoreTrashedSecrets(fetcherRef.current, ctx, ids);
-        setLiveTrash(await listTrashedSecrets(fetcherRef.current, ctx));
+        const listed = await listTrashedSecrets(fetcherRef.current, ctx);
+        setLiveTrash(listed.items);
+        // 名单变了 ⇒ 同步进快照，否则离线时还会列着已经恢复的条目
+        void cacheTrashedSecretList(listed.raw, offlineCacheKeyRef.current);
       }, t('txt_restored'), { withTags: true }),
     onPurgeTrash: (ids) =>
       runAction(async (ctx) => {
         await purgeTrashedSecrets(fetcherRef.current, ctx, ids);
-        setLiveTrash(await listTrashedSecrets(fetcherRef.current, ctx));
+        const listed = await listTrashedSecrets(fetcherRef.current, ctx);
+        setLiveTrash(listed.items);
+        void cacheTrashedSecretList(listed.raw, offlineCacheKeyRef.current);
       }, t('txt_deleted')),
   };
 }

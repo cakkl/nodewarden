@@ -18,16 +18,19 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  cacheTrashedSecretList,
   ensureOfflineSecretsContext,
   ensureSecretsContext,
   getOfflineSecretDetail,
   getOfflineTrashedSecretDetail,
   listSecretTags,
   listSecrets,
+  listTrashedSecrets,
   loadOfflineSecretDetails,
   loadOfflineSecrets,
   loadOfflineSecretTags,
   loadOfflineTrash,
+  prefetchTrashedSecretDetails,
   refreshSecretsOfflineSnapshot,
 } from '../../webapp/src/lib/api/secrets';
 import type { AuthedFetch } from '../../webapp/src/lib/api/shared';
@@ -158,6 +161,8 @@ interface FakeServer {
   /** 同步端点强制回空（模拟「版本对不上」）。 */
   syncEmpty: boolean;
   calls: string[];
+  /** 每次「批量取回收站内容」请求里带的 id（用来钉「只取缺的那些」）。 */
+  trashByIdsRequests: string[][];
   authedFetch: AuthedFetch;
 }
 
@@ -178,6 +183,7 @@ function createServer(orgKey: Uint8Array, wrappedOrgKey: string): FakeServer {
     syncFailure: null,
     syncEmpty: false,
     calls: [],
+    trashByIdsRequests: [],
     authedFetch: async (input, init) => {
       const url = String(input);
       server.calls.push(url);
@@ -248,6 +254,27 @@ function createServer(orgKey: Uint8Array, wrappedOrgKey: string): FakeServer {
             server.trash.map(async (row) => ({
               id: row.id,
               key: await encrypted(row.name),
+              deletedAt: row.deletedAt,
+              projectIds: [],
+            }))
+          ),
+        });
+      }
+
+      // ⚠️ 必须排在下面那个「单条」正则**之前**：`/trash/get-by-ids` 也会被它匹配到（真实 handler 同理）
+      if (url === '/api/secrets/trash/get-by-ids') {
+        const ids = ((JSON.parse(String(init?.body ?? '{}')) as { ids?: string[] }).ids ?? []).filter(Boolean);
+        server.trashByIdsRequests.push(ids);
+        // 与真实现一致：不在回收站里的 id 静默跳过
+        const rows = server.trash.filter((row) => ids.includes(row.id));
+        return jsonResponse({
+          object: 'trashList',
+          secrets: await Promise.all(
+            rows.map(async (row) => ({
+              id: row.id,
+              key: await encrypted(row.name),
+              value: await encrypted(row.value),
+              note: await encrypted(row.note),
               deletedAt: row.deletedAt,
               projectIds: [],
             }))
@@ -482,6 +509,79 @@ test('trash: only content viewed online is cached, and stale entries are dropped
   await primeOnlineSnapshot(server, ctx);
   const record = await loadSecretsOfflineCache(CACHE_KEY);
   assert.deepEqual(record?.trashDetails, {});
+});
+
+test('⭐ 面板预热：列表与内容一起进快照，已缓存的条目不再重拉', async () => {
+  indexedDb.reset();
+  const userKey = randomKeyPair();
+  const { session, server } = await freshSetup(userKey);
+  server.trash.push({
+    id: 't2',
+    name: '另一条已删',
+    value: 'P1ain-Trash-2',
+    note: '',
+    deletedAt: '2026-10-04T00:00:00.000Z',
+  });
+
+  const ctx = await ensureSecretsContext(server.authedFetch, session);
+  await primeOnlineSnapshot(server, ctx);
+  const offlineContext = await ensureOfflineSecretsContext(session, CACHE_KEY);
+  assert.ok(offlineContext);
+
+  // 预热之前：离线既列不出来、也取不到内容
+  assert.equal(await getOfflineTrashedSecretDetail(offlineContext, CACHE_KEY, 't1'), null);
+
+  // 真实顺序：先拿列表（渲染用），再把列表与内容一起交给预热
+  const listed = await listTrashedSecrets(server.authedFetch, ctx);
+  assert.deepEqual(listed.items.map((item) => item.id).sort(), ['t1', 't2']);
+
+  server.calls.length = 0;
+  server.trashByIdsRequests.length = 0;
+  await prefetchTrashedSecretDetails(server.authedFetch, ctx, listed.raw, CACHE_KEY);
+  assert.deepEqual(server.trashByIdsRequests, [['t1', 't2']], '整批只发一次请求');
+  assert.deepEqual(server.calls, ['/api/secrets/trash/get-by-ids'], '写列表不额外发请求（手上就有）');
+
+  // ⭐ 列表也必须落盘：只有内容没有列表的话，离线时列不出条目 ⇒ 内容再全也点不到
+  const offlineListed = await loadOfflineTrash(offlineContext, CACHE_KEY);
+  assert.deepEqual(offlineListed?.map((item) => item.id).sort(), ['t1', 't2']);
+  assert.equal((await getOfflineTrashedSecretDetail(offlineContext, CACHE_KEY, 't1'))?.value, 'P1ain-Trash-Value');
+  assert.equal((await getOfflineTrashedSecretDetail(offlineContext, CACHE_KEY, 't2'))?.value, 'P1ain-Trash-2');
+
+  // 幂等：都已缓存 ⇒ 一次内容请求都不再发（每次打开面板都全量重拉是不可接受的）
+  server.trashByIdsRequests.length = 0;
+  await prefetchTrashedSecretDetails(server.authedFetch, ctx, listed.raw, CACHE_KEY);
+  assert.deepEqual(server.trashByIdsRequests, [], '已缓存过的条目不该重复预热');
+
+  // 只补缺的那些：新删一条时请求里只带它
+  server.trash.push({
+    id: 't3',
+    name: '第三条',
+    value: 'P1ain-Trash-3',
+    note: '',
+    deletedAt: '2026-10-05T00:00:00.000Z',
+  });
+  const listedAgain = await listTrashedSecrets(server.authedFetch, ctx);
+  server.trashByIdsRequests.length = 0;
+  await prefetchTrashedSecretDetails(server.authedFetch, ctx, listedAgain.raw, CACHE_KEY);
+  assert.deepEqual(server.trashByIdsRequests, [['t3']], '已缓存的 t1 / t2 不再重复取');
+  assert.equal((await getOfflineTrashedSecretDetail(offlineContext, CACHE_KEY, 't3'))?.value, 'P1ain-Trash-3');
+
+  // 恢复 / 彻底删之后：名单写回去，那一条的内容也要一并清掉（否则离线还看得到已恢复的内容）
+  server.trash = server.trash.filter((row) => row.id !== 't3');
+  const afterRestore = await listTrashedSecrets(server.authedFetch, ctx);
+  await cacheTrashedSecretList(afterRestore.raw, CACHE_KEY);
+  assert.deepEqual((await loadOfflineTrash(offlineContext, CACHE_KEY))?.map((item) => item.id).sort(), ['t1', 't2']);
+  assert.equal(await getOfflineTrashedSecretDetail(offlineContext, CACHE_KEY, 't3'), null);
+
+  // 预热失败不能把已经缓存好的内容弄丢（离线时该看还能看）
+  const failing: AuthedFetch = async () => new Response('boom', { status: 500 });
+  await prefetchTrashedSecretDetails(failing, ctx, listed.raw, CACHE_KEY);
+  assert.equal((await getOfflineTrashedSecretDetail(offlineContext, CACHE_KEY, 't1'))?.value, 'P1ain-Trash-Value');
+  assert.deepEqual(
+    (await loadOfflineTrash(offlineContext, CACHE_KEY))?.map((item) => item.id).sort(),
+    ['t1', 't2'],
+    '写列表是本地操作，不该因为后续那次网络请求失败而回退'
+  );
 });
 
 test('an empty organization still caches the wrap (offline shows an empty list, not an error)', async () => {

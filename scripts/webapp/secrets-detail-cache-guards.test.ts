@@ -214,3 +214,34 @@ test('判据能识破「先点亮加载态 / 先走网络」的负例', () => {
   ].join('\n');
   assert.equal(orderIsCorrect(negative), false, '负例本该被拦下 —— 拦不下说明判据失效');
 });
+
+test('回收站预热：列表先渲染，内容再后台补进快照', () => {
+  const loadTrashAt = hookSource.indexOf('onLoadTrash: useCallback');
+  assert.ok(loadTrashAt > 0, `没找到 onLoadTrash（改名了就要更新这条护栏）`);
+  const loadTrash = hookSource.slice(loadTrashAt, hookSource.indexOf('onSelectTrash:', loadTrashAt));
+
+  const listedAt = loadTrash.indexOf('setLiveTrash(listed.items)');
+  const prefetchAt = loadTrash.indexOf('prefetchTrashedSecretDetails(');
+  assert.ok(listedAt > 0, '列表要先落到 state');
+  assert.ok(prefetchAt > listedAt, '预重要排在列表之后 —— 它是补内容，不该挡着列表出现');
+  assert.match(
+    loadTrash,
+    /void prefetchTrashedSecretDetails\(/,
+    '必须不 `await`：预热失败/慢不能拖住面板'
+  );
+  // 离线分支在上面就 return 了 ⇒ 断网时不会去打注定失败的预热请求
+  const offlineBranchAt = loadTrash.indexOf('browserReportsOffline()');
+  assert.ok(offlineBranchAt > 0 && offlineBranchAt < prefetchAt, '离线分支要早于预热（离线时不该发这个请求）');
+});
+
+test('离线要在断网当下就生效，别等到下次联网动作', () => {
+  assert.match(
+    hookSource,
+    /subscribeNetworkStatus\(\(status\) => \{\s*if \(status === 'online'\) void refresh\(\);\s*else setOfflineState\(true\);/,
+    '断网时要立刻转离线态：否则 `offline` 仍是 false，点开详情 / 回收站条目会去撞必然失败的请求，而不是读本地快照'
+  );
+  assert.ok(
+    (hookSource.match(/offlineRef\.current \|\| browserReportsOffline\(\)/g) ?? []).length >= 2,
+    '回收站列表与单条内容要用同一判据 —— 离线事件可能还没传到'
+  );
+});
