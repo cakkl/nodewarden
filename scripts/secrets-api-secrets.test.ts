@@ -12,7 +12,7 @@ import test from 'node:test';
 
 import { handleToken } from '../src/handlers/identity';
 import { handleSecretsApiRoute } from '../src/handlers/secrets-api';
-import { ensureImplicitOrganization } from '../src/services/storage-secrets-repo';
+import { ensureImplicitOrganization, getSecretById, updateSecret } from '../src/services/storage-secrets-repo';
 import { createMachineAccount, setMachineAccountGrant } from '../src/services/storage-secrets-machine-repo';
 import { createAccessToken } from '../src/services/storage-secrets-token-repo';
 import type { Env } from '../src/types';
@@ -455,6 +455,94 @@ test('更新：旧 revisionDate 必须拒绝，缺省仍兼容旧客户端', asy
       projectIds: [projectId],
     });
     assert.equal(legacy?.status, 200, '缺省 revisionDate 必须兼容老客户端');
+  } finally {
+    h.handle.close();
+  }
+});
+
+test('并发：写入时版本已被别处推进 ⇒ 拒绝，不改数据库', async () => {
+  const h = await createHarness();
+  try {
+    const token = await issueToken(h);
+    const projectId = await createProject(h, token);
+    const id = await createSecret(h, token, [projectId]);
+    const before = (await getSecretById(h.env.DB, h.orgId, id))!.revisionDate;
+
+    // 让这条 UPDATE 报 0 行：等价于「读完之后、写之前被别处改过」。预检看的是那份更早的副本，会放它过 ——
+    // 只有条件更新能拦住，这正是本用例要钉住的（漏查返回值就会拿旧副本覆盖回去并返回 200）。
+    const realDb = h.env.DB;
+    h.env.DB = {
+      prepare: (sql: string) =>
+        /UPDATE sm_secrets SET key_encrypted/.test(sql)
+          ? { bind: () => ({ run: async () => ({ success: true, meta: { changes: 0 } }) }) }
+          : realDb.prepare(sql),
+    } as unknown as typeof realDb;
+
+    let response: Response | null = null;
+    try {
+      response = await call(h, `/api/secrets/${id}`, 'PUT', token, {
+        key: ENC_KEY,
+        value: ENC_VALUE,
+        note: ENC_NOTE,
+        projectIds: [projectId],
+        revisionDate: before,
+      });
+    } finally {
+      h.env.DB = realDb;
+    }
+
+    assert.equal(response?.status, 400, '写入时版本已变必须拒绝，不能拿旧副本覆盖回去');
+    assert.equal((await getSecretById(h.env.DB, h.orgId, id))!.revisionDate, before, '被拒绝的写入不能推进版本');
+  } finally {
+    h.handle.close();
+  }
+});
+
+test('存储层：条件更新仅在版本仍匹配时写入', async () => {
+  const h = await createHarness();
+  try {
+    const token = await issueToken(h);
+    const projectId = await createProject(h, token);
+    const id = await createSecret(h, token, [projectId]);
+    const read = await getSecretById(h.env.DB, h.orgId, id);
+    assert.ok(read, '刚建的机密应当读得到');
+
+    // 模拟并发：读取之后别人推进了版本
+    h.connection.prepare('UPDATE sm_secrets SET revision_date = ? WHERE id = ?').run('2026-05-05T00:00:00.000Z', id);
+
+    const rejected = await updateSecret(
+      h.env.DB,
+      {
+        orgId: h.orgId,
+        id,
+        keyEncrypted: ENC_KEY,
+        valueEncrypted: ENC_VALUE,
+        noteEncrypted: '',
+        revisionDate: '2026-06-06T00:00:00.000Z',
+      },
+      read.revisionDate
+    );
+    assert.equal(rejected, false, '版本对不上时必须报告未写入');
+    assert.equal(
+      (await getSecretById(h.env.DB, h.orgId, id))!.revisionDate,
+      '2026-05-05T00:00:00.000Z',
+      '并发的值不能被覆盖回去'
+    );
+
+    const accepted = await updateSecret(
+      h.env.DB,
+      {
+        orgId: h.orgId,
+        id,
+        keyEncrypted: ENC_KEY,
+        valueEncrypted: ENC_VALUE,
+        noteEncrypted: '',
+        revisionDate: '2026-07-07T00:00:00.000Z',
+      },
+      '2026-05-05T00:00:00.000Z'
+    );
+    assert.equal(accepted, true, '版本一致时应当写入');
+    assert.equal((await getSecretById(h.env.DB, h.orgId, id))!.revisionDate, '2026-07-07T00:00:00.000Z');
   } finally {
     h.handle.close();
   }

@@ -528,7 +528,11 @@ async function handleSecretById(
       noteEncrypted: (body!.note as string | undefined) ?? '',
       revisionDate,
     };
-    await updateSecret(env.DB, updated);
+    const written = await updateSecret(env.DB, updated, incomingRevision ? existing.revisionDate : null);
+    // 预检读的是更早的副本：读取与写入之间被别处改过就写不进去，交给客户端重新同步
+    if (!written) {
+      return errorResponse('The client copy of this secret is out of date. Resync the client and try again.', 400);
+    }
     if (resolved.ids !== null) await setSecretProjects(env.DB, id, resolved.ids);
     broadcastSmChange(env, request, principal, 'secrets');
     await recordSecretsEvents({

@@ -83,23 +83,23 @@ export interface SecretsManagerProps {
   onClearSelection: () => void;
   onRefresh: () => Promise<void>;
   /** 批量调整所属项目（逐条给各自的集合）。 */
-  onSetSecretsProjects: (assignments: ReadonlyArray<{ id: string; projectIds: string[] }>) => Promise<void>;
-  onCreateProject: (name: string) => Promise<void>;
-  onRenameProject: (id: string, name: string) => Promise<void>;
-  onDeleteProject: (id: string) => Promise<void>;
+  onSetSecretsProjects: (assignments: ReadonlyArray<{ id: string; projectIds: string[] }>) => Promise<boolean>;
+  onCreateProject: (name: string) => Promise<boolean>;
+  onRenameProject: (id: string, name: string) => Promise<boolean>;
+  onDeleteProject: (id: string) => Promise<boolean>;
   /**
    * 新建 / 更新机密。
    * 标签**不进 `SecretInput`**（那是官方线格式的形状），作为独立参数传：空串 = 清除标签。
    * `contentChanged` = 名称 / 值 / 备注 / 项目是否有变：**只改了标签时不发官方 PUT**，
    * 否则那条 PUT 会无谓推进 `revision_date`（CLI 会以为机密变了、离线快照也会整份重拉）。
    */
-  onCreateSecret: (input: SecretInput, tag: string) => Promise<void>;
-  onUpdateSecret: (id: string, input: SecretInput, tag: string, contentChanged: boolean) => Promise<void>;
-  onDeleteSecret: (id: string) => Promise<void>;
-  onDeleteSecrets: (ids: string[]) => Promise<void>;
+  onCreateSecret: (input: SecretInput, tag: string) => Promise<boolean>;
+  onUpdateSecret: (id: string, input: SecretInput, tag: string, contentChanged: boolean) => Promise<boolean>;
+  onDeleteSecret: (id: string) => Promise<boolean>;
+  onDeleteSecrets: (ids: string[]) => Promise<boolean>;
   onLoadTrash: () => Promise<void>;
-  onRestoreTrash: (ids: string[]) => Promise<void>;
-  onPurgeTrash: (ids: string[]) => Promise<void>;
+  onRestoreTrash: (ids: string[]) => Promise<boolean>;
+  onPurgeTrash: (ids: string[]) => Promise<boolean>;
 }
 
 function messageOf(error: unknown): string {
@@ -568,18 +568,18 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       successText: string,
       /** 恢复回收站条目会连标签一起变（条目回到带标签的分组）⇒ 校准要完整跑一次 */
       options?: { withTags?: boolean }
-    ): Promise<void> => {
+    ): Promise<boolean> => {
       // 离线只读：写操作在本地拦下（按钮保留，反馈走既有 toast 机制，与密码库同一口径）
       if (offlineRef.current) {
         onNotify('error', t('txt_sm_offline_readonly'));
-        return;
+        return false;
       }
       const current = context;
-      // 还没有组织上下文 ⇒ 静默返回（不是失败，不该弹错误）
-      if (!current) return;
-      await (options?.withTags ? runWithTags : run)(() => action(current), successText);
+      // 还没有组织上下文 ⇒ 静默返回（不是失败，不该弹错误）；但也没写进去，调用方不能当成功
+      if (!current) return false;
+      return (options?.withTags ? runWithTags : run)(() => action(current), successText);
     },
-    [context, run, onNotify]
+    [context, run, runWithTags, onNotify]
   );
 
   return {

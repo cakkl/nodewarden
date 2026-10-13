@@ -215,24 +215,35 @@ export async function listSecretTags(db: D1Database, orgId: string): Promise<Arr
   return (result.results ?? []).map((row: any) => ({ id: row.id, tagEncrypted: row.tag_encrypted ?? null }));
 }
 
+/**
+ * 写入机密内容。
+ *
+ * 传 `expectedRevision` 时把「版本仍是它」写进同一条语句：读取与写入之间被别处改过就匹配 0 行。
+ * 调用方据此拒掉这次写入 —— 预检只是提前告知，真正的互斥靠这里。省略则为无条件写入。
+ * 返回是否真的写入了。
+ */
 export async function updateSecret(
   db: D1Database,
-  secret: Pick<SmSecret, 'orgId' | 'id' | 'keyEncrypted' | 'valueEncrypted' | 'noteEncrypted' | 'revisionDate'>
-): Promise<void> {
-  await db
+  secret: Pick<SmSecret, 'orgId' | 'id' | 'keyEncrypted' | 'valueEncrypted' | 'noteEncrypted' | 'revisionDate'>,
+  expectedRevision?: string | null
+): Promise<boolean> {
+  const values = [
+    secret.keyEncrypted,
+    secret.valueEncrypted,
+    secret.noteEncrypted,
+    secret.revisionDate,
+    secret.orgId,
+    secret.id,
+  ];
+  if (expectedRevision) values.push(expectedRevision);
+  const result = await db
     .prepare(
       'UPDATE sm_secrets SET key_encrypted = ?, value_encrypted = ?, note_encrypted = ?, revision_date = ? ' +
-        'WHERE org_id = ? AND id = ? AND deleted_at IS NULL'
+        `WHERE org_id = ? AND id = ? AND deleted_at IS NULL${expectedRevision ? ' AND revision_date = ?' : ''}`
     )
-    .bind(
-      secret.keyEncrypted,
-      secret.valueEncrypted,
-      secret.noteEncrypted,
-      secret.revisionDate,
-      secret.orgId,
-      secret.id
-    )
+    .bind(...values)
     .run();
+  return Number(result.meta.changes ?? 0) > 0;
 }
 
 /** 软删（进 Trash）。已经删过的不重复写，保留首次删除时间。 */

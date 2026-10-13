@@ -373,30 +373,31 @@ export default function SecretsPage(props: SecretsPageProps) {
     // 允许一个 project 都不选（官方 `project_ids` 也是可选）：这类机密只对 Web 会话可见，
     // 机器账号按 project 授权过滤 ⇒ 看不到它。
     if (!input.key.trim()) return;
-    if (draft.id) {
-      // 编辑时一定带 `original`（新建才为 null）⇒ 没带就当作内容变了，宁可多发一次 PUT
-      const contentChanged = draft.original ? contentChangedFrom(draft.original, input) : true;
-      await onUpdateSecret(draft.id, input, draft.tag, contentChanged);
-    } else {
-      await onCreateSecret(input, draft.tag);
-    }
-    setDraft(null);
+    // 编辑时一定带 `original`（新建才为 null）⇒ 没带就当作内容变了，宁可多发一次 PUT
+    const contentChanged = draft.original ? contentChangedFrom(draft.original, input) : true;
+    const written = draft.id
+      ? await onUpdateSecret(draft.id, input, draft.tag, contentChanged)
+      : await onCreateSecret(input, draft.tag);
+    // 失败时保留表单：冲突提示要求用户「复制需要的修改」，表单一关就什么都复制不到了
+    if (written) setDraft(null);
   }
 
   async function submitNewProject(): Promise<void> {
     const trimmed = newProjectName.trim();
     if (!trimmed) return;
-    await manager.onCreateProject(trimmed);
-    setNewProjectName('');
-    setCreatingProject(false);
+    // 失败时保留输入：名字重打一遍很烦，而错误提示就在眼前
+    if (await manager.onCreateProject(trimmed)) {
+      setNewProjectName('');
+      setCreatingProject(false);
+    }
   }
 
   async function submitRenameProject(): Promise<void> {
     if (!renamingProject) return;
     const trimmed = renamingProject.name.trim();
     if (!trimmed) return;
-    await manager.onRenameProject(renamingProject.id, trimmed);
-    setRenamingProject(null);
+    // 同上：重命名失败时把原来的输入留在框里
+    if (await manager.onRenameProject(renamingProject.id, trimmed)) setRenamingProject(null);
   }
 
   function selectSecret(id: string): void {
