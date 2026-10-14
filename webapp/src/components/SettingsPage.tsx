@@ -217,6 +217,13 @@ export default function SettingsPage(props: SettingsPageProps) {
   const { format } = useDateTimeFormat();
   const formatDateTime = (value: string | null | undefined): string => format(value) ?? t('txt_dash');
   const [selectedLocale, setSelectedLocale] = useState<Locale>(() => getLocale());
+  /**
+   * 「自动」档位的本地覆盖：切换时立即生效，`null` = 以服务端偏好为准。
+   * ⚠️ 档位只存在于服务端偏好里，要等保存往返（PUT + 重取）返回才更新；期间下拉 `value` 会退回
+   * `selectedLocale` ⇒ 选「自动」显示成「简体中文」（真机实测）。
+   */
+  const [pendingAuto, setPendingAuto] = useState<boolean | null>(null);
+  const autoLocale = pendingAuto ?? !!props.mailPreferences?.autoLocale;
   const [activeSection, setActiveSection] = useState<SettingsSection>('preferences');
 
   const [emailVerification, setEmailVerification] = useState<EmailVerificationStatus | null>(null);
@@ -671,6 +678,7 @@ export default function SettingsPage(props: SettingsPageProps) {
     const auto = next === AUTO_OPTION;
     const effective = auto ? detectBrowserLocale() : next;
     setSelectedLocale(effective);
+    setPendingAuto(auto);
     // ⚠️ 顺序要紧：先本地生效，再「尽力同步」服务端。
     // 旧写法把服务端保存放在前面，离线时它会抛错 ⇒ `setLocale` 根本不执行，界面仍是旧语言，
     // 而下拉框已经显示新语言，且没有任何提示（真机实测）。
@@ -678,12 +686,17 @@ export default function SettingsPage(props: SettingsPageProps) {
       // 热切换：`setLocale` 会通知订阅者重渲染 ⇒ 不整页重载，也就不需要重新解锁密码库。
       await setLocale(effective);
     }
+    const savePreferences = props.onSaveMailPreferences;
+    if (!savePreferences) return;
     try {
-      await props.onSaveMailPreferences?.(
+      await savePreferences(
         auto ? { locale: effective, localeAuto: true } : { locale: effective, localeAuto: false }
       );
+      // 服务端已记下这个档位 ⇒ 交回偏好（`pendingAuto` 只是保存期间的本地覆盖）。
+      setPendingAuto(null);
     } catch (error) {
-      // 界面语言已在本地切好，只有「服务端记下来的语言」（邮件与其它设备用）没存上
+      // 界面语言已在本地切好，只有「服务端记下来的语言」（邮件与其它设备用）没存上；
+      // 档位保留本地值，否则下拉会跳回旧档位、与已经切好的界面语言自相矛盾。
       props.onNotify?.('error', error instanceof Error ? error.message : t('txt_save_failed'));
     }
   }
@@ -1007,7 +1020,7 @@ export default function SettingsPage(props: SettingsPageProps) {
                     <span>{t('txt_display_language')}</span>
                     <select
                       className="input"
-                      value={props.mailPreferences?.autoLocale ? AUTO_OPTION : selectedLocale}
+                      value={autoLocale ? AUTO_OPTION : selectedLocale}
                       onInput={(e) => void changeLocale((e.currentTarget as HTMLSelectElement).value as Locale | typeof AUTO_OPTION)}
                     >
                       <option value={AUTO_OPTION}>

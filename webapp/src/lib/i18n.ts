@@ -150,9 +150,13 @@ const localeLoaders: Record<Locale, () => Promise<{ default: MessageTable }>> = 
 function localeToHtmlLang(value: Locale): string {
   return value;
 }
+
+/** 实际生效的文案语言：加载失败时是兜底的 `en`，用户的选择 `locale` 不变（`<html lang>` 跟它走）。 */
+let activeLocale: Locale | null = null;
+
 function syncDocumentLanguage(): void {
   if (typeof document === 'undefined') return;
-  document.documentElement.lang = localeToHtmlLang(locale);
+  document.documentElement.lang = localeToHtmlLang(activeLocale ?? locale);
 }
 
 async function loadLocaleMessages(next: Locale): Promise<MessageTable> {
@@ -182,9 +186,11 @@ export type I18nParams = Record<string, string | number | null | undefined>;
 export async function initI18n(): Promise<void> {
   try {
     activeMessages = await loadLocaleMessages(locale);
+    activeLocale = locale;
   } catch (error) {
+    // ⚠️ 失败只影响**本次渲染**：不改写用户的选择，下次加载会重新按 `locale` 尝试。
     console.error('Failed to load locale, falling back to English:', error);
-    locale = 'en';
+    activeLocale = 'en';
     activeMessages = await loadFallbackMessages();
   } finally {
     syncDocumentLanguage();
@@ -395,23 +401,35 @@ export function getLocale(): Locale {
   return locale;
 }
 
+/** 持久化用户的选择。加载失败时也要写 —— 下次加载才能重新尝试，而不是钉死在兜底语言上。 */
+function persistLocale(value: Locale): void {
+  try {
+    localStorage.setItem(LOCALE_STORAGE_KEY, value);
+  } catch {
+    // ignore storage errors
+  }
+}
+
 export async function setLocale(next: Locale): Promise<void> {
   let nextMessages: MessageTable;
   try {
     nextMessages = await loadLocaleMessages(next);
   } catch (error) {
-    console.error('Failed to load selected locale, falling back to English:', error);
-    next = 'en';
-    nextMessages = await loadFallbackMessages();
+    // ⚠️ 加载失败 ≠ 用户改选：只把**本次渲染**兜底成英文，选择照旧落盘 —— 改成 'en' 再持久化
+    // 会让一次网络抖动把语言永久钉死在英文（同页面内该语言包已被浏览器标记失败，再 import 只会同步抛错）。
+    locale = next;
+    activeLocale = 'en';
+    activeMessages = await loadFallbackMessages();
+    syncDocumentLanguage();
+    persistLocale(next);
+    notifyI18nChanged();
+    return;
   }
   locale = next;
+  activeLocale = next;
   activeMessages = nextMessages;
   syncDocumentLanguage();
-  try {
-    localStorage.setItem(LOCALE_STORAGE_KEY, next);
-  } catch {
-    // ignore storage errors
-  }
+  persistLocale(next);
   // 通知订阅者重渲染 —— 调用方不需要再整页重载（后者会连带要求重新解锁）。
   notifyI18nChanged();
 }

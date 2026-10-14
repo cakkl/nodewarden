@@ -147,3 +147,33 @@ test('切语言不得整页重载（重载会连带要求重新解锁密码库�
   assert.doesNotMatch(localeEffect[0], /location\.reload/, '服务端偏好切换同样要走热切换');
   assert.match(app, /useI18nRevision\(\)/, '根组件必须订阅语言变化，否则热切换不会重渲染');
 });
+
+test('语言包加载失败不得改写用户的选择（只兜底本次渲染）', () => {
+  const source = readSource('webapp/src/lib/i18n.ts');
+
+  for (const [name, pattern] of [
+    ['initI18n', /export async function initI18n\(\)[\s\S]*?\n\}/],
+    ['setLocale', /export async function setLocale\([\s\S]*?\n\}/],
+  ] as const) {
+    const block = source.match(pattern);
+    assert.ok(block, `未能抽到 ${name} —— 写法变了，本护栏要跟着改`);
+    const body = block[0];
+    // 失败只能进「实际生效语言」，不能进持久化值：否则一次网络抖动就把用户的选择覆盖成英文。
+    assert.doesNotMatch(body, /^\s*locale = 'en';/m, `${name} 的失败分支不得把 locale 改成 en`);
+    assert.doesNotMatch(body, /localStorage\.setItem\([^)]*'en'/, `${name} 不得把 en 写进持久化`);
+    assert.match(body, /activeLocale = 'en'/, `${name} 失败时只应把实际生效语言兜底成英文`);
+  }
+
+  // 自检：成功路径仍要持久化**用户选择**，别把正确的写法一起吃掉了
+  assert.match(source, /persistLocale\(next\);/, 'setLocale 仍须持久化用户选择');
+  assert.match(
+    source,
+    /function persistLocale\(value: Locale\)[\s\S]{0,160}?localStorage\.setItem\(LOCALE_STORAGE_KEY, value\)/,
+    '持久化只走 persistLocale，且写入的是传入值'
+  );
+  assert.match(
+    source,
+    /document\.documentElement\.lang = localeToHtmlLang\(activeLocale \?\? locale\)/,
+    '<html lang> 必须反映实际生效的文案语言，而不是用户的选择'
+  );
+});

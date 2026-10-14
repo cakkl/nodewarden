@@ -57,3 +57,25 @@ test('下拉把探测语言提到第二位，选项文本用语言自己的写�
   assert.match(block[0], /\{option\.label\}/, '选项文本必须是语言自己的写法');
   assert.doesNotMatch(block[0], /t\(/, '不得把语言名按界面语言翻译');
 });
+
+test('「自动」档位本地即时生效，不等异步保存返回', () => {
+  const source = readSource('webapp/src/components/SettingsPage.tsx');
+
+  // 下拉值必须用本地档位：直读服务端偏好时，保存往返期间会退回 selectedLocale 而显示错位。
+  const block = source.match(/txt_display_language[\s\S]{0,900}?<\/select>/);
+  assert.ok(block, '未能从 SettingsPage 抽到语言下拉 —— 写法变了，本护栏要跟着改');
+  assert.match(block[0], /value=\{autoLocale \? AUTO_OPTION : selectedLocale\}/, '下拉值必须用本地档位');
+  assert.doesNotMatch(
+    block[0],
+    /value=\{props\.mailPreferences\?\.autoLocale \?/,
+    '下拉值不得直读服务端偏好'
+  );
+
+  assert.match(
+    source,
+    /const autoLocale = pendingAuto \?\? !!props\.mailPreferences\?\.autoLocale;/,
+    '档位要靠本地覆盖状态派生'
+  );
+  assert.match(source, /setPendingAuto\(auto\);/, '切换时立即写入本地档位');
+  assert.match(source, /setPendingAuto\(null\);/, '保存成功后交回服务端偏好');
+});
