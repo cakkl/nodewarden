@@ -10,13 +10,17 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { createAuthedFetch } from '../../webapp/src/lib/api/auth';
+import { createAuthedFetch, getPasswordHint, revokeCurrentSession, sendEmailTwoFactorLoginCode } from '../../webapp/src/lib/api/auth';
+import { accessSendWithToken } from '../../webapp/src/lib/api/send';
 import { OfflineRequestError } from '../../webapp/src/lib/api/shared';
 import { t } from '../../webapp/src/lib/i18n';
 import {
   backendUnreachable,
   browserReportsOffline,
+  getCurrentNetworkStatus,
+  recordBackendRequestFailure,
   recordNodeWardenReachable,
+  recordNodeWardenUnreachable,
   setCurrentNetworkStatus,
 } from '../../webapp/src/lib/network-status';
 import { requestPersistentStorage } from '../../webapp/src/lib/pwa';
@@ -91,8 +95,67 @@ test('authedFetch: 网络层失败统一成本地化错误（并发起重试）'
       return true;
     });
     assert.equal(attempts, 3, '三次尝试后放弃（与既有重试策略一致）');
+    // ⭐ 提示与徽标必须一致：报「无法连接」的同时状态就得是离线（线上实测：切语言 / 同步都这样）。
+    assert.equal(getCurrentNetworkStatus(), 'offline', '重试到底后必须立即翻离线');
   } finally {
     globalThis.fetch = originalFetch;
+    resetNetworkStatus();
+    restore();
+  }
+});
+
+test('未登录路径的连接层失败也要本地化（不得透出 Failed to fetch）', async () => {
+  resetNetworkStatus();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    throw new TypeError('Failed to fetch');
+  }) as typeof fetch;
+  const offlineMessage = t('txt_offline_unavailable');
+  const expectOfflineMessage = (error: unknown) => {
+    assert.ok(error instanceof OfflineRequestError, '必须是 OfflineRequestError');
+    assert.equal((error as Error).message, offlineMessage);
+    assert.ok(!(error as Error).message.includes('Failed to fetch'), '不得把浏览器原文透给用户');
+    return true;
+  };
+  try {
+    // 登录前的公开入口：以前它们裸发 fetch，未处理时弹的是 `Failed to fetch`（真机实测）
+    await assert.rejects(getPasswordHint('a@b.test'), expectOfflineMessage);
+    await assert.rejects(sendEmailTwoFactorLoginCode('a@b.test'), expectOfflineMessage);
+    await assert.rejects(accessSendWithToken('token'), expectOfflineMessage);
+    // 登出是**刻意静默**的：拿不到后端也不该拦住用户退出（`revokeCurrentSession` 自带 `.catch`）。
+    await assert.doesNotReject(revokeCurrentSession(null), '登出失败必须静默');
+  } finally {
+    globalThis.fetch = originalFetch;
+    resetNetworkStatus();
+  }
+});
+
+test('未登录路径的裸 fetch 已收敛到 guestFetch', () => {
+  const auth = readFileSync(new URL('../../webapp/src/lib/api/auth.ts', import.meta.url), 'utf8');
+  assert.equal(
+    (auth.match(/await fetch\(/g) ?? []).length,
+    2,
+    'auth.ts 只允许两处裸 fetch：refreshAccessToken（要区分网络失败与 HTTP 失败）与 authedFetch 自身；其余一律走 guestFetch'
+  );
+
+  const send = readFileSync(new URL('../../webapp/src/lib/api/send.ts', import.meta.url), 'utf8');
+  assert.equal((send.match(/await fetch\(/g) ?? []).length, 0, 'send.ts 的匿名访问必须走 guestFetch');
+});
+
+test('探针失败要防抖，真实请求失败不防抖', () => {
+  const restore = withOnline(true);
+  resetNetworkStatus();
+  try {
+    recordNodeWardenUnreachable();
+    assert.equal(getCurrentNetworkStatus(), 'online', '探针只试一次，失败 1 次仍需防抖');
+
+    resetNetworkStatus();
+    recordBackendRequestFailure();
+    assert.equal(getCurrentNetworkStatus(), 'offline', '真实请求已重试到底，1 次失败即离线');
+
+    recordNodeWardenReachable();
+    assert.equal(getCurrentNetworkStatus(), 'online', '一次成功请求即可恢复在线');
+  } finally {
     resetNetworkStatus();
     restore();
   }

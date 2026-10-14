@@ -20,8 +20,8 @@ import type {
   YubiKeyOtpSettings,
 } from '../types';
 import type { AccountPasskeyAssertion, AccountPasskeyPrfKeySet } from '../account-passkeys';
-import { recordNodeWardenReachable, recordNodeWardenUnreachable } from '../network-status';
-import { createApiError, parseErrorMessage, parseJson, readRetryAfterSeconds, OfflineRequestError, type AuthedFetch, type SessionSetter } from './shared';
+import { recordBackendRequestFailure, recordNodeWardenReachable } from '../network-status';
+import { createApiError, guestFetch, parseErrorMessage, parseJson, readRetryAfterSeconds, OfflineRequestError, type AuthedFetch, type SessionSetter } from './shared';
 
 const SESSION_KEY = 'nodewarden.web.session.v4';
 const PROFILE_SNAPSHOT_KEY = 'nodewarden.web.profile-snapshot.v1';
@@ -229,7 +229,7 @@ export function getCurrentDeviceIdentifier(): string {
 }
 
 export async function deriveLoginHash(email: string, password: string, fallbackIterations: number): Promise<PreloginResult> {
-  const pre = await fetch('/identity/accounts/prelogin', {
+  const pre = await guestFetch('/identity/accounts/prelogin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: email.toLowerCase() }),
@@ -257,7 +257,7 @@ export async function deriveLoginHashLocally(
 export async function getPreloginKdfConfig(email: string, fallbackIterations: number): Promise<PreloginKdfConfig> {
   const normalized = String(email || '').trim().toLowerCase();
   if (!normalized) throw new Error('Email is required');
-  const pre = await fetch('/identity/accounts/prelogin', {
+  const pre = await guestFetch('/identity/accounts/prelogin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: normalized }),
@@ -309,7 +309,7 @@ export async function loginWithPassword(
   if (newDeviceOtp) {
     body.set('newDeviceOtp', newDeviceOtp);
   }
-  const resp = await fetch('/identity/connect/token', {
+  const resp = await guestFetch('/identity/connect/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -329,7 +329,7 @@ export async function loginWithPassword(
 }
 
 export async function getAccountPasskeyAssertionOptions(): Promise<{ options: unknown; token: string }> {
-  const resp = await fetch('/identity/accounts/webauthn/assertion-options');
+  const resp = await guestFetch('/identity/accounts/webauthn/assertion-options');
   if (!resp.ok) {
     const json = await parseJson<TokenError>(resp);
     throw new Error(translateServerError(json?.error_description || json?.error, t('txt_login_failed')));
@@ -349,7 +349,7 @@ export async function loginWithAccountPasskeyAssertion(assertion: AccountPasskey
   body.set('deviceName', guessDeviceName());
   body.set('deviceType', '14');
 
-  const resp = await fetch('/identity/connect/token', {
+  const resp = await guestFetch('/identity/connect/token', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
@@ -433,7 +433,7 @@ export async function revokeCurrentSession(session: SessionState | null): Promis
   if (session?.authMode !== 'web-cookie' && session?.refreshToken) {
     body.set('token', session.refreshToken);
   }
-  await fetch('/identity/connect/revocation', {
+  await guestFetch('/identity/connect/revocation', {
     method: 'POST',
     cache: 'no-store',
     credentials: 'same-origin',
@@ -478,7 +478,7 @@ export async function registerAccount(args: {
     const privateKey = new Uint8Array(await webCrypto.subtle.exportKey('pkcs8', keyPair.privateKey));
     const encryptedPrivateKey = await encryptBw(privateKey, sym.slice(0, 32), sym.slice(32, 64));
 
-    const resp = await fetch('/api/accounts/register', {
+    const resp = await guestFetch('/api/accounts/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -503,10 +503,14 @@ export async function registerAccount(args: {
     }
     return { ok: true };
   } catch (error) {
+    // 网络层失败已经是本地化文案（`guestFetch`），直接用，别再走一遍错误映射。
+    if (error instanceof OfflineRequestError) {
+      return { ok: false, message: error.message };
+    }
     if (error instanceof WebCryptoUnavailableError) {
       return { ok: false, message: t('txt_web_crypto_unavailable') };
     }
-    return { ok: false, message: error instanceof Error ? translateServerError(error.message, error.message) : t('txt_register_failed') };
+    return { ok: false, message: error instanceof Error ? translateServerError(error.message, t('txt_register_failed')) : t('txt_register_failed') };
   }
 }
 
@@ -516,7 +520,7 @@ export async function registerAccount(args: {
  */
 export async function getServerConfig(): Promise<{ mailDeliveryAvailable: boolean | null }> {
   // 不加 `cache: 'no-store'`：服务端给了 ETag + `private, no-cache`，让浏览器走条件请求（命中 304 就不重传 body）。
-  const resp = await fetch('/api/config');
+  const resp = await guestFetch('/api/config');
   if (!resp.ok) return { mailDeliveryAvailable: null };
   const body = (await parseJson<{ mailDeliveryAvailable?: boolean }>(resp)) || {};
   return { mailDeliveryAvailable: typeof body.mailDeliveryAvailable === 'boolean' ? body.mailDeliveryAvailable : null };
@@ -528,7 +532,7 @@ export async function getServerConfig(): Promise<{ mailDeliveryAvailable: boolea
 export async function getPasswordHint(
   email: string
 ): Promise<{ sent: boolean; masterPasswordHint: string | null }> {
-  const resp = await fetch('/api/accounts/password-hint', {
+  const resp = await guestFetch('/api/accounts/password-hint', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: email.trim().toLowerCase() }),
@@ -572,7 +576,7 @@ export function createAuthedFetch(getSession: () => SessionState | null, setSess
         } catch (error) {
           lastError = error;
           if (attempt === maxAttempts - 1) {
-            recordNodeWardenUnreachable();
+            recordBackendRequestFailure();
             throw asOfflineError(error);
           }
         }
@@ -1229,7 +1233,7 @@ export async function setDefaultTwoFactorProvider(authedFetch: AuthedFetch, prov
 /** 发送邮件两步登录的登录验证码。**公开端点**（登录前调用，无会话）。
  * 限流时把服务端的 `Retry-After` 附到错误上 ⇒ 界面可在按钮上倒计时。 */
 export async function sendEmailTwoFactorLoginCode(email: string): Promise<void> {
-  const resp = await fetch('/api/two-factor/send-email-login', {
+  const resp = await guestFetch('/api/two-factor/send-email-login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email: email.trim().toLowerCase() }),
@@ -1250,7 +1254,7 @@ export async function sendEmailTwoFactorLoginCode(email: string): Promise<void> 
  * ⚠️ 码**按设备绑定** ⇒ 必须带 `Device-Identifier` 头；服务端对「发了」与「没发」返回同一响应。
  */
 export async function resendNewDeviceOtp(email: string, masterPasswordHash: string): Promise<void> {
-  const resp = await fetch('/accounts/resend-new-device-otp', {
+  const resp = await guestFetch('/accounts/resend-new-device-otp', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

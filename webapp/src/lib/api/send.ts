@@ -1,6 +1,6 @@
 import { base64ToBytes, bytesToBase64, decryptBw, decryptBwFileData, decryptStr, encryptBw, encryptBwFileData, hkdf, pbkdf2 } from '../crypto';
 import type { Send, SendDraft, SessionState } from '../types';
-import { chunkArray, createApiError, parseErrorMessage, parseJson, uploadDirectEncryptedPayload, type AuthedFetch } from './shared';
+import { chunkArray, createApiError, guestFetch, parseErrorMessage, parseJson, uploadDirectEncryptedPayload, type AuthedFetch } from './shared';
 import { t } from '../i18n';
 
 function toIsoDateFromDays(value: string, required: boolean): string | null {
@@ -379,7 +379,7 @@ export async function requestSendAccessToken(
     }
   }
 
-  const resp = await fetch('/identity/connect/token', {
+  const resp = await guestFetch('/identity/connect/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: form.toString(),
@@ -395,7 +395,7 @@ export async function requestSendAccessToken(
 
 /** 用访问令牌取 Send 内容（`POST /api/sends/access`）。 */
 export async function accessSendWithToken(accessToken: string): Promise<unknown> {
-  const resp = await fetch('/api/sends/access', {
+  const resp = await guestFetch('/api/sends/access', {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
   });
@@ -407,7 +407,7 @@ export async function accessSendWithToken(accessToken: string): Promise<unknown>
 
 /** 用访问令牌取文件下载地址（`POST /api/sends/access/file/{fileId}`）。 */
 export async function requestSendFileUrl(accessToken: string, fileId: string): Promise<string> {
-  const resp = await fetch(`/api/sends/access/file/${encodeURIComponent(fileId)}`, {
+  const resp = await guestFetch(`/api/sends/access/file/${encodeURIComponent(fileId)}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${accessToken}` },
   });

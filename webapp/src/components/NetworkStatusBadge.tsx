@@ -7,7 +7,7 @@ import useNetworkStatus from '@/hooks/useNetworkStatus';
 /**
  * 周期兜底的间隔。每次探针都是**一次完整 Worker 调用**（`cache: 'no-store'` + 唯一 query），
  * 原为 30 秒 ⇒ 页面开着就是 120 次/小时。首屏、`online`、重新聚焦、重新可见各已探一次，
- * 且真实 API 失败也会翻状态（`api/auth.ts` 的 `recordNodeWardenUnreachable`）⇒ 周期只做兜底。
+ * 且真实 API 失败也会翻状态（`api/auth.ts` 的 `recordBackendRequestFailure`）⇒ 周期只做兜底。
  */
 const STATUS_CHECK_INTERVAL_MS = 5 * 60_000;
 

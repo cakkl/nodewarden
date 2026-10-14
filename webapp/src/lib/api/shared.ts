@@ -15,6 +15,21 @@ export class OfflineRequestError extends Error {
   }
 }
 
+/**
+ * 未登录时的请求封装（登录 / 注册 / 找回提示 / 公共分享：没有令牌，用不了 `authedFetch`）。
+ * ⚠️ 把网络层失败（`TypeError: Failed to fetch`）换算成与 `authedFetch` 同一个本地化错误 ——
+ * 不换算的调用方会把浏览器原文弹给用户。主动中止照旧透传，否则 AbortError 判断会失效。
+ */
+export async function guestFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (error) {
+    const name = error && typeof error === 'object' ? (error as { name?: unknown }).name : undefined;
+    if (name === 'AbortError') throw error;
+    throw new OfflineRequestError();
+  }
+}
+
 export const BULK_API_CHUNK_SIZE = 200;
 
 export function chunkArray<T>(items: T[], size: number): T[][] {
@@ -118,7 +133,7 @@ export async function uploadWithProgress(input: string, options: UploadWithProgr
   if (typeof XMLHttpRequest === 'undefined') {
     const headers = new Headers(options.headers || {});
     if (options.accessToken) headers.set('Authorization', `Bearer ${options.accessToken}`);
-    return fetch(input, {
+    return guestFetch(input, {
       method: options.method || 'POST',
       headers,
       body: options.body ?? null,
@@ -142,7 +157,8 @@ export async function uploadWithProgress(input: string, options: UploadWithProgr
       options.onProgress(Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100))));
     };
 
-    xhr.onerror = () => reject(new Error('Network error'));
+    // 连接层失败与 `authedFetch` 同口径；主动中止不算离线。
+    xhr.onerror = () => reject(new OfflineRequestError());
     xhr.onabort = () => reject(new Error('Upload aborted'));
     xhr.onload = () => {
       options.onProgress?.(100);

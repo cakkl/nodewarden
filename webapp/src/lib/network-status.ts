@@ -60,6 +60,17 @@ export function recordNodeWardenUnreachable(): void {
   }
 }
 
+/**
+ * 真实 API 请求失败（调用方已重试到底）⇒ **立即**翻离线，不参与上面的防抖计数。
+ * ⚠️ 探针只试一次才需要防抖；写请求已试满 3 次、跨多条连接，一次失败即足以判定。共用计数会让
+ * 状态与提示自相矛盾（提示「无法连接」而徽标仍「在线」），任何一次成功请求还会清零计数。
+ */
+export function recordBackendRequestFailure(): void {
+  lastProbeResult = false;
+  consecutiveProbeFailures = 0;
+  setCurrentNetworkStatus('offline');
+}
+
 export async function probeNodeWardenService(): Promise<boolean> {
   if (browserReportsOffline()) {
     consecutiveProbeFailures = PROBE_FAILURES_BEFORE_OFFLINE;
