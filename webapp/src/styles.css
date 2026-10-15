@@ -1557,3 +1557,27 @@ input[type='file'].input::file-selector-button {
     font-weight: 800;
   }
 }
+
+/* 桌面 PWA（Edge / Chrome 安装后）走 WCO：窗口的最小化 / 最大化 / 关闭按钮浮在页面
+   右上角，压住顶栏右侧的「主题 / 锁定 / 退出」。按规范用 `titlebar-area-*` 撑出右侧
+   让位（顶栏宽 − 可用标题栏宽 = 系统按钮实际占用宽度，含 Edge 自己的菜单按钮）。
+   ⚠️ 必须写在打磨层末尾：`padding-*` 与 `responsive.css` / 本文件 ≤1180px 块的
+   `padding-inline` 同特异性，只有靠后加载才压得住。
+   ⚠️ 顶栏空白区要 `drag`（否则窗口无法用鼠标拖动），交互元素必须显式 `no-drag`。 */
+@media (display-mode: window-controls-overlay) {
+  .topbar {
+    padding-right: calc(100% - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100%) + 18px);
+    -webkit-app-region: drag;
+    app-region: drag;
+  }
+
+  /* 拖动区里的交互元素必须显式挖掉，否则点击会被系统当作拖动窗口吞掉。 */
+  .topbar a,
+  .topbar button,
+  .topbar label,
+  .topbar input,
+  .topbar-actions {
+    -webkit-app-region: no-drag;
+    app-region: no-drag;
+  }
+}
