@@ -16,6 +16,7 @@ import {
   assertAccountPasskey,
   unlockVaultKeyWithAccountPasskeyPrf,
 } from '@/lib/account-passkeys';
+import { OfflineRequestError } from '@/lib/api/shared';
 import { readInviteCodeFromUrl } from '@/lib/app-support';
 import { t, translateServerError } from '@/lib/i18n';
 import {
@@ -667,9 +668,13 @@ export async function performPasskeyLogin(fallbackIterations: number, expectedEm
       },
     };
   } catch (error) {
+    // 网络层失败已是本地化文案（`guestFetch`），直接用 —— 旧写法拿 `error.message` 当兜底会透出原文。
+    if (error instanceof OfflineRequestError) {
+      return { kind: 'error', message: error.message };
+    }
     return {
       kind: 'error',
-      message: error instanceof Error ? translateServerError(error.message, error.message) : t('txt_login_failed'),
+      message: error instanceof Error ? translateServerError(error.message, t('txt_login_failed')) : t('txt_login_failed'),
     };
   }
 }
