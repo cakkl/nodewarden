@@ -85,6 +85,7 @@ function compareBy(mode: SortMode): (a: Sortable, b: Sortable) => number {
 export default function SecretsPage(props: SecretsPageProps) {
   const { mobileLayout, manager } = props;
   const {
+    busy,
     onLoadTrash,
     onSelectSecret,
     onClearSelection,
@@ -589,7 +590,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                 className="folder-delete-btn folder-edit-btn"
                 title={t('txt_create')}
                 aria-label={t('txt_create')}
-                disabled={!newProjectName.trim()}
+                disabled={busy || !newProjectName.trim()}
                 onClick={() => void submitNewProject()}
               >
                 <Check size={12} />
@@ -627,6 +628,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                   className="folder-delete-btn folder-edit-btn"
                   title={t('txt_save')}
                   aria-label={t('txt_save')}
+                  disabled={busy}
                   onClick={() => void submitRenameProject()}
                 >
                   <Check size={12} />
@@ -971,7 +973,7 @@ export default function SecretsPage(props: SecretsPageProps) {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={!manager.ready || !draft.input.key.trim()}
+                  disabled={busy || !manager.ready || !draft.input.key.trim()}
                   onClick={() => void saveDraft()}
                 >
                   <Check size={14} className="btn-icon" />

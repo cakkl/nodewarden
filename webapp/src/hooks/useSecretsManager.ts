@@ -42,6 +42,7 @@ import { t } from '@/lib/i18n';
 import { backendUnreachable as sharedBackendUnreachable, browserReportsOffline, subscribeNetworkStatus } from '@/lib/network-status';
 import { SECRETS_DEMO_PROJECTS, SECRETS_DEMO_SECRETS, SECRETS_DEMO_TRASH } from '@/lib/secrets-demo';
 import { onSecretsManagerChange } from '@/lib/secrets-realtime';
+import { createSingleFlightRegistry } from '@/lib/single-flight';
 import type { SessionState } from '@/lib/types';
 import { useActionRunner, type AppNotify } from './useActionRunner';
 
@@ -63,6 +64,8 @@ interface UseSecretsManagerOptions {
  */
 export interface SecretsManagerProps {
   ready: boolean;
+  /** 有写操作正在进行（创建 / 保存 / 删除）。表单按钮据此置灰，防止重复提交。 */
+  busy: boolean;
   loading: boolean;
   error: string;
   /** 数据来自本地缓存（离线只读）：写操作会被挡下并提示，不改变界面形态。 */
@@ -108,6 +111,9 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** 写操作类型：同类互斥（防双击），异类可并行。 */
+type WriteKind = 'project' | 'secret' | 'trash';
+
 /** 写结果缓存的键：同一条机密换了 `revisionDate` 就是另一份内容（两份不能混用）。 */
 function writtenDetailKey(id: string, revisionDate: string): string {
   return `${id}:${revisionDate}`;
@@ -119,6 +125,9 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
 
   const [context, setContext] = useState<SecretsContext | null>(null);
   const [offline, setOffline] = useState(false);
+  /** 写操作进行中（界面置灰用）。多个类型可并行 ⇒ 计数而非布尔。 */
+  const [pendingWrites, setPendingWrites] = useState(0);
+  const busy = pendingWrites > 0;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [liveProjects, setLiveProjects] = useState<SecretProject[]>([]);
@@ -147,6 +156,8 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   // 离线只读状态：用 ref 同步一份，免得写进回调依赖后反复换标识（见下方无限重拉的教训）
   const offlineRef = useRef(offline);
   offlineRef.current = offline;
+  /** 写操作门闩：按类型分开 ⇒ 同类双击被挡、异类可并行（见 `lib/single-flight.ts`）。 */
+  const writeGates = useRef(createSingleFlightRegistry<WriteKind>()).current;
   const offlineCacheKeyRef = useRef(offlineCacheKey);
   offlineCacheKeyRef.current = offlineCacheKey;
   /** 「已保存的标签」得在异步动作里读到最新值（比较后才决定要不要发请求）。 */
@@ -570,6 +581,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
   );
   const runAction = useCallback(
     async (
+      kind: WriteKind,
       action: (ctx: SecretsContext) => Promise<unknown>,
       successText: string,
       /** 恢复回收站条目会连标签一起变（条目回到带标签的分组）⇒ 校准要完整跑一次 */
@@ -583,13 +595,23 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       const current = context;
       // 还没有组织上下文 ⇒ 静默返回（不是失败，不该弹错误）；但也没写进去，调用方不能当成功
       if (!current) return false;
-      return (options?.withTags ? runWithTags : run)(() => action(current), successText);
+      // 同类操作在途 ⇒ 丢弃（重复点击 / 连按 Enter 的第二次，不弹错误）
+      const result = await writeGates.gate(kind).run(async () => {
+        setPendingWrites((count) => count + 1);
+        try {
+          return await (options?.withTags ? runWithTags : run)(() => action(current), successText);
+        } finally {
+          setPendingWrites((count) => count - 1);
+        }
+      });
+      return result ?? false;
     },
-    [context, run, runWithTags, onNotify]
+    [context, run, runWithTags, onNotify, writeGates]
   );
 
   return {
     ready,
+    busy,
     loading: demoMode ? false : loading,
     error: demoMode ? '' : error,
     offline: demoMode ? false : offline,
@@ -611,20 +633,20 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
     }, []),
     onRefresh: syncNow,
     onSetSecretsProjects: (assignments) =>
-      runAction(async (ctx) => {
+      runAction('secret', async (ctx) => {
         // 用响应回填：每次 PUT 都会推进 `revision_date`，只改 `projectIds` 会把列表项留在旧版本上
         for (const detail of await setSecretsProjects(fetcherRef.current, ctx, assignments)) {
           applySecretWrite(detail);
         }
       }, t('txt_saved')),
     onCreateProject: (name) =>
-      runAction((ctx) => createSecretProject(fetcherRef.current, ctx, name), t('txt_saved')),
+      runAction('project', (ctx) => createSecretProject(fetcherRef.current, ctx, name), t('txt_saved')),
     onRenameProject: (id, name) =>
-      runAction((ctx) => updateSecretProject(fetcherRef.current, ctx, id, name), t('txt_saved')),
+      runAction('project', (ctx) => updateSecretProject(fetcherRef.current, ctx, id, name), t('txt_saved')),
     onDeleteProject: (id) =>
-      runAction((ctx) => deleteSecretProjects(fetcherRef.current, ctx, [id]), t('txt_deleted')),
+      runAction('project', (ctx) => deleteSecretProjects(fetcherRef.current, ctx, [id]), t('txt_deleted')),
     onCreateSecret: (input, tag) =>
-      runAction(async (ctx) => {
+      runAction('secret', async (ctx) => {
         const created = await createSecret(fetcherRef.current, ctx, input);
         await saveTagIfChanged(ctx, created.id, tag);
         // 服务端已确认 ⇒ 就地补上列表与标签，不等随后那次校准刷新
@@ -632,21 +654,21 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         applyTagLocally(created.id, tag);
       }, t('txt_saved')),
     onUpdateSecret: (id, input, tag, contentChanged) =>
-      runAction(async (ctx) => {
+      runAction('secret', async (ctx) => {
         // 只有内容真的变了才发官方 PUT（见 props 上的说明）
         if (contentChanged) applySecretWrite(await updateSecret(fetcherRef.current, ctx, id, input));
         await saveTagIfChanged(ctx, id, tag);
         applyTagLocally(id, tag);
       }, t('txt_saved')),
     onDeleteSecret: (id) =>
-      runAction(async (ctx) => {
+      runAction('secret', async (ctx) => {
         await deleteSecrets(fetcherRef.current, ctx, [id]);
         removeSecretsLocally([id]);
         setSelectedId(null);
         setLiveDetail(null);
       }, t('txt_deleted')),
     onDeleteSecrets: (ids) =>
-      runAction(async (ctx) => {
+      runAction('secret', async (ctx) => {
         await deleteSecrets(fetcherRef.current, ctx, ids);
         removeSecretsLocally(ids);
         setSelectedId(null);
@@ -701,7 +723,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
       [context, demoMode, onNotify]
     ),
     onRestoreTrash: (ids) =>
-      runAction(async (ctx) => {
+      runAction('trash', async (ctx) => {
         await restoreTrashedSecrets(fetcherRef.current, ctx, ids);
         const listed = await listTrashedSecrets(fetcherRef.current, ctx);
         setLiveTrash(listed.items);
@@ -709,7 +731,7 @@ export default function useSecretsManager(options: UseSecretsManagerOptions): Se
         void cacheTrashedSecretList(listed.raw, offlineCacheKeyRef.current);
       }, t('txt_restored'), { withTags: true }),
     onPurgeTrash: (ids) =>
-      runAction(async (ctx) => {
+      runAction('trash', async (ctx) => {
         await purgeTrashedSecrets(fetcherRef.current, ctx, ids);
         const listed = await listTrashedSecrets(fetcherRef.current, ctx);
         setLiveTrash(listed.items);
