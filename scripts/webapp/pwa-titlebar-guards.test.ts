@@ -1,9 +1,9 @@
-// 桌面 PWA（Edge / Chrome 安装后）标题栏叠加层的护栏（源码文本，无 DOM 依赖）。
+// 桌面 PWA（Edge / Chrome）三处约定：标题栏让位、通知横幅下移、重复启动只聚焦。
 //
-// manifest 的 `display_override` 含 `window-controls-overlay` ⇒ 最小化 / 最大化 / 关闭按钮
-// 浮在页面右上角，压住顶栏右侧的「主题 / 锁定 / 退出」。避让靠 `titlebar-area-*` 撑出
-// 「顶栏宽 − 可用标题栏宽」，且必须写在打磨层末尾（否则被 `padding-inline` 同特异性压掉）。
-// ⚠️ Linux 的 dev server 复现不了 WCO 模式，遮挡回归只能靠本护栏发现。
+// `display_override` 含 `window-controls-overlay` ⇒ 窗口按钮浮在页面右上角，压住顶栏按钮与
+// 通知横幅；避让必须写在打磨层末尾（否则被 `padding-inline` 同特异性压掉）。而
+// `navigate-existing` 会导航回 start_url ⇒ 整页重载、内存密钥丢失 ⇒ 每次点图标都要上锁。
+// ⚠️ Linux 的 dev server 复现不了 WCO 模式，回归只能靠本护栏发现。
 //
 // 运行方式：npm run test:webapp-lib
 import assert from 'node:assert/strict';
@@ -52,11 +52,12 @@ function ruleBody(block: string, selector: string): string {
 
 const styles = stripComments(readSource('webapp/src/styles.css'));
 const wco = mediaBlock(styles, WCO_QUERY);
+const manifest = JSON.parse(readSource('webapp/public/manifest.webmanifest')) as {
+  display_override?: string[];
+  launch_handler?: { client_mode?: string };
+};
 
 test('manifest 仍要求 window-controls-overlay（若移除，本护栏与下面的 CSS 一起删）', () => {
-  const manifest = JSON.parse(readSource('webapp/public/manifest.webmanifest')) as {
-    display_override?: string[];
-  };
   assert.ok(
     manifest.display_override?.includes('window-controls-overlay'),
     'manifest 不再声明 window-controls-overlay：请连同 styles.css 里的 WCO 块与删除本护栏'
@@ -90,5 +91,22 @@ test('WCO 让位规则必须排在打磨层最后（否则被 padding-inline 同
   assert.ok(
     wco.index > lastPaddingInline,
     'WCO 块必须位于 styles.css 里最后一条 padding-inline 之后，否则让位宽度会被覆盖掉'
+  );
+});
+
+test('WCO 模式下通知横幅必须下移到「顶栏 / 标题栏」更高者之下', () => {
+  const stack = ruleBody(wco.body, '.toast-stack');
+  assert.match(
+    stack,
+    /top:\s*calc\(max\(56px,\s*env\(titlebar-area-height[^)]*\)\)\s*\+\s*14px\)/,
+    '`.toast-stack` 原贴右上角，正好被窗口按钮压住 ⇒ 必须取 max(顶栏 56px, 系统标题栏) 再下移'
+  );
+});
+
+test('重复启动只聚焦现有窗口，不导航（导航会整页重载 ⇒ 内存密钥丢失 ⇒ 上锁）', () => {
+  assert.equal(
+    manifest.launch_handler?.client_mode,
+    'focus-existing',
+    '`navigate-existing` 会把已打开的窗口导航回 start_url，整页重载后密钥（仅内存）丢失 ⇒ 每次点图标都要重新解锁'
   );
 });
