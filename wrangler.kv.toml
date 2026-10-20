@@ -4,6 +4,12 @@ main = "src/index.ts"
 # "本地能跑、KV 形态部署跑不了" 一类只在一侧暴露的问题。
 compatibility_date = "2026-10-01"
 
+workers_dev = false
+preview_urls = false
+
+[observability.issue_detection]
+enabled = true
+
 [build]
 command = "npm run build"
 
