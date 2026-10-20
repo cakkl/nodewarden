@@ -20,6 +20,7 @@ import {
 import { IS_DEMO_MODE } from '@/lib/demo';
 import { t } from '@/lib/i18n';
 import { SECRETS_DEMO_MACHINE_ACCOUNT_EVENTS } from '@/lib/secrets-demo';
+import { createSingleFlightRegistry } from '@/lib/single-flight';
 import { splitTokensByUsable, tokenInactiveReason } from '@/lib/sm-token-groups';
 import { useActionRunner, type AppNotify } from '@/hooks/useActionRunner';
 import type { MachineAccountsManagerProps } from '@/hooks/useMachineAccounts';
@@ -156,7 +157,11 @@ function GrantPicker(props: {
 export default function MachineAccountsPage(props: MachineAccountsPageProps) {
   const { authedFetch, onNotify, mobileLayout, manager } = props;
   const { context, accounts, projects, tokens, loading, error, offline } = manager;
-  const [busy, setBusy] = useState(false);
+  /** 写操作进行中（界面置灰用）。账号与令牌可并行 ⇒ 计数而非布尔。 */
+  const [pendingWrites, setPendingWrites] = useState(0);
+  const busy = pendingWrites > 0;
+  /** 写操作门闩按类型分开（见 `lib/single-flight.ts`）。 */
+  const writeGates = useRef(createSingleFlightRegistry<'account' | 'token'>()).current;
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [mobilePanel, setMobilePanel] = useState<'list' | 'detail'>('list');
@@ -236,7 +241,12 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     permission === 'write' ? t('txt_permission_write') : t('txt_permission_read');
 
   /** 统一包装（成功提示 / 刷新 / 失败透出文案见 `useActionRunner`）。 */
-  const run = useActionRunner({ onNotify, demoMode: IS_DEMO_MODE, reload: noReload, onBusyChange: setBusy });
+  const run = useActionRunner({
+    onNotify,
+    demoMode: IS_DEMO_MODE,
+    reload: noReload,
+    onBusyChange: (active) => setPendingWrites((count) => count + (active ? 1 : -1)),
+  });
 
   function openCreate(): void {
     setCreatedToken(null);
@@ -278,7 +288,9 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       onNotify('warning', t('txt_demo_readonly_message'));
       return;
     }
-    setBusy(true);
+    // 重入：第二次点击 / 连按 Enter 直接丢弃（同一类操作在途）
+    if (!writeGates.gate('account').tryEnter()) return;
+    setPendingWrites((count) => count + 1);
     try {
       const before = current.id ? accounts.find((account) => account.id === current.id) : undefined;
       let accountId = current.id;
@@ -323,7 +335,8 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      writeGates.gate('account').release();
+      setPendingWrites((count) => count - 1);
     }
   }
 
@@ -336,7 +349,9 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
       onNotify('warning', t('txt_demo_readonly_message'));
       return;
     }
-    setBusy(true);
+    // 同上：令牌明文只回吐一次，多建一条等于多一个凭据
+    if (!writeGates.gate('token').tryEnter()) return;
+    setPendingWrites((count) => count + 1);
     try {
       const expiresAt = new Date(Date.now() + tokenDraft.days * 24 * 60 * 60 * 1000).toISOString();
       const created = await createMachineAccountToken(authedFetch, context, activeId, name, expiresAt);
@@ -348,7 +363,8 @@ export default function MachineAccountsPage(props: MachineAccountsPageProps) {
     } catch (err) {
       onNotify('error', err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      writeGates.gate('token').release();
+      setPendingWrites((count) => count - 1);
     }
   }
 
