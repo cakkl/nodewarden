@@ -39,7 +39,9 @@ async function initializeDatabaseWithRetry(env: Env): Promise<void> {
     } catch (error) {
       lastError = error;
       if (attempt >= DB_INIT_ATTEMPTS || !isTransientDbInitError(error)) break;
-      console.warn(`Database initialization attempt ${attempt} failed (transient), retrying:`, error);
+      // ⚠️ 首参必须是字面量：模板字面量 + 额外参数会被 Semgrep
+      // `unsafe-formatstring` 判为「注入格式说明符可伪造日志」。
+      console.warn('Database initialization attempt failed (transient); retrying:', attempt, error);
       // 极短的退避：只为错开同一瞬间的抖动，不占 CPU
       await new Promise((resolve) => setTimeout(resolve, DB_INIT_RETRY_DELAY_MS));
     }
