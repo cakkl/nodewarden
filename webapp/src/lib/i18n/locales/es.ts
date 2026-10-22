@@ -1662,6 +1662,8 @@ const es: Record<string, string> = {
   "txt_log_action_account_api_key_view": "Ver clave de API",
   "txt_log_action_auth_client_ip_missing": "Error de inicio de sesión: falta la IP del cliente",
   "txt_log_action_backup_scheduled_skipped": "Copia de seguridad programada omitida",
+  "txt_log_action_backup_scheduled_failed": "Error en la copia de seguridad programada",
+  "txt_log_action_system_db_init_failed": "Error al inicializar la base de datos",
   "txt_log_action_device_lost_trust": "Confianza del dispositivo caducada",
   "txt_log_action_device_register": "Registrar dispositivo",
   "txt_log_action_system_yubico_credentials_update": "Actualizar credenciales de validación de Yubico",

@@ -1662,6 +1662,8 @@ const de: Record<string, string> = {
   "txt_log_action_account_api_key_view": "API-Schlüssel anzeigen",
   "txt_log_action_auth_client_ip_missing": "Anmeldung fehlgeschlagen: Client-IP fehlt",
   "txt_log_action_backup_scheduled_skipped": "Geplante Sicherung übersprungen",
+  "txt_log_action_backup_scheduled_failed": "Geplante Sicherung fehlgeschlagen",
+  "txt_log_action_system_db_init_failed": "Datenbankinitialisierung fehlgeschlagen",
   "txt_log_action_device_lost_trust": "Gerätevertrauen abgelaufen",
   "txt_log_action_device_register": "Gerät registrieren",
   "txt_log_action_system_yubico_credentials_update": "Yubico-Validierungsdaten aktualisieren",

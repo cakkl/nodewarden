@@ -1662,6 +1662,8 @@ const fi: Record<string, string> = {
   "txt_log_action_account_api_key_view": "Näytä API-avain",
   "txt_log_action_auth_client_ip_missing": "Kirjautuminen epäonnistui: asiakkaan IP puuttuu",
   "txt_log_action_backup_scheduled_skipped": "Ajastettu varmuuskopio ohitettiin",
+  "txt_log_action_backup_scheduled_failed": "Ajastettu varmuuskopiointi epäonnistui",
+  "txt_log_action_system_db_init_failed": "Tietokannan alustus epäonnistui",
   "txt_log_action_device_lost_trust": "Laitteen luottamus vanhentui",
   "txt_log_action_device_register": "Rekisteröi laite",
   "txt_log_action_system_yubico_credentials_update": "Päivitä Yubico-vahvistuksen tunnistetiedot",

@@ -1662,6 +1662,8 @@ const ru: Record<string, string> = {
   "txt_log_action_account_api_key_view": "Просмотр ключа API",
   "txt_log_action_auth_client_ip_missing": "Ошибка входа: отсутствует IP клиента",
   "txt_log_action_backup_scheduled_skipped": "Запланированное резервное копирование пропущено",
+  "txt_log_action_backup_scheduled_failed": "Ошибка запланированного резервного копирования",
+  "txt_log_action_system_db_init_failed": "Ошибка инициализации базы данных",
   "txt_log_action_device_lost_trust": "Доверие к устройству истекло",
   "txt_log_action_device_register": "Регистрация устройства",
   "txt_log_action_system_yubico_credentials_update": "Обновление учетных данных проверки Yubico",

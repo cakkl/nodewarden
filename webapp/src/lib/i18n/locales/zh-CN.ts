@@ -1662,6 +1662,8 @@ const zhCN: Record<string, string> = {
   "txt_log_action_account_api_key_view": "查看 API 密钥",
   "txt_log_action_auth_client_ip_missing": "登录失败：缺少客户端 IP",
   "txt_log_action_backup_scheduled_skipped": "计划备份已跳过",
+  "txt_log_action_backup_scheduled_failed": "计划备份失败",
+  "txt_log_action_system_db_init_failed": "数据库初始化失败",
   "txt_log_action_device_lost_trust": "设备信任已失效",
   "txt_log_action_device_register": "注册设备",
   "txt_log_action_system_yubico_credentials_update": "更新 Yubico 验证凭据",

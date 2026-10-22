@@ -4,8 +4,6 @@
 // cron）只能靠时间+运气复现，本地跑不出来。
 //
 // 运行方式：npm run test:backup-scheduler-guards
-//
-// 运行方式：npm run test:backup-scheduler-guards
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -139,5 +137,43 @@ test('失败后要退避，且退避窗口明显小于到期窗口（能补跑�
     dueBody,
     /backupSchedulerWindowMinutes\(destination\)/,
     '到期判定必须用按间隔推导的窗口，而不是固定 5 分钟'
+  );
+});
+
+const indexSource = stripComments(readSource('src/index.ts'));
+const backupHandlers = stripComments(readSource('src/handlers/backup.ts'));
+
+test('DB init 对瞬态错误重试，别让一次断连废掉整轮 cron', () => {
+  assert.match(indexSource, /const DB_INIT_ATTEMPTS = 3;/, '缺少重试次数常量');
+  assert.match(
+    indexSource,
+    /network connection lost\|connection closed\|no longer active/i,
+    '瞬态错误判定必须覆盖 D1 断连与 DO 重置这两类（线上都实测过）'
+  );
+  assert.match(
+    indexSource,
+    /await initializeDatabaseWithRetry\(env\);/,
+    'ensureDatabaseInitialized 必须走带重试的初始化'
+  );
+});
+
+test('「整轮跳过 / 失败」必须写审计事件（只有 console 等于隐身）', () => {
+  // DB init 失败 → 整轮 cron 跳过
+  assert.match(
+    indexSource,
+    /action: 'system\.db\.init\.failed'[\s\S]*?targetType: 'system'/,
+    'DB init 失败必须写审计事件，否则日志中心看不到「整轮被跳过」'
+  );
+  // 备份真的失败 → 留痕
+  assert.match(
+    backupHandlers,
+    /action: 'backup\.scheduled\.failed'/,
+    '计划备份失败必须写审计事件'
+  );
+  const failureWrites = backupHandlers.match(/await writeScheduledBackupFailure\(env, /g) ?? [];
+  assert.equal(
+    failureWrites.length,
+    2,
+    'DO 请求抛错（实例重置）与非 2xx 两种失败都要留痕'
   );
 });
