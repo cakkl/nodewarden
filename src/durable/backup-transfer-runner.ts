@@ -1,7 +1,7 @@
 import type { Env } from '../types';
 import type { BackupDestinationRecord } from '../services/backup-config';
 import {
-  BACKUP_SCHEDULER_WINDOW_MINUTES,
+  backupSchedulerWindowMinutes,
   requireBackupDestination,
   hasBackupSlotBetween,
   isBackupDueNow,
@@ -29,6 +29,11 @@ const BACKUP_JOB_LEASE_MS = 10 * 60 * 1000;
 const BACKUP_JOB_HEARTBEAT_MS = 30 * 1000;
 /** 心跳断了这么久就认为持有者已死（实例被重置后 `finally` 没跑成）。 */
 const BACKUP_JOB_STALE_MS = 3 * BACKUP_JOB_HEARTBEAT_MS;
+/**
+ * 失败后的重试退避。窗口放宽到 30~60 分钟后，若每次失败都立即重试，
+ * 一小时内会刷出十几条失败记录；退避到 15 分钟既保证能补跑，又不刷屏。
+ */
+const BACKUP_RETRY_BACKOFF_MS = 15 * 60 * 1000;
 
 interface BackupJobState {
   token: string;
@@ -281,6 +286,14 @@ export class BackupTransferRunner {
     }
   }
 
+  /** 上一轮刚失败过（且还在退避内）⇒ 这一轮不再重试，避免 60 分钟窗口里每 5 分钟刷一次。 */
+  private isRetryBackoffActive(destination: BackupDestinationRecord, now: Date): boolean {
+    if (!destination.runtime.lastErrorAt) return false;
+    const lastErrorMs = Date.parse(destination.runtime.lastErrorAt);
+    if (!Number.isFinite(lastErrorMs)) return false;
+    return now.getTime() - lastErrorMs < BACKUP_RETRY_BACKOFF_MS;
+  }
+
   /** 本轮该跑的目的地：已到点且该 slot 尚未成功，或在扫描期间刚跨过某个 slot。 */
   private dueDestinations(
     destinations: BackupDestinationRecord[],
@@ -288,8 +301,11 @@ export class BackupTransferRunner {
     scanStart: Date
   ): BackupDestinationRecord[] {
     return destinations.filter((destination) =>
-      isBackupDueNow(destination, now, BACKUP_SCHEDULER_WINDOW_MINUTES)
-      || hasBackupSlotBetween(destination, scanStart, now)
+      !this.isRetryBackoffActive(destination, now)
+      && (
+        isBackupDueNow(destination, now, backupSchedulerWindowMinutes(destination))
+        || hasBackupSlotBetween(destination, scanStart, now)
+      )
     );
   }
 

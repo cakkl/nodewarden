@@ -11,6 +11,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
+import { backupSchedulerWindowMinutes } from '../src/services/backup-config';
+import type { BackupDestinationRecord } from '../src/services/backup-config';
+
 const REPO_ROOT = path.resolve(import.meta.dirname, '..');
 
 function readSource(relativePath: string): string {
@@ -99,5 +102,42 @@ test('releaseJob 必须尽力而为：收尾失败不得把成功改写成失败
     releaseBody,
     /catch \(error\)[\s\S]*console\.warn/,
     '失败只能记日志 —— 抛出去会让已经跑完的备份变成失败响应'
+  );
+});
+
+function destinationWithInterval(intervalHours: unknown): BackupDestinationRecord {
+  return { schedule: { intervalHours } } as unknown as BackupDestinationRecord;
+}
+
+test('到期窗口按间隔推导：放宽到能容纳多次重试，又不与下一个 slot 重叠', () => {
+  // 默认每天一次：窗口 60 分钟 ⇒ 12 次 cron 机会（原来只有 1 次）
+  assert.equal(backupSchedulerWindowMinutes(destinationWithInterval(24)), 60);
+  // 每 6 小时：仍取 60 分钟，远小于 360 分钟间隔
+  assert.equal(backupSchedulerWindowMinutes(destinationWithInterval(6)), 60);
+  // 每小时：取间隔的一半，避免与下一小时撞车
+  assert.equal(backupSchedulerWindowMinutes(destinationWithInterval(1)), 30);
+  // 异常/缺失值回落默认窗口，不能算出 0 或 NaN
+  assert.equal(backupSchedulerWindowMinutes(destinationWithInterval(0)), 5);
+  assert.equal(backupSchedulerWindowMinutes(destinationWithInterval('x')), 5);
+
+  // 不变量：任何合法间隔下，窗口都严格小于间隔（否则会连续两次命中同一 slot）
+  for (const hours of [1, 2, 3, 6, 12, 24, 99]) {
+    const window = backupSchedulerWindowMinutes(destinationWithInterval(hours));
+    assert.ok(window > 0 && window < hours * 60, `间隔 ${hours}h 的窗口 ${window} 分钟越界`);
+  }
+});
+
+test('失败后要退避，且退避窗口明显小于到期窗口（能补跑又不刷日志）', () => {
+  assert.match(
+    runner,
+    /const BACKUP_RETRY_BACKOFF_MS = 15 \* 60 \* 1000;/,
+    '缺少重试退避常量：60 分钟窗口里会每 5 分钟刷一条失败记录'
+  );
+  const dueBody = methodBody(runner, 'private dueDestinations(', 'private async runScheduledBackups(');
+  assert.match(dueBody, /!this\.isRetryBackoffActive\(destination, now\)/, '到期判定必须先排除退避中的目的地');
+  assert.match(
+    dueBody,
+    /backupSchedulerWindowMinutes\(destination\)/,
+    '到期判定必须用按间隔推导的窗口，而不是固定 5 分钟'
   );
 });

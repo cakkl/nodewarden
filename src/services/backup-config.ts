@@ -29,6 +29,8 @@ import {
 export const BACKUP_SETTINGS_CONFIG_KEY = 'backup.settings.v1';
 const BACKUP_RUNTIME_CONFIG_KEY = 'backup.runtime.v1';
 export const BACKUP_SCHEDULER_WINDOW_MINUTES = 5;
+/** 到期窗口上限：再宽就会与更密的排期（1 小时）撞车。 */
+export const BACKUP_SCHEDULER_WINDOW_MAX_MINUTES = 60;
 export const REDACTED_BACKUP_SECRET = '********';
 const MAX_BACKUP_DESTINATIONS = 24;
 
@@ -917,6 +919,24 @@ export function hasBackupSlotBetween(
   }
 
   return false;
+}
+
+/**
+ * 计划任务判定「到期」的容差窗口，按目的地间隔推导（间隔的一半，夹在 5~60 分钟）。
+ * 固定 5 分钟（= cron 间隔）时每个 slot 只有一次机会，任一次瞬态故障就丢掉整天；
+ * 而 `isBackupDueNow` 的「该 slot 已成功就不再跑」判据本身允许更宽的窗口。
+ */
+export function backupSchedulerWindowMinutes(destination: BackupDestinationRecord): number {
+  const intervalHours = Number(destination.schedule?.intervalHours);
+  if (!Number.isFinite(intervalHours) || intervalHours <= 0) {
+    return BACKUP_SCHEDULER_WINDOW_MINUTES;
+  }
+  // 取间隔的一半（1h → 30min），上限 60 分钟：绝不与下一个 slot 重叠
+  const derived = Math.floor(intervalHours * 30);
+  return Math.max(
+    BACKUP_SCHEDULER_WINDOW_MINUTES,
+    Math.min(BACKUP_SCHEDULER_WINDOW_MAX_MINUTES, derived)
+  );
 }
 
 export function isBackupDueNow(
