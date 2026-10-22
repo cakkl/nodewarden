@@ -81,6 +81,25 @@ function badRequest(message: string, status: number = 400): Response {
   });
 }
 
+/** 计划备份一轮的结果体（无到期目的地时也用它，保持响应形状一致）。 */
+function scheduledBackupCompleted(
+  completed: number,
+  failures: Array<{ destinationId: string; error: string }>
+): Response {
+  return new Response(JSON.stringify({
+    ok: true,
+    completed,
+    failed: failures.length,
+    failures,
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
 export class BackupTransferRunner {
   private lastHeartbeatAt = 0;
 
@@ -221,7 +240,28 @@ export class BackupTransferRunner {
     }
   }
 
+  /** 本轮该跑的目的地：已到点且该 slot 尚未成功，或在扫描期间刚跨过某个 slot。 */
+  private dueDestinations(
+    destinations: BackupDestinationRecord[],
+    now: Date,
+    scanStart: Date
+  ): BackupDestinationRecord[] {
+    return destinations.filter((destination) =>
+      isBackupDueNow(destination, now, BACKUP_SCHEDULER_WINDOW_MINUTES)
+      || hasBackupSlotBetween(destination, scanStart, now)
+    );
+  }
+
   private async runScheduledBackups(): Promise<Response> {
+    const storage = new StorageService(this.env.DB);
+    // ⚠️ 先只读预检、**再**抢租约：空转 tick（每天 287 个）不该写租约 —— 任一次被打断
+    // 都会留下残留租约，让后续 tick 误报「已有任务占用租约」，还可能挡住该跑的那一次。
+    const previewNow = new Date();
+    const previewSettings = await loadBackupSettings(storage, this.env, 'UTC');
+    if (!this.dueDestinations(previewSettings.destinations, previewNow, previewNow).length) {
+      return scheduledBackupCompleted(0, []);
+    }
+
     const token = await this.acquireJob('scheduled');
     if (!token) {
       return badRequest('Another backup run is already in progress', 409);
@@ -231,17 +271,13 @@ export class BackupTransferRunner {
     const failures: Array<{ destinationId: string; error: string }> = [];
     try {
       await this.touchJob(token);
-      const storage = new StorageService(this.env.DB);
       let scanStartMs = Date.now();
 
       while (true) {
         await this.touchJob(token);
         const settings = await loadBackupSettings(storage, this.env, 'UTC');
         const now = new Date();
-        const dueDestinations = settings.destinations.filter((destination) =>
-          isBackupDueNow(destination, now, BACKUP_SCHEDULER_WINDOW_MINUTES)
-          || hasBackupSlotBetween(destination, new Date(scanStartMs), now)
-        );
+        const dueDestinations = this.dueDestinations(settings.destinations, now, new Date(scanStartMs));
 
         if (!dueDestinations.length) {
           break;
@@ -269,18 +305,7 @@ export class BackupTransferRunner {
         }
       }
 
-      return new Response(JSON.stringify({
-        ok: true,
-        completed,
-        failed: failures.length,
-        failures,
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-store',
-        },
-      });
+      return scheduledBackupCompleted(completed, failures);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : 'Scheduled backup failed', remoteRequestFailureStatus(error));
     } finally {
