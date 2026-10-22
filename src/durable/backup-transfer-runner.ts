@@ -1,7 +1,7 @@
 import type { Env } from '../types';
 import type { BackupDestinationRecord } from '../services/backup-config';
 import {
-  BACKUP_SCHEDULER_WINDOW_MINUTES,
+  backupSchedulerWindowMinutes,
   requireBackupDestination,
   hasBackupSlotBetween,
   isBackupDueNow,
@@ -27,6 +27,13 @@ import { zipSync } from 'fflate';
 const BACKUP_JOB_STATE_KEY = 'backup.job.state.v1';
 const BACKUP_JOB_LEASE_MS = 10 * 60 * 1000;
 const BACKUP_JOB_HEARTBEAT_MS = 30 * 1000;
+/** 心跳断了这么久就认为持有者已死（实例被重置后 `finally` 没跑成）。 */
+const BACKUP_JOB_STALE_MS = 3 * BACKUP_JOB_HEARTBEAT_MS;
+/**
+ * 失败后的重试退避。窗口放宽到 30~60 分钟后，若每次失败都立即重试，
+ * 一小时内会刷出十几条失败记录；退避到 15 分钟既保证能补跑，又不刷屏。
+ */
+const BACKUP_RETRY_BACKOFF_MS = 15 * 60 * 1000;
 
 interface BackupJobState {
   token: string;
@@ -81,6 +88,25 @@ function badRequest(message: string, status: number = 400): Response {
   });
 }
 
+/** 计划备份一轮的结果体（无到期目的地时也用它，保持响应形状一致）。 */
+function scheduledBackupCompleted(
+  completed: number,
+  failures: Array<{ destinationId: string; error: string }>
+): Response {
+  return new Response(JSON.stringify({
+    ok: true,
+    completed,
+    failed: failures.length,
+    failures,
+  }), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
 export class BackupTransferRunner {
   private lastHeartbeatAt = 0;
 
@@ -102,7 +128,15 @@ export class BackupTransferRunner {
     const acquired = await this.state.storage.transaction(async (txn) => {
       const current = await txn.get<BackupJobState>(BACKUP_JOB_STATE_KEY);
       if (current?.expiresAtMs && current.expiresAtMs > nowMs) {
-        return false;
+        // 租约仍在有效期内：只有「心跳已停」才说明持有者已死（活着的任务每 30 秒刷
+        // `touchedAt`），否则一律让路。这样实例被重置后残留的租约 90 秒即可接管，
+        // 不必干等 10 分钟 TTL。
+        const touchedMs = Date.parse(current.touchedAt);
+        const heartbeatFresh = Number.isFinite(touchedMs) && nowMs - touchedMs < BACKUP_JOB_STALE_MS;
+        if (heartbeatFresh) return false;
+        console.warn(
+          `Backup lease taken over: holder "${current.reason}" has no heartbeat for ${Math.round((nowMs - touchedMs) / 1000)}s`
+        );
       }
       await txn.put<BackupJobState>(BACKUP_JOB_STATE_KEY, {
         token,
@@ -119,9 +153,9 @@ export class BackupTransferRunner {
     return token;
   }
 
-  private async touchJob(token: string): Promise<void> {
+  private async touchJob(token: string, force = false): Promise<void> {
     const nowMs = Date.now();
-    if (nowMs - this.lastHeartbeatAt < BACKUP_JOB_HEARTBEAT_MS) return;
+    if (!force && nowMs - this.lastHeartbeatAt < BACKUP_JOB_HEARTBEAT_MS) return;
     this.lastHeartbeatAt = nowMs;
 
     // 事务内比对 token 后再续期，避免用过期快照覆盖掉新持有者的租约。
@@ -137,16 +171,45 @@ export class BackupTransferRunner {
     });
   }
 
+  /**
+   * 定时器式心跳，返回停止函数（会等在途写入落盘）。
+   * ⚠️ 不能只靠业务阶段的 `touchJob()`：打包 / 整包上传 / 回读校验都是单次 `await`
+   * （上传上限 10 分钟），中间没有插心跳的点，只按阶段刷会被「90s 无心跳即接管」误杀。
+   */
+  private startJobHeartbeat(token: string): () => Promise<void> {
+    let pending: Promise<void> = Promise.resolve();
+    const timer = setInterval(() => {
+      // 串行化 + 逐次 catch：一次瞬态失败不能让整条链停在 rejected 上，
+      // 否则此后不再刷心跳，90 秒后会被误判为持有者已死。
+      pending = pending
+        .then(() => this.touchJob(token, true))
+        .catch((error) => {
+          console.warn('Backup lease heartbeat failed:', error);
+        });
+    }, BACKUP_JOB_HEARTBEAT_MS);
+    return async () => {
+      clearInterval(timer);
+      // 等在途心跳落盘，避免响应返回后还有悬挂的存储事务
+      await pending.catch((error) => {
+        console.warn('Backup lease heartbeat failed:', error);
+      });
+    };
+  }
+
   private async releaseJob(token: string): Promise<void> {
-    // 必须在事务内「比对 token → 删除」。否则存在该交错：
-    //   A: get() 读到 token=A → B: acquireJob() 覆盖为 token=B
-    //   → A: 依据先前快照判断通过 → delete() 把 B 的租约删掉，并发保护失效。
-    await this.state.storage.transaction(async (txn) => {
-      const current = await txn.get<BackupJobState>(BACKUP_JOB_STATE_KEY);
-      if (current?.token === token) {
-        await txn.delete(BACKUP_JOB_STATE_KEY);
-      }
-    });
+    // 必须在事务内「比对 token → 删除」：否则 A 依快照判断通过、delete() 会误删
+    // B 新写的租约（A: get → B: acquire 覆盖 → A: delete）。
+    // ⚠️ 尽力而为：走到这里备份已经跑完，抛异常会把成功变失败；TTL 与心跳接管是兜底。
+    try {
+      await this.state.storage.transaction(async (txn) => {
+        const current = await txn.get<BackupJobState>(BACKUP_JOB_STATE_KEY);
+        if (current?.token === token) {
+          await txn.delete(BACKUP_JOB_STATE_KEY);
+        }
+      });
+    } catch (error) {
+      console.warn('Backup lease release failed; it will expire by TTL:', error);
+    }
   }
 
   private async runConfiguredBackup(request: Request): Promise<Response> {
@@ -167,6 +230,7 @@ export class BackupTransferRunner {
     if (!token) {
       return badRequest('Another backup run is already in progress', 409);
     }
+    const stopHeartbeat = this.startJobHeartbeat(token);
 
     try {
       await this.touchJob(token);
@@ -217,31 +281,61 @@ export class BackupTransferRunner {
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : 'Backup run failed', remoteRequestFailureStatus(error));
     } finally {
+      await stopHeartbeat();
       await this.releaseJob(token);
     }
   }
 
+  /** 上一轮刚失败过（且还在退避内）⇒ 这一轮不再重试，避免 60 分钟窗口里每 5 分钟刷一次。 */
+  private isRetryBackoffActive(destination: BackupDestinationRecord, now: Date): boolean {
+    if (!destination.runtime.lastErrorAt) return false;
+    const lastErrorMs = Date.parse(destination.runtime.lastErrorAt);
+    if (!Number.isFinite(lastErrorMs)) return false;
+    return now.getTime() - lastErrorMs < BACKUP_RETRY_BACKOFF_MS;
+  }
+
+  /** 本轮该跑的目的地：已到点且该 slot 尚未成功，或在扫描期间刚跨过某个 slot。 */
+  private dueDestinations(
+    destinations: BackupDestinationRecord[],
+    now: Date,
+    scanStart: Date
+  ): BackupDestinationRecord[] {
+    return destinations.filter((destination) =>
+      !this.isRetryBackoffActive(destination, now)
+      && (
+        isBackupDueNow(destination, now, backupSchedulerWindowMinutes(destination))
+        || hasBackupSlotBetween(destination, scanStart, now)
+      )
+    );
+  }
+
   private async runScheduledBackups(): Promise<Response> {
+    const storage = new StorageService(this.env.DB);
+    // ⚠️ 先只读预检、**再**抢租约：空转 tick（每天 287 个）不该写租约 —— 任一次被打断
+    // 都会留下残留租约，让后续 tick 误报「已有任务占用租约」，还可能挡住该跑的那一次。
+    const previewNow = new Date();
+    const previewSettings = await loadBackupSettings(storage, this.env, 'UTC');
+    if (!this.dueDestinations(previewSettings.destinations, previewNow, previewNow).length) {
+      return scheduledBackupCompleted(0, []);
+    }
+
     const token = await this.acquireJob('scheduled');
     if (!token) {
       return badRequest('Another backup run is already in progress', 409);
     }
+    const stopHeartbeat = this.startJobHeartbeat(token);
 
     let completed = 0;
     const failures: Array<{ destinationId: string; error: string }> = [];
     try {
       await this.touchJob(token);
-      const storage = new StorageService(this.env.DB);
       let scanStartMs = Date.now();
 
       while (true) {
         await this.touchJob(token);
         const settings = await loadBackupSettings(storage, this.env, 'UTC');
         const now = new Date();
-        const dueDestinations = settings.destinations.filter((destination) =>
-          isBackupDueNow(destination, now, BACKUP_SCHEDULER_WINDOW_MINUTES)
-          || hasBackupSlotBetween(destination, new Date(scanStartMs), now)
-        );
+        const dueDestinations = this.dueDestinations(settings.destinations, now, new Date(scanStartMs));
 
         if (!dueDestinations.length) {
           break;
@@ -269,21 +363,11 @@ export class BackupTransferRunner {
         }
       }
 
-      return new Response(JSON.stringify({
-        ok: true,
-        completed,
-        failed: failures.length,
-        failures,
-      }), {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-store',
-        },
-      });
+      return scheduledBackupCompleted(completed, failures);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : 'Scheduled backup failed', remoteRequestFailureStatus(error));
     } finally {
+      await stopHeartbeat();
       await this.releaseJob(token);
     }
   }
@@ -305,6 +389,7 @@ export class BackupTransferRunner {
     if (!token) {
       return badRequest('Another backup or restore run is already in progress', 409);
     }
+    const stopHeartbeat = this.startJobHeartbeat(token);
 
     try {
       await this.touchJob(token);
@@ -361,6 +446,7 @@ export class BackupTransferRunner {
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : 'Remote backup restore failed', remoteRequestFailureStatus(error));
     } finally {
+      await stopHeartbeat();
       await this.releaseJob(token);
     }
   }

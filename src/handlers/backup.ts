@@ -591,12 +591,35 @@ async function runConfiguredBackupInDurableObject(
   return body;
 }
 
+/**
+ * 「这一轮计划备份没跑成」的留痕。
+ * ⚠️ 只写 `console.error` 的话日志中心看不到 —— 反倒是无害的「租约占用」有审计事件。
+ */
+async function writeScheduledBackupFailure(env: Env, message: string): Promise<void> {
+  await safeWriteAuditEvent(env, {
+    actorUserId: null,
+    action: 'backup.scheduled.failed',
+    category: 'system',
+    level: 'error',
+    targetType: 'backup',
+    metadata: { error: message },
+  });
+}
+
 async function runScheduledBackupsInDurableObject(env: Env): Promise<void> {
   const id = env.BACKUP_TRANSFER_RUNNER.idFromName('configured-backup-runner');
   const stub = env.BACKUP_TRANSFER_RUNNER.get(id);
-  const response = await stub.fetch('https://backup-transfer/internal/run-scheduled-backups', {
-    method: 'POST',
-  });
+  let response: Response;
+  try {
+    response = await stub.fetch('https://backup-transfer/internal/run-scheduled-backups', {
+      method: 'POST',
+    });
+  } catch (error) {
+    // DO 实例在请求中途被重置（`this Durable Object instance is no longer active`）等：
+    // 这一轮确实没跑成，必须留痕后再冒泡。
+    await writeScheduledBackupFailure(env, error instanceof Error ? error.message : String(error));
+    throw error;
+  }
   if (response.status === 409) {
     // 租约还在上一次运行手里（最长 10 分钟，`BACKUP_JOB_LEASE_MS`）。
     // 这里过去是**直接 return** ⇒ 「这一轮计划任务被跳过」没有任何留痕
@@ -631,6 +654,7 @@ async function runScheduledBackupsInDurableObject(env: Env): Promise<void> {
     } catch {
       // Preserve the status-based message when the DO returns a non-JSON error.
     }
+    await writeScheduledBackupFailure(env, message);
     throw new Error(message);
   }
 }

@@ -1662,6 +1662,8 @@ const fr: Record<string, string> = {
   "txt_log_action_account_api_key_view": "Afficher la clé d'API",
   "txt_log_action_auth_client_ip_missing": "Échec de connexion : IP client manquante",
   "txt_log_action_backup_scheduled_skipped": "Sauvegarde planifiée ignorée",
+  "txt_log_action_backup_scheduled_failed": "Échec de la sauvegarde planifiée",
+  "txt_log_action_system_db_init_failed": "Échec de l'initialisation de la base de données",
   "txt_log_action_device_lost_trust": "Confiance de l'appareil expirée",
   "txt_log_action_device_register": "Enregistrer l'appareil",
   "txt_log_action_system_yubico_credentials_update": "Mettre à jour les identifiants de validation Yubico",

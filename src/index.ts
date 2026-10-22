@@ -3,6 +3,7 @@ import { NotificationsHub } from './durable/notifications-hub';
 import { BackupTransferRunner } from './durable/backup-transfer-runner';
 import { handleRequest } from './router';
 import { StorageService } from './services/storage';
+import { safeWriteAuditEvent } from './services/audit-events';
 import { trackAppVersionOnce } from './services/app-version-log';
 import { purgeSecretsTrash } from './services/secrets-trash';
 import { applyCors, jsonResponse } from './utils/response';
@@ -17,6 +18,36 @@ import { withStaticCacheHeaders } from './static-asset-cache';
 let dbInitialized = false;
 let dbInitError: string | null = null;
 let dbInitPromise: Promise<void> | null = null;
+
+/** 初始化要连做 17 次 D1 往返，任一次瞬态断连都会让整个请求 / 整轮 cron 报废。 */
+const DB_INIT_ATTEMPTS = 3;
+const DB_INIT_RETRY_DELAY_MS = 200;
+/** 值得重试的失败：D1 连接被重置、DO 实例被换掉（只能看文本，没有稳定的 code）。 */
+const TRANSIENT_DB_INIT_ERROR = /network connection lost|connection closed|no longer active|internal error/i;
+
+function isTransientDbInitError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return TRANSIENT_DB_INIT_ERROR.test(message);
+}
+
+async function initializeDatabaseWithRetry(env: Env): Promise<void> {
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= DB_INIT_ATTEMPTS; attempt += 1) {
+    try {
+      await new StorageService(env.DB).initializeDatabase();
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= DB_INIT_ATTEMPTS || !isTransientDbInitError(error)) break;
+      // ⚠️ 首参必须是字面量：模板字面量 + 额外参数会被 Semgrep
+      // `unsafe-formatstring` 判为「注入格式说明符可伪造日志」。
+      console.warn('Database initialization attempt failed (transient); retrying:', attempt, error);
+      // 极短的退避：只为错开同一瞬间的抖动，不占 CPU
+      await new Promise((resolve) => setTimeout(resolve, DB_INIT_RETRY_DELAY_MS));
+    }
+  }
+  throw lastError;
+}
 
 function normalizeRequestUrl(request: Request): Request {
   const url = new URL(request.url);
@@ -78,8 +109,7 @@ async function ensureDatabaseInitialized(env: Env): Promise<void> {
 
   if (!dbInitPromise) {
     dbInitPromise = (async () => {
-      const storage = new StorageService(env.DB);
-      await storage.initializeDatabase();
+      await initializeDatabaseWithRetry(env);
       dbInitialized = true;
       dbInitError = null;
     })()
@@ -141,6 +171,16 @@ export default {
     await ensureDatabaseInitialized(env);
     if (dbInitError) {
       console.error('Skipping scheduled tasks because DB init failed:', dbInitError);
+      // 只写 console 的话，「整轮被跳过」在日志中心完全不可见 —— 而这一轮连带跳过了
+      // 备份与 Trash 清理。尽力而为：DB 不可用时这条写入本身也可能失败。
+      await safeWriteAuditEvent(env, {
+        actorUserId: null,
+        action: 'system.db.init.failed',
+        category: 'system',
+        level: 'error',
+        targetType: 'system',
+        metadata: { error: dbInitError },
+      });
       return;
     }
     // 与请求路径共用同一个“每 isolate 一次”入口：部署后即使零流量，

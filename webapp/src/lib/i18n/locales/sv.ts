@@ -1662,6 +1662,8 @@ const sv: Record<string, string> = {
   "txt_log_action_account_api_key_view": "Visa API-nyckel",
   "txt_log_action_auth_client_ip_missing": "Inloggning misslyckades: klientens IP saknas",
   "txt_log_action_backup_scheduled_skipped": "Schemalagd säkerhetskopiering hoppades över",
+  "txt_log_action_backup_scheduled_failed": "Schemalagd säkerhetskopiering misslyckades",
+  "txt_log_action_system_db_init_failed": "Databasinitieringen misslyckades",
   "txt_log_action_device_lost_trust": "Enhetens förtroende har upphört",
   "txt_log_action_device_register": "Registrera enhet",
   "txt_log_action_system_yubico_credentials_update": "Uppdatera Yubico valideringsuppgifter",

@@ -1662,6 +1662,8 @@ const it: Record<string, string> = {
   "txt_log_action_account_api_key_view": "Visualizza chiave API",
   "txt_log_action_auth_client_ip_missing": "Accesso non riuscito: IP client mancante",
   "txt_log_action_backup_scheduled_skipped": "Backup pianificato saltato",
+  "txt_log_action_backup_scheduled_failed": "Backup pianificato non riuscito",
+  "txt_log_action_system_db_init_failed": "Inizializzazione del database non riuscita",
   "txt_log_action_device_lost_trust": "Fiducia del dispositivo scaduta",
   "txt_log_action_device_register": "Registra dispositivo",
   "txt_log_action_system_yubico_credentials_update": "Aggiorna credenziali di convalida Yubico",

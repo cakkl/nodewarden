@@ -1662,6 +1662,8 @@ const en: Record<string, string> = {
   "txt_log_action_account_api_key_view": "View API key",
   "txt_log_action_auth_client_ip_missing": "Login failed: missing client IP",
   "txt_log_action_backup_scheduled_skipped": "Scheduled backup skipped",
+  "txt_log_action_backup_scheduled_failed": "Scheduled backup failed",
+  "txt_log_action_system_db_init_failed": "Database initialization failed",
   "txt_log_action_device_lost_trust": "Device trust expired",
   "txt_log_action_device_register": "Register device",
   "txt_log_action_system_yubico_credentials_update": "Update Yubico validation credentials",

@@ -1663,6 +1663,8 @@ const zhTW: Record<string, string> = {
   "txt_log_action_account_api_key_view": "檢視 API 金鑰",
   "txt_log_action_auth_client_ip_missing": "登入失敗：缺少用戶端 IP",
   "txt_log_action_backup_scheduled_skipped": "排程備份已略過",
+  "txt_log_action_backup_scheduled_failed": "排程備份失敗",
+  "txt_log_action_system_db_init_failed": "資料庫初始化失敗",
   "txt_log_action_device_lost_trust": "裝置信任已失效",
   "txt_log_action_device_register": "註冊裝置",
   "txt_log_action_system_yubico_credentials_update": "更新 Yubico 驗證憑據",
