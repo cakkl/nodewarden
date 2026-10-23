@@ -1,5 +1,5 @@
 import type { Env } from '../types';
-import type { BackupDestinationRecord } from '../services/backup-config';
+import type { BackupDestinationRecord, BackupSettings } from '../services/backup-config';
 import {
   backupSchedulerWindowMinutes,
   requireBackupDestination,
@@ -91,13 +91,16 @@ function badRequest(message: string, status: number = 400): Response {
 /** 计划备份一轮的结果体（无到期目的地时也用它，保持响应形状一致）。 */
 function scheduledBackupCompleted(
   completed: number,
-  failures: Array<{ destinationId: string; error: string }>
+  failures: Array<{ destinationId: string; error: string }>,
+  /** 收尾阶段遇到可忽略的错误（已完成的工作不受影响），仅作提示。 */
+  warning?: string | null
 ): Response {
   return new Response(JSON.stringify({
     ok: true,
     completed,
     failed: failures.length,
     failures,
+    warning: warning || null,
   }), {
     status: 200,
     headers: {
@@ -265,7 +268,13 @@ export class BackupTransferRunner {
         progress,
         body.auditMetadata || null
       );
-      const settings = await loadBackupSettings(storage, this.env, 'UTC');
+      // 备份已成功并已落库；这句只为回填响应体，读失败不能把成功变成报错。
+      let settings: BackupSettings | null = null;
+      try {
+        settings = await loadBackupSettings(storage, this.env, 'UTC');
+      } catch (error) {
+        console.warn('Backup settings reload after a successful run failed:', error);
+      }
 
       return new Response(JSON.stringify({
         object: 'backup-runner-result',
@@ -327,13 +336,25 @@ export class BackupTransferRunner {
 
     let completed = 0;
     const failures: Array<{ destinationId: string; error: string }> = [];
+    let warning: string | null = null;
     try {
       await this.touchJob(token);
       let scanStartMs = Date.now();
 
       while (true) {
         await this.touchJob(token);
-        const settings = await loadBackupSettings(storage, this.env, 'UTC');
+        let settings: BackupSettings;
+        try {
+          settings = await loadBackupSettings(storage, this.env, 'UTC');
+        } catch (error) {
+          // 已经跑过：成功/失败都已写进 runtime 与审计，读配置失败不该改写结论
+          // （否则日志中心会先「计划远程备份成功」、紧接一条「计划备份失败」）。
+          if (completed > 0 || failures.length > 0) {
+            warning = error instanceof Error ? error.message : 'Backup settings could not be reloaded';
+            break;
+          }
+          throw error;
+        }
         const now = new Date();
         const dueDestinations = this.dueDestinations(settings.destinations, now, new Date(scanStartMs));
 
@@ -363,7 +384,7 @@ export class BackupTransferRunner {
         }
       }
 
-      return scheduledBackupCompleted(completed, failures);
+      return scheduledBackupCompleted(completed, failures, warning);
     } catch (error) {
       return badRequest(error instanceof Error ? error.message : 'Scheduled backup failed', remoteRequestFailureStatus(error));
     } finally {

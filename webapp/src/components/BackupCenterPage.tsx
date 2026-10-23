@@ -765,8 +765,11 @@ export default function BackupCenterPage(props: BackupCenterPageProps) {
         includeAttachments: !!selectedDestination.includeAttachments,
       });
       const result = await props.onRunRemoteBackup(masterPassword, selectedDestination.id);
-      setSavedSettings(result.settings);
-      setSettings(result.settings);
+      // 服务端收尾读取失败时会回 null：沿用本地已有的配置，不把成功变成报错
+      if (result.settings) {
+        setSavedSettings(result.settings);
+        setSettings(result.settings);
+      }
       setSelectedDestinationId(selectedDestination.id);
       await loadRemoteBrowser(selectedDestination.id, currentRemoteBrowserPath, { force: true });
       props.onNotify('success', t('txt_backup_remote_run_success_verified', { name: result.result.fileName }));
