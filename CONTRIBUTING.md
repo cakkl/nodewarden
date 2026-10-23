@@ -119,7 +119,7 @@ For new locales, update:
 
 ## Recommended Checks
 
-Use the Node.js version in `.node-version` for local and Cloudflare builds.
+Use the Node.js version in `.nvmrc` for local and Cloudflare builds.
 Cloudflare Pages and Workers Builds read this file automatically. If a project
 sets `NODE_VERSION` in its dashboard, keep it aligned with this file.
 

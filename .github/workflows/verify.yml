@@ -36,7 +36,8 @@ jobs:
         with:
           # 版本来源单一化：.nvmrc 同时被本 workflow 与 Cloudflare Workers Builds
           # 的构建镜像读取（官方文档：NODE_VERSION / .nvmrc / .node-version）。
-          # 24.18.0 是 Cloudflare 构建镜像预装的版本，因此三方零分叉、零下载。
+          # ⚠️ 仓库只保留 .nvmrc，不再放 .node-version —— 两份文件并存时优先级不明确，
+          # 曾出现 24.21.0 / 24.18.0 互相矛盾。
           node-version-file: '.nvmrc'
           cache: npm
       - name: Install dependencies
