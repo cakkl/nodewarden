@@ -240,3 +240,26 @@ test('手动备份同理：收尾读配置失败不得否掉已成功的结果',
     '前端不得再要求 settings 存在'
   );
 });
+
+const storageSource = stripComments(readSource('src/services/storage.ts'));
+
+test('必需表校验要分批并发，别让 15 个查询同时打 D1', () => {
+  assert.match(
+    storageSource,
+    /REQUIRED_TABLE_CHECK_BATCH = 5;/,
+    '缺少分批常量（线上曾因 15 个并发 PRAGMA 中某一个抖动而整次初始化失败）'
+  );
+  const body = methodBody(storageSource, 'private async hasRequiredSchemaTables(', 'private sqlChunkSize(');
+  assert.match(
+    body,
+    /for \(let i = 0; i < REQUIRED_SCHEMA_TABLES\.length; i \+= StorageService\.REQUIRED_TABLE_CHECK_BATCH\)/,
+    '必须按常量分批循环'
+  );
+  assert.match(body, /slice\(i, i \+ StorageService\.REQUIRED_TABLE_CHECK_BATCH\)/, '每批要按常量切片');
+  assert.doesNotMatch(
+    body,
+    /Promise\.all\(\s*REQUIRED_SCHEMA_TABLES\.map/,
+    '不得退回「一次并发 15 个」的写法'
+  );
+  assert.match(body, /if \(!results\.every\([\s\S]*?\)\) return false;/, '发现缺表应提前返回 false');
+});
