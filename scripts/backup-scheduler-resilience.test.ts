@@ -177,3 +177,89 @@ test('「整轮跳过 / 失败」必须写审计事件（只有 console 等于�
     'DO 请求抛错（实例重置）与非 2xx 两种失败都要留痕'
   );
 });
+
+test('备份成功后的收尾读取失败，不得把整轮改写为失败', () => {
+  const loopRead = scheduledBody.indexOf('settings = await loadBackupSettings(');
+  assert.notEqual(loopRead, -1, '循环里找不到 loadBackupSettings 调用（结构变了？）');
+  const before = scheduledBody.slice(Math.max(0, loopRead - 240), loopRead);
+  assert.match(before, /try \{/, '循环里的配置读取必须包在 try 里');
+  const after = scheduledBody.slice(loopRead, loopRead + 420);
+  assert.match(
+    after,
+    /if \(completed > 0 \|\| failures\.length > 0\) \{[\s\S]*?warning = [\s\S]*?break;/,
+    '已经跑过时应收尾为 warning + break，而不是抛出'
+  );
+  assert.match(after, /throw error;/, '一件都没做时（completed / failures 均为 0）仍要抛 —— 那才是真失败');
+  assert.match(runner, /warning: warning \|\| null,/, '结果体必须带 warning 字段');
+});
+
+test('手动备份同理：收尾读配置失败不得否掉已成功的结果', () => {
+  const configuredBody = methodBody(runner, 'private async runConfiguredBackup(', 'private isRetryBackoffActive(');
+  assert.match(
+    configuredBody,
+    /let settings: BackupSettings \| null = null;/,
+    '手动路径的 settings 必须允许为 null（它只用于回填响应体）'
+  );
+  const tryAt = configuredBody.indexOf('settings = await loadBackupSettings(');
+  assert.notEqual(tryAt, -1, '找不到收尾的 loadBackupSettings');
+  const before = configuredBody.slice(Math.max(0, tryAt - 200), tryAt);
+  assert.match(before, /try \{/, '收尾读取必须包在 try 里');
+  assert.match(
+    configuredBody.slice(tryAt, tryAt + 220),
+    /catch \(error\)[\s\S]*?console\.warn/,
+    '失败只能记日志，不能让备份结果变成报错'
+  );
+
+  // handler 侧：settings 允许缺省
+  assert.match(
+    backupHandlers,
+    /settings: BackupSettings \| null;/,
+    'DurableBackupRunResponse.settings 必须允许 null'
+  );
+  assert.match(
+    backupHandlers,
+    /if \(!body\?\.result\) \{/,
+    'handler 不得因为 settings 缺失就判响应无效'
+  );
+  assert.match(
+    backupHandlers,
+    /settings: outcome\.settings \? redactBackupSettingsSecrets\(outcome\.settings\) : null,/,
+    'settings 为 null 时要原样回 null，让前端沿用本地配置'
+  );
+
+  // 前端也缺一不可：它原来同样断言 settings 必存在，会把成功的备份报成「响应无效」
+  const webApi = stripComments(readSource('webapp/src/lib/api/backup.ts'));
+  assert.match(
+    webApi,
+    /if \(!body\?\.result\) throw new Error\(t\('txt_backup_remote_run_invalid_response'\)\);/,
+    '前端只应校验 result：settings 为 null 是合法响应'
+  );
+  assert.doesNotMatch(
+    webApi,
+    /if \(!body\?\.result \|\| !body\?\.settings\)/,
+    '前端不得再要求 settings 存在'
+  );
+});
+
+const storageSource = stripComments(readSource('src/services/storage.ts'));
+
+test('必需表校验要分批并发，别让 15 个查询同时打 D1', () => {
+  assert.match(
+    storageSource,
+    /REQUIRED_TABLE_CHECK_BATCH = 5;/,
+    '缺少分批常量（线上曾因 15 个并发 PRAGMA 中某一个抖动而整次初始化失败）'
+  );
+  const body = methodBody(storageSource, 'private async hasRequiredSchemaTables(', 'private sqlChunkSize(');
+  assert.match(
+    body,
+    /for \(let i = 0; i < REQUIRED_SCHEMA_TABLES\.length; i \+= StorageService\.REQUIRED_TABLE_CHECK_BATCH\)/,
+    '必须按常量分批循环'
+  );
+  assert.match(body, /slice\(i, i \+ StorageService\.REQUIRED_TABLE_CHECK_BATCH\)/, '每批要按常量切片');
+  assert.doesNotMatch(
+    body,
+    /Promise\.all\(\s*REQUIRED_SCHEMA_TABLES\.map/,
+    '不得退回「一次并发 15 个」的写法'
+  );
+  assert.match(body, /if \(!results\.every\([\s\S]*?\)\) return false;/, '发现缺表应提前返回 false');
+});

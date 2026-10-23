@@ -549,7 +549,8 @@ interface DurableBackupRunResponse {
     remotePath: string;
     provider: string;
   };
-  settings: BackupSettings;
+  /** 备份已成功后回填的配置；收尾读取失败时为 null（不影响结果）。 */
+  settings: BackupSettings | null;
 }
 
 async function runConfiguredBackupInDurableObject(
@@ -585,7 +586,8 @@ async function runConfiguredBackupInDurableObject(
     throw new Error(message);
   }
   const body = await response.json<DurableBackupRunResponse>();
-  if (!body?.result || !body?.settings) {
+  // ⚠️ `settings` 允许为 null：备份已成功时它只是回填 UI 的舒适品，不能反过来否掉结果。
+  if (!body?.result) {
     throw new Error('Backup run response is invalid');
   }
   return body;
@@ -1069,7 +1071,8 @@ export async function handleRunAdminConfiguredBackup(request: Request, env: Env,
         provider: outcome.result.provider,
         remotePath: outcome.result.remotePath,
       },
-      settings: redactBackupSettingsSecrets(outcome.settings),
+      // null ⇒ 客户端沿用自己手里的配置（下次拉取会拿到最新值）
+      settings: outcome.settings ? redactBackupSettingsSecrets(outcome.settings) : null,
     });
   } catch (error) {
     // DO 已经把握时映射成 400（不可重试）；这里不能无条件落回 500，否则会被前端自动重试 3 次

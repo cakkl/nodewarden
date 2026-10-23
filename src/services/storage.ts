@@ -185,6 +185,8 @@ export class StorageService {
   private static lastAttachmentTokenCleanupAt = 0;
   private static lastTotpReplayCleanupAt = 0;
   private static readonly MAX_D1_SQL_VARIABLES = 100;
+  /** 校验必需表时的并发上限（见 `hasRequiredSchemaTables`）。 */
+  private static readonly REQUIRED_TABLE_CHECK_BATCH = 5;
 
   private static readonly REFRESH_TOKEN_CLEANUP_INTERVAL_MS = LIMITS.cleanup.refreshTokenCleanupIntervalMs;
   private static readonly ATTACHMENT_TOKEN_CLEANUP_INTERVAL_MS = LIMITS.cleanup.attachmentTokenCleanupIntervalMs;
@@ -210,13 +212,20 @@ export class StorageService {
    * 用 `PRAGMA table_info` 而非 `SELECT ... FROM sqlite_master`：后者因 sqlite_master 上没有 `name`
    * 索引而必然全表扫（线上该库 88 个 schema 对象 ⇒ 每次冷启动白读 82-88 行，占该实例行读六成以上）；
    * 前者只读内存 schema，线上实测 `rows_read` 恒为 0。
+   *
+   * ⚠️ 分批发而不是一次 `Promise.all` 全上：`Promise.all` 一个失败即整体失败，15 个查询同时
+   * 打 D1 时任一个抖动（线上实测 `internal error` / `Network connection lost`）就会废掉整次初始化。
    */
   private async hasRequiredSchemaTables(): Promise<boolean> {
     // 表名是本文件常量、无外部输入（同 storage-account-passkey-repo.ts 的写法）。
-    const results = await Promise.all(
-      REQUIRED_SCHEMA_TABLES.map((table) => this.db.prepare(`PRAGMA table_info(${table})`).all())
-    );
-    return results.every((result) => (result.results || []).length > 0);
+    for (let i = 0; i < REQUIRED_SCHEMA_TABLES.length; i += StorageService.REQUIRED_TABLE_CHECK_BATCH) {
+      const batch = REQUIRED_SCHEMA_TABLES.slice(i, i + StorageService.REQUIRED_TABLE_CHECK_BATCH);
+      const results = await Promise.all(
+        batch.map((table) => this.db.prepare(`PRAGMA table_info(${table})`).all())
+      );
+      if (!results.every((result) => (result.results || []).length > 0)) return false;
+    }
+    return true;
   }
 
   private sqlChunkSize(fixedBindCount: number, bindCountPerItem = 1): number {

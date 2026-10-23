@@ -62,7 +62,8 @@ export interface AdminBackupRunResponse {
     provider: string;
     remotePath: string;
   };
-  settings: AdminBackupSettings;
+  /** 收尾读取失败时为 null（备份本身已成功），消费方沿用本地配置。 */
+  settings: AdminBackupSettings | null;
 }
 
 export interface BackupFileIntegrityCheckResult {
@@ -346,7 +347,9 @@ export async function runAdminBackupNow(
   });
   if (!resp.ok) throw new Error(await parseErrorMessage(resp, t('txt_backup_remote_run_failed')));
   const body = await parseJson<AdminBackupRunResponse>(resp);
-  if (!body?.result || !body?.settings) throw new Error(t('txt_backup_remote_run_invalid_response'));
+  // ⚠️ 不要求 `settings`：服务端在收尾读配置失败时会回 null（备份本身已成功），
+  // 断言它存在会把一次成功的备份报成「响应无效」。消费方已按可空处理。
+  if (!body?.result) throw new Error(t('txt_backup_remote_run_invalid_response'));
   return body;
 }
 
