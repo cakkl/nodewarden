@@ -243,7 +243,7 @@ test('机器账号：令牌随列表一起回（列表页不必按账号各发�
   }
 });
 
-test('令牌：创建只回 id、列表不泄漏 secret_hash，吊销后 revoked_at 非空', async () => {
+test('令牌：创建回吐完整摘要（含 createdAt）、列表不泄漏 secret_hash，吊销后 revoked_at 非空', async () => {
   const h = await createHarness();
   try {
     const id = await createMachine(h, USER_A);
@@ -255,12 +255,22 @@ test('令牌：创建只回 id、列表不泄漏 secret_hash，吊销后 revoked
     assert.equal(created?.status, 200);
     const createdBody = await readJson(created as Response);
     assert.equal(typeof createdBody.id, 'string');
+    // 少了 createdAt，列表页要等一次「同步」才显示得出创建时间
+    assert.equal(typeof createdBody.createdAt, 'string');
+    assert.equal(Number.isFinite(Date.parse(String(createdBody.createdAt))), true, 'createdAt 要是可解析的时间');
+    assert.equal(createdBody.revokedAt, null);
     assert.equal('secretHash' in createdBody, false, '创建响应不该回吐哈希');
     assert.equal('encryptedPayload' in createdBody, false, '创建响应不该回吐载荷');
 
     const list = await call(h, USER_A, `/api/secrets/machine-accounts/${id}/tokens`, 'GET');
     const listed = await readJson<{ data: Array<Record<string, unknown>> }>(list as Response);
     assert.equal(listed.data.length, 1);
+    assert.deepEqual(
+      Object.keys(createdBody).sort(),
+      Object.keys(listed.data[0]).sort(),
+      '创建与列表必须是同一形状（客户端只用一套映射）'
+    );
+    assert.equal(listed.data[0].createdAt, createdBody.createdAt, '创建响应与列表的创建时间要一致');
     assert.equal('secretHash' in listed.data[0], false, '列表不得泄漏哈希');
     assert.equal(listed.data[0].revokedAt, null);
 

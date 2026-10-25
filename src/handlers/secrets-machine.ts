@@ -296,8 +296,8 @@ export async function handleSecretsMachineAccountRoute(
       };
       await createAccessToken(env.DB, token);
       broadcastSecretsManagerChange({ env, request, organizationId: organization.id, userId, kind: 'machine-accounts' });
-      // ⚠️ 只回 id：明文令牌由客户端用「自己生成的密钥 + 这里回吐的 payload」拼装，服务端从未见过它
-      return jsonResponse({ id: token.id, name: token.name, expiresAt: token.expiresAt, object: 'accessToken' });
+      // ⚠️ 不含明文（服务端从未见过）；与列表端点同形状 —— 少了 createdAt，客户端要等一次同步才显示创建时间
+      return jsonResponse(tokenSummary(token));
     }
 
     return errorResponse('Method not allowed', 405);

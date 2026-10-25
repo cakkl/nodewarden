@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  createMachineAccountToken,
   createSecret,
   deleteSecrets,
   ensureSecretsContext,
@@ -328,6 +329,42 @@ test('写入契约：字段为 camelCase 且**全是密文**，批量删的请�
   const mixedServer: AuthedFetch = async () =>
     jsonResponse({ object: 'list', data: [{ id: 's1', error: 'Forbidden' }] });
   assert.deepEqual(await deleteSecrets(mixedServer, ctx, ['s1']), [{ id: 's1', error: 'Forbidden' }]);
+});
+
+test('创建令牌：createdAt 要映射成 creationDate（否则显示「—」，要等一次同步）', async () => {
+  const userKey = randomKeyPair();
+  const orgKey = requireWebCrypto().getRandomValues(new Uint8Array(64));
+  const server = createServer({ wrappedOrgKey: await wrapOrgKey(orgKey, userKey) });
+  const ctx = await ensureSecretsContext(server.authedFetch, sessionFor(userKey));
+
+  const createdAt = '2026-05-01T02:03:04.000Z';
+  const tokenServer: AuthedFetch = async (input, init) => {
+    if (String(input) === '/api/secrets/machine-accounts/acct-1/tokens' && init?.method === 'POST') {
+      // 与列表端点同形状：客户端只用一套映射
+      return jsonResponse({
+        id: 'tok-1',
+        name: 'ci',
+        expiresAt: '2026-06-01T00:00:00.000Z',
+        revokedAt: null,
+        lastUsedAt: null,
+        createdAt,
+        object: 'accessToken',
+      });
+    }
+    return new Response('not found', { status: 404 });
+  };
+
+  const created = await createMachineAccountToken(
+    tokenServer,
+    ctx,
+    'acct-1',
+    'ci',
+    '2026-06-01T00:00:00.000Z'
+  );
+  assert.equal(created.token.id, 'tok-1');
+  assert.equal(created.token.creationDate, createdAt, '创建时间要跟着响应走，不能留空');
+  assert.equal(created.token.revokedAt, null);
+  assert.ok(created.plaintext.length > 0, '明文令牌只在这一刻拿到');
 });
 
 test('会话密钥：从 session 解出 base64 的 enc / mac；缺一即 null', async () => {
