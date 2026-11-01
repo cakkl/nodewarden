@@ -131,7 +131,7 @@
     "@prefresh/babel-plugin": "0.5.4"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261018.1",
+    "@cloudflare/workers-types": "^5.20261025.1",
     "@preact/preset-vite": "^2.10.6",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.5",
@@ -139,18 +139,18 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.4",
-    "wrangler": "^4.151.1"
+    "vite": "^8.3.5",
+    "wrangler": "^4.152.0"
   },
   "dependencies": {
     "@noble/hashes": "^2.4.0",
     "@simplewebauthn/server": "^14.0.3",
-    "@tanstack/react-query": "^5.104.4",
+    "@tanstack/react-query": "^5.104.5",
     "@zip.js/zip.js": "^2.24.0",
     "fflate": "^0.8.3",
     "jsqr": "1.4.0",
-    "lucide-preact": "^1.59.0",
-    "preact": "^11.0.1",
+    "lucide-preact": "^1.61.0",
+    "preact": "^11.0.2",
     "qrcode-generator": "^2.0.4",
     "wouter": "^3.13.0"
   },
