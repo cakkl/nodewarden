@@ -1,7 +1,8 @@
 import { JWTPayload } from '../types';
 import { LIMITS } from '../config/limits';
 
-const hmacKeyCache = new Map<string, Promise<CryptoKey>>();
+// ⚠️ 缓存**已解析的** CryptoKey，不能缓存 promise（理由见 src/index.ts 顶部注释）。
+const hmacKeyCache = new Map<string, CryptoKey>();
 
 // Base64 URL encode
 function base64UrlEncode(data: Uint8Array): string {
@@ -21,21 +22,19 @@ function base64UrlDecode(str: string): Uint8Array {
   return bytes;
 }
 
-function getHmacKey(secret: string): Promise<CryptoKey> {
-  const cacheKey = secret;
-  let cached = hmacKeyCache.get(cacheKey);
+async function getHmacKey(secret: string): Promise<CryptoKey> {
+  const cached = hmacKeyCache.get(secret);
   if (cached) return cached;
 
-  const encoder = new TextEncoder();
-  cached = crypto.subtle.importKey(
+  const key = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(secret),
+    new TextEncoder().encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign', 'verify']
   );
-  hmacKeyCache.set(cacheKey, cached);
-  return cached;
+  hmacKeyCache.set(secret, key);
+  return key;
 }
 
 // Create JWT

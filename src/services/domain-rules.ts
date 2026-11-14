@@ -221,24 +221,28 @@ export function buildDomainsResponse(
   };
 }
 
-let globalDomainsTableVersion: Promise<string> | null = null;
-
 /**
  * 全局等价域名表的版本（内容哈希；进程内只算一次）。
  * 导出是因为 `sync` 的 ETag 也要带上它 —— 部署换了全局表时用户的库修订号并不会变。
+ *
+ * ⚠️ 只缓存结果字符串，不缓存 promise（理由见 src/index.ts 顶部注释）。代价是冷启动并发时
+ * 多算几次 SHA-256 —— 输入是模块内常量表，无外部 IO。
  */
-export function getGlobalDomainsTableVersion(): Promise<string> {
-  globalDomainsTableVersion ??= (async () => {
-    const digest = await crypto.subtle.digest(
-      'SHA-256',
-      new TextEncoder().encode(JSON.stringify([bitwardenGlobalDomainsRaw, customGlobalDomainsRaw]))
-    );
-    return Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('')
-      .slice(0, 16);
-  })();
-  return globalDomainsTableVersion;
+let globalDomainsTableVersionValue: string | null = null;
+
+export async function getGlobalDomainsTableVersion(): Promise<string> {
+  if (globalDomainsTableVersionValue !== null) return globalDomainsTableVersionValue;
+
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(JSON.stringify([bitwardenGlobalDomainsRaw, customGlobalDomainsRaw]))
+  );
+  const version = Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 16);
+  globalDomainsTableVersionValue = version;
+  return version;
 }
 
 /** `/api/settings/domains` 的版本标：用户设置的 `updated_at` + 全局表版本 —— 两者任一变化 ETag 就变。 */
