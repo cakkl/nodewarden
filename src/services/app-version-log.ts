@@ -28,7 +28,9 @@ export interface VersionRecord {
 }
 
 let trackedInThisIsolate = false;
-let trackPromise: Promise<void> | null = null;
+// 只能存布尔，不能存 promise（跨请求共享的 promise 会永不 settle，见 src/index.ts 顶部注释）。
+// 非关键路径，并发时直接跳过即可。
+let tracking = false;
 
 function currentVersionRecord(env: Env): VersionRecord {
   const meta = env.CF_VERSION_METADATA;
@@ -105,30 +107,27 @@ async function trackAppVersion(env: Env): Promise<void> {
 }
 
 /**
- * 每个 isolate 最多跑一次（模块级标志 + 共享 promise，与 ensureDatabaseInitialized 同款做法）。
+ * 每个 isolate 最多跑一次。并发调用直接跳过（不是关键路径，不必排队等同一份写入）。
  *
- * 失败只记 console、绝不抛出：版本记录属"锦上添花"，不能影响请求或定时任务。失败后在同个 isolate 内
- * 不再重试 —— 兜底交给每 5 分钟的 scheduled，它每次都是新 isolate，会重新走一遍。
+ * 失败只记 console、绝不抛出：版本记录属"锦上添花"，不能影响请求或定时任务。
+ * 失败后同个 isolate 内不再重试 —— 兜底交给每 5 分钟的 scheduled，它每次都是新 isolate。
  */
-export function trackAppVersionOnce(env: Env): Promise<void> {
-  if (trackedInThisIsolate) return Promise.resolve();
+export async function trackAppVersionOnce(env: Env): Promise<void> {
+  if (trackedInThisIsolate || tracking) return;
 
-  if (!trackPromise) {
-    trackPromise = trackAppVersion(env)
-      .catch((error: unknown) => {
-        console.error('Failed to record app version startup:', error);
-      })
-      .finally(() => {
-        trackPromise = null;
-        trackedInThisIsolate = true;
-      });
+  tracking = true;
+  try {
+    await trackAppVersion(env);
+    trackedInThisIsolate = true;
+  } catch (error) {
+    console.error('Failed to record app version startup:', error);
+  } finally {
+    tracking = false;
   }
-
-  return trackPromise;
 }
 
 /** 仅供测试：重置"本 isolate 已检查过"的标志（模拟全新 isolate） */
 export function resetAppVersionTrackingForTests(): void {
   trackedInThisIsolate = false;
-  trackPromise = null;
+  tracking = false;
 }
