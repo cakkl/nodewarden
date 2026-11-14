@@ -9,6 +9,25 @@ compatibility_date = "2026-10-01"
 workers_dev = false
 preview_urls = false
 
+# 把异常栈指回 src/ 的原始文件与行号（否则只能看到打包后的位置）。
+upload_source_maps = true
+
+# 免费层：200,000 事件/天、保留 3 天；12-01 起改按 Observability 计价（Free = 0.5 GB/天）。
+# 用尽不影响 Worker：降级采样或当天停收，次日 00:00 UTC 恢复，不产生账单。
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+# 不采样：日志几乎全在错误路径（正常请求只有 1 条 invocation log），漏掉错日志代价更大。
+head_sampling_rate = 1
+
+# 一次 /api/sync 就有十几个 span，远多于日志事件 ⇒ 0.1 仍能覆盖每 5 分钟的 cron。
+[observability.traces]
+enabled = true
+head_sampling_rate = 0.1
+
 [observability.issues]
 enabled = true
 
