@@ -64,6 +64,7 @@ export async function buildConfigResponse(origin: string, env?: Env, mailDeliver
       'pm-30529-webauthn-related-origins': true,
       'unauth-ui-refresh': true,
       'web-push': false,
+      'windows-native-credential-sync': true,
     },
     object: 'config',
   };

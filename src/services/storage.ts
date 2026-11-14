@@ -17,6 +17,7 @@ import {
   getUserById as findStoredUserById,
   getUserCount as countStoredUsers,
   saveUser as saveStoredUser,
+  setUserKeyId as setStoredUserKeyId,
   upgradePasswordVerifier as upgradeStoredPasswordVerifier,
 } from './storage-user-repo';
 import {
@@ -169,7 +170,7 @@ const STORAGE_SCHEMA_VERSION_KEY = 'schema.version';
 // Bump this whenever src/services/storage-schema.ts or migrations/0001_init.sql
 // changes. Existing D1 installs only rerun ensureStorageSchema() when this value
 // differs from config.schema.version.
-const STORAGE_SCHEMA_VERSION = '2026-10-10-sm-secret-tag';
+const STORAGE_SCHEMA_VERSION = '2026-11-14-user-key-id';
 const REQUIRED_SCHEMA_TABLES = ['webauthn_credentials', 'webauthn_challenges', 'auth_requests', 'totp_login_replays', 'send_email_otps', 'new_device_otps', 'sm_organizations', 'sm_org_keys', 'sm_projects', 'sm_secrets', 'sm_secret_projects', 'sm_machine_accounts', 'sm_machine_account_projects', 'sm_access_tokens', 'sm_events'] as const;
 
 // D1-backed storage.
@@ -343,6 +344,10 @@ export class StorageService {
 
   async upgradePasswordVerifier(userId: string, expectedVerifier: string, securityStamp: string, newVerifier: string): Promise<boolean> {
     return upgradeStoredPasswordVerifier(this.db, userId, expectedVerifier, securityStamp, newVerifier);
+  }
+
+  async setUserKeyId(userId: string, userKeyId: string): Promise<boolean> {
+    return setStoredUserKeyId(this.db, userId, userKeyId);
   }
 
   async createFirstUser(user: User): Promise<boolean> {

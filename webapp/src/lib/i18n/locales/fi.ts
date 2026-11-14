@@ -1778,6 +1778,8 @@ const fi: Record<string, string> = {
   "txt_log_reason_hourly_limit": "Tuntiraja saavutettu",
   "txt_log_reason_daily_limit": "Päiväraja saavutettu",
   "txt_log_target_type_mail_settings": "Sähköpostiasetukset",
+  "txt_create_subfolder": "Luo alikansio",
+  "txt_nested_folder_help": "Luo sisäkkäisiä kansioita merkillä /, esim. Työ/Sähköposti. Luo ensin yläkansio. Kansion nimeäminen uudelleen ei nimeä sen alikansioita uudelleen.",
 };
 
 export default fi;

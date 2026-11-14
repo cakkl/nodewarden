@@ -1708,6 +1708,8 @@ const zhCN: Record<string, string> = {
   "txt_auth_request_denied": "已拒绝设备登录",
   "txt_auth_request_missing_public_key": "设备登录请求缺少公钥",
   "txt_ip_address": "IP 地址",
+  "txt_create_subfolder": "创建子文件夹",
+  "txt_nested_folder_help": "使用 / 创建多级目录，例如 工作/邮箱。请先创建父文件夹。重命名文件夹不会同时重命名其子文件夹。",
   "nav_password_security": "安全检测",
   "txt_password_security": "安全检测",
   "txt_password_security_privacy": "密码仅在本地前端检查；只有匿名哈希前缀会发送到泄露密码库。",

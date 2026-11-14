@@ -1778,6 +1778,8 @@ const de: Record<string, string> = {
   "txt_log_reason_hourly_limit": "Stundenlimit erreicht",
   "txt_log_reason_daily_limit": "Tageslimit erreicht",
   "txt_log_target_type_mail_settings": "E-Mail-Einstellungen",
+  "txt_create_subfolder": "Unterordner erstellen",
+  "txt_nested_folder_help": "Mit / Ordner verschachteln, z. B. Arbeit/E-Mail. Erstellen Sie zuerst den übergeordneten Ordner. Das Umbenennen eines Ordners benennt seine Unterordner nicht um.",
 };
 
 export default de;

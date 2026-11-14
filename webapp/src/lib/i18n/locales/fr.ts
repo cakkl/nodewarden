@@ -1778,6 +1778,8 @@ const fr: Record<string, string> = {
   "txt_log_reason_hourly_limit": "Limite horaire atteinte",
   "txt_log_reason_daily_limit": "Limite quotidienne atteinte",
   "txt_log_target_type_mail_settings": "Paramètres de messagerie",
+  "txt_create_subfolder": "Créer un sous-dossier",
+  "txt_nested_folder_help": "Utilisez / pour imbriquer des dossiers, par exemple Travail/Messagerie. Créez d’abord le dossier parent. Renommer un dossier ne renomme pas ses sous-dossiers.",
 };
 
 export default fr;

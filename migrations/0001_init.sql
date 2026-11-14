@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS users (
   -- 用户选定的**默认**两步登录提供程序（provider 数字）；NULL = 未选定。
   -- 只存偏好，不允许它决定「能不能登录」：读取时若该提供程序已不可用，会回退到其它已启用项。
   two_factor_default_provider INTEGER,
+  user_key_id TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

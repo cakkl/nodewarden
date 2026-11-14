@@ -22,6 +22,7 @@ import {
 // - Runtime authentication state (devices, sessions, auth requests, remembered
 //   2FA devices, and one-time tokens) must never enter an instance backup.
 // - users.api_key is intentionally not exported.
+// - users.user_key_id is not exported; clients backfill it again after a restore.
 // - Secrets Manager data is part of an instance backup, minus its audit trail:
 //   the org key is wrapped by the user key that users.key already carries, so a
 //   restored instance can still decrypt it. sm_events stays out (same reason

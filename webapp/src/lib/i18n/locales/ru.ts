@@ -1778,6 +1778,8 @@ const ru: Record<string, string> = {
   "txt_log_reason_hourly_limit": "Достигнут часовой лимит",
   "txt_log_reason_daily_limit": "Достигнут дневной лимит",
   "txt_log_target_type_mail_settings": "Настройки почты",
+  "txt_create_subfolder": "Создать подпапку",
+  "txt_nested_folder_help": "Используйте / для вложенных папок, например Работа/Почта. Сначала создайте родительскую папку. Переименование папки не переименовывает её подпапки.",
 };
 
 export default ru;

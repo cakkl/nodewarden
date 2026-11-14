@@ -1157,7 +1157,10 @@ const folderName = useCallback((id: string | null | undefined): string => {
     setHiddenFieldVisibleMap({});
     if (isMobileLayout) setMobilePanel('detail');
   }, [isEditing, isCreating, cancelEdit, isMobileLayout]);
-  const handleOpenCreateFolder = useCallback(() => setCreateFolderOpen(true), []);
+  const handleOpenCreateFolder = useCallback((parent?: Folder) => {
+    setNewFolderName(parent ? `${parent.decName || parent.name || parent.id}/` : '');
+    setCreateFolderOpen(true);
+  }, []);
   const handleOpenRenameFolder = useCallback((folder: Folder) => {
     setPendingRenameFolder(folder);
     setRenameFolderName(folder.decName || folder.name || '');

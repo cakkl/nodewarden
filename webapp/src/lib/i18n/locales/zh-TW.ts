@@ -1779,6 +1779,8 @@ const zhTW: Record<string, string> = {
   "txt_log_reason_hourly_limit": "已達每小時限額",
   "txt_log_reason_daily_limit": "已達每日限額",
   "txt_log_target_type_mail_settings": "郵件設定",
+  "txt_create_subfolder": "建立子資料夾",
+  "txt_nested_folder_help": "使用 / 建立多層目錄，例如 工作/郵件。請先建立父資料夾。重新命名資料夾不會同時重新命名其子資料夾。",
 };
 
 export default zhTW;
