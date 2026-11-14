@@ -1778,6 +1778,8 @@ const sv: Record<string, string> = {
   "txt_log_reason_hourly_limit": "Timgräns nådd",
   "txt_log_reason_daily_limit": "Dygnsgräns nådd",
   "txt_log_target_type_mail_settings": "E-postinställningar",
+  "txt_create_subfolder": "Skapa undermapp",
+  "txt_nested_folder_help": "Använd / för att skapa nästlade mappar, t.ex. Arbete/E-post. Skapa först den överordnade mappen. Att byta namn på en mapp ändrar inte namnen på dess undermappar.",
 };
 
 export default sv;

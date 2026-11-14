@@ -3,8 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // CONTRACT:
-// 提交前跑：① 每个依赖是否已是最新发布版；② `allowScripts` 是否仍与实际安装版本一致。
-// 用法：npm run deps:check   （`--offline` 只做第 ② 项，不访问 registry）
+// 提交前跑：① `allowScripts` 是否仍与实际安装版本一致；② 每个依赖是否已是最新发布版。
+// 用法：npm run deps:check   （`--offline` 只做第 ① 项，不访问 registry）
 
 const root = path.join(__dirname, '..');
 let pkg;
@@ -20,7 +20,10 @@ const problems = [];
 let comparedLatest = false;
 
 // ① 白名单与实际安装版本。升级依赖**不会**自动同步 allowScripts，而 npm 会拦下
-// 未覆盖的 install script ⇒ 新版本的 postinstall 被静默跳过（workerd 就会因此起不来）。
+// 未覆盖的 install script ⇒ 新版本的 postinstall 被静默跳过。
+// 后果未必立即可见：workerd 的二进制来自 optionalDependency 平台包
+// （@cloudflare/workerd-linux-64 等），postinstall 只是平台包缺失时的兜底下载
+// ⇒ 常规安装即使被拦也照常能跑（2026-11-14 实测）。真正会坏的是「平台包缺失 + postinstall 被拦」。
 for (const key of Object.keys(pkg.allowScripts || {})) {
   const at = key.lastIndexOf('@');
   const name = key.slice(0, at);
@@ -70,6 +73,6 @@ if (problems.length === 0) {
 console.error('❌ 依赖检查未通过：\n');
 for (const problem of problems) console.error(`  · ${problem}`);
 console.error('\n升级：ncu -u && npm install');
-console.error('若 npm 提示 install script 被拦（allowScripts 未覆盖），用 npm install-scripts approve <包名> 更新白名单。');
+console.error('若 npm 提示 install script 被拦（allowScripts 未覆盖），用 npm install-scripts approve <包名> 更新白名单（写入 pinned 的 包@版本 条目）。');
 console.error('升级后必须跑 npm run verify —— 依赖里被移除的 API 只有 typecheck / build 能发现。');
 process.exit(1);

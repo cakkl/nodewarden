@@ -1778,6 +1778,8 @@ const es: Record<string, string> = {
   "txt_log_reason_hourly_limit": "Límite por hora alcanzado",
   "txt_log_reason_daily_limit": "Límite diario alcanzado",
   "txt_log_target_type_mail_settings": "Ajustes de correo",
+  "txt_create_subfolder": "Crear subcarpeta",
+  "txt_nested_folder_help": "Use / para anidar carpetas, p. ej. Trabajo/Correo. Cree primero la carpeta principal. Cambiar el nombre de una carpeta no cambia el de sus subcarpetas.",
 };
 
 export default es;

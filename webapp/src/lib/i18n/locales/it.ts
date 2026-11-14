@@ -1778,6 +1778,8 @@ const it: Record<string, string> = {
   "txt_log_reason_hourly_limit": "Limite orario raggiunto",
   "txt_log_reason_daily_limit": "Limite giornaliero raggiunto",
   "txt_log_target_type_mail_settings": "Impostazioni email",
+  "txt_create_subfolder": "Crea sottocartella",
+  "txt_nested_folder_help": "Usa / per annidare le cartelle, ad esempio Lavoro/Posta. Crea prima la cartella principale. Rinominare una cartella non rinomina le sue sottocartelle.",
 };
 
 export default it;

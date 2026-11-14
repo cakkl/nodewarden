@@ -68,6 +68,8 @@ export interface User {
   yubikeyKey5: string | null;
   yubikeyNfc: boolean;
   apiKey: string | null;
+  /** 客户端上报的当前用户密钥 id（32 位小写 hex）；纯元数据，不参与解密。 */
+  userKeyId?: string | null;
   emailVerified?: boolean;
   /**
    * 用户级语言（**界面 + 邮件共用**）。
@@ -712,6 +714,7 @@ export interface SyncResponse {
       WrappedUserKey1: string;
       WrappedUserKey2: string;
     } | null;
+    UserKeyId?: string | null;
     Object?: string;
   } | null;
   // PascalCase for desktop/browser clients
