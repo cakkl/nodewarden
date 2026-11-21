@@ -164,18 +164,21 @@ function readCipherArchivedAt(source: any, fallback: string | null = null): stri
   return archived.present ? normalizeCipherTimestamp(archived.value) : fallback;
 }
 
-function readCipherRevisionDate(source: any): string | null {
-  const revision = getAliasedProp(source, ['lastKnownRevisionDate', 'LastKnownRevisionDate']);
-  return revision.present ? normalizeCipherTimestamp(revision.value) : null;
-}
-
-// 零容差：服务端 updatedAt 比客户端新即算陈旧。前提是服务端不产生客户端看不见的推进
-// （见 attachments.ts 传字节那步）；⚠️ 改成容差式判定等于放弃「1 秒内的丢更新检测」。
-function isStaleCipherUpdate(existingUpdatedAt: string, clientRevisionDate: string | null): boolean {
-  if (!clientRevisionDate) return false;
+// 第 ① 段零容差：服务端 updatedAt 比客户端新即算陈旧（哪怕 1ms）。前提是服务端不产生客户端
+// 看不见的推进（见 attachments.ts 传字节那步）。
+// ⚠️ 第 ② 段是**唯一例外**：客户端只给整秒（无小数部分）时，把服务端时间向下取整到秒再比。
+// 这不是放宽标准 —— 整秒客户端无法表达同一秒内的先后，强判会让它自己保存后立刻被判成「他人改动」。
+// 显式带小数部分的同一时刻仍走零容差；两个整秒客户端在同一秒并发保存检测不到先后，
+// 那份能力对它们本来就不存在。
+function isStaleCipherUpdate(existingUpdatedAt: string, clientRevisionDate: unknown): boolean {
+  const normalizedRevisionDate = normalizeCipherTimestamp(clientRevisionDate);
+  if (!normalizedRevisionDate) return false;
   const existingTs = Date.parse(existingUpdatedAt);
-  const clientTs = Date.parse(clientRevisionDate);
-  if (Number.isNaN(existingTs) || Number.isNaN(clientTs)) return false;
+  const clientTs = Date.parse(normalizedRevisionDate);
+  // Bitwarden 2026.11 的扩展把 lastKnownRevisionDate 截到整秒；其余客户端保留毫秒。
+  const wholeSeconds = typeof clientRevisionDate === 'string'
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:\d{2})$/i.test(clientRevisionDate);
+  if (wholeSeconds) return Math.floor(existingTs / 1000) * 1000 > clientTs;
   return existingTs > clientTs;
 }
 
@@ -1049,7 +1052,6 @@ export async function handleUpdateCipher(request: Request, env: Env, userId: str
   // Handle nested cipher object
   // Android client sends PascalCase "Cipher" for organization ciphers
   const cipherData = body.Cipher || body.cipher || body;
-  const incomingFolderId = readCipherProp<string | null>(cipherData, ['folderId', 'FolderId']);
   const incomingKey = readCipherProp<string | null>(cipherData, ['key', 'Key']);
   const incomingLogin = readCipherProp<CipherLogin | null>(cipherData, ['login', 'Login']);
   const incomingCard = readCipherProp<CipherCard | null>(cipherData, ['card', 'Card']);
@@ -1060,7 +1062,7 @@ export async function handleUpdateCipher(request: Request, env: Env, userId: str
   const incomingDriversLicense = readCipherProp<CipherDriversLicense | null>(cipherData, ['driversLicense', 'DriversLicense']);
   const incomingPassport = readCipherProp<CipherPassport | null>(cipherData, ['passport', 'Passport']);
   const incomingPasswordHistory = readCipherProp<PasswordHistory[] | null>(cipherData, ['passwordHistory', 'PasswordHistory']);
-  const incomingRevisionDate = readCipherRevisionDate(cipherData);
+  const incomingRevisionDate = readCipherProp(cipherData, ['lastKnownRevisionDate', 'LastKnownRevisionDate']).value;
   const preserveRevisionDate =
     shouldPreserveRepairableCipherUris(request)
     && (body.preserveRevisionDate === true || cipherData.preserveRevisionDate === true);
@@ -1098,9 +1100,6 @@ export async function handleUpdateCipher(request: Request, env: Env, userId: str
     archivedAt: readCipherArchivedAt(cipherData, existingCipher.archivedAt ?? null),
     deletedAt: existingCipher.deletedAt,
   };
-  if (incomingFolderId.present) {
-    cipher.folderId = normalizeOptionalId(incomingFolderId.value);
-  }
   if (incomingKey.present) {
     const normalizedIncomingKey = normalizeCipherKeyForStorage(incomingKey.value);
     cipher.key = normalizedIncomingKey || normalizeCipherKeyForStorage(existingCipher.key);
@@ -1121,6 +1120,7 @@ export async function handleUpdateCipher(request: Request, env: Env, userId: str
 
   // Nullable fields use replacement semantics on this full-update endpoint.
   // Some clients omit cleared values, so merge fallback must not resurrect them.
+  cipher.folderId = normalizeOptionalId(readNullableFullUpdateField<string>(cipherData, ['folderId', 'FolderId']));
   cipher.notes = readNullableFullUpdateField<string>(cipherData, ['notes', 'Notes']);
   cipher.fields = readNullableFullUpdateField<Cipher['fields']>(cipherData, ['fields', 'Fields']);
   normalizeCipherForStorage(cipher);

@@ -291,8 +291,9 @@ test('改名附件后，用该响应带回来的 revisionDate 保存条目必须
   );
   assert.equal(renamed.status, 200, `改名应成功（200），实际 ${renamed.status}`);
   const renamedBody = (await renamed.json()) as Record<string, unknown>;
+  assert.equal(renamedBody.Cipher, undefined, '不再返回 PascalCase 的 Cipher（新版 Bitwarden SDK 不读它）');
   const learnedRevision = String(
-    (renamedBody.Cipher as { revisionDate?: string } | undefined)?.revisionDate ?? ''
+    (renamedBody.cipher as { revisionDate?: string } | undefined)?.revisionDate ?? ''
   );
   assert.ok(learnedRevision, '改名响应必须带回刷新后的 cipher（客户端靠它刷新 revisionDate）');
 
