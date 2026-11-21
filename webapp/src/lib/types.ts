@@ -272,6 +272,7 @@ export interface Cipher {
   fields?: CipherField[] | null;
   decName?: string;
   decNotes?: string;
+  unresolved?: boolean;
 }
 
 export interface SendTextData {

@@ -235,56 +235,6 @@ function optimisticCipherFromDraft(draft: VaultDraft, current?: Cipher | null): 
   return next;
 }
 
-function isEncryptedFieldUnresolved(raw: unknown, decrypted: unknown): boolean {
-  const encrypted = String(raw || '').trim();
-  if (!looksLikeCipherString(encrypted)) return false;
-  const plain = String(decrypted || '').trim();
-  return !plain || looksLikeCipherString(plain);
-}
-
-function hasUnresolvedCipherData(cipher: Cipher): boolean {
-  const checks: Array<[unknown, unknown]> = [
-    [cipher.name, cipher.decName],
-    [cipher.notes, cipher.decNotes],
-    [cipher.login?.username, cipher.login?.decUsername],
-    [cipher.login?.password, cipher.login?.decPassword],
-    [cipher.login?.totp, cipher.login?.decTotp],
-    ...(cipher.login?.uris || []).map((uri) => [uri.uri, uri.decUri] as [unknown, unknown]),
-    [cipher.card?.cardholderName, cipher.card?.decCardholderName],
-    [cipher.card?.number, cipher.card?.decNumber],
-    [cipher.card?.brand, cipher.card?.decBrand],
-    [cipher.card?.expMonth, cipher.card?.decExpMonth],
-    [cipher.card?.expYear, cipher.card?.decExpYear],
-    [cipher.card?.code, cipher.card?.decCode],
-    [cipher.identity?.title, cipher.identity?.decTitle],
-    [cipher.identity?.firstName, cipher.identity?.decFirstName],
-    [cipher.identity?.middleName, cipher.identity?.decMiddleName],
-    [cipher.identity?.lastName, cipher.identity?.decLastName],
-    [cipher.identity?.username, cipher.identity?.decUsername],
-    [cipher.identity?.company, cipher.identity?.decCompany],
-    [cipher.identity?.ssn, cipher.identity?.decSsn],
-    [cipher.identity?.passportNumber, cipher.identity?.decPassportNumber],
-    [cipher.identity?.licenseNumber, cipher.identity?.decLicenseNumber],
-    [cipher.identity?.email, cipher.identity?.decEmail],
-    [cipher.identity?.phone, cipher.identity?.decPhone],
-    [cipher.identity?.address1, cipher.identity?.decAddress1],
-    [cipher.identity?.address2, cipher.identity?.decAddress2],
-    [cipher.identity?.address3, cipher.identity?.decAddress3],
-    [cipher.identity?.city, cipher.identity?.decCity],
-    [cipher.identity?.state, cipher.identity?.decState],
-    [cipher.identity?.postalCode, cipher.identity?.decPostalCode],
-    [cipher.identity?.country, cipher.identity?.decCountry],
-    [cipher.sshKey?.privateKey, cipher.sshKey?.decPrivateKey],
-    [cipher.sshKey?.publicKey, cipher.sshKey?.decPublicKey],
-    [cipher.sshKey?.keyFingerprint || cipher.sshKey?.fingerprint, cipher.sshKey?.decFingerprint],
-    ...(cipher.fields || []).flatMap((field) => [
-      [field.name, field.decName] as [unknown, unknown],
-      [field.value, field.decValue] as [unknown, unknown],
-    ]),
-  ];
-  return checks.some(([raw, decrypted]) => isEncryptedFieldUnresolved(raw, decrypted));
-}
-
 export default function useVaultSendActions(options: UseVaultSendActionsOptions) {
   const {
     authedFetch,
@@ -580,8 +530,13 @@ export default function useVaultSendActions(options: UseVaultSendActionsOptions)
           onNotify('error', error instanceof Error ? error.message : t('txt_offline_vault_readonly'));
           throw error;
         }
-        if (hasUnresolvedCipherData(cipher)) {
-          throw new Error(t('txt_decrypt_failed_2'));
+        // 该判定是**同步**纯函数，只能放在 vault.ts 里；而静态引入 vault.ts 会把 63 KB 拉回首屏
+        // （见 vault-lazy-guards.test.ts）⇒ 用动态导入。此处已解锁并持有 cipher，模块必然已加载。
+        const { hasUnresolvedEncryptedFields } = await import('@/lib/api/vault');
+        if (hasUnresolvedEncryptedFields(cipher)) {
+          const message = t('txt_decrypt_failed_2');
+          onNotify('error', message);
+          throw new Error(message);
         }
         const addFiles = Array.isArray(options?.addFiles) ? options.addFiles : [];
         const removeAttachmentIds = Array.isArray(options?.removeAttachmentIds) ? options.removeAttachmentIds : [];

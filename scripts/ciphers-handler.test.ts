@@ -300,27 +300,43 @@ test('不传 revisionDate 时不做陈旧判定（客户端可省略该字段）
   h.handle.close();
 });
 
-// ---------------------------------------------------------------- 陈旧判定边界（零容差）
+// ---------------------------------------------------------------- 陈旧判定边界（零容差 / 整秒例外）
 
 /**
- * 零容差：服务端 updatedAt 比客户端新即算陈旧（哪怕 1ms）。敢这么严的前提是服务端不再产生
+ * ① 零容差：服务端 updatedAt 比客户端新即算陈旧（哪怕 1ms）。敢这么严的前提是服务端不再产生
  * 客户端看不见的推进（见 `attachments.ts` 传字节那步）⇒ 差值恒为 0。
- * ⚠️ 改成容差式判定等于放弃「1 秒内的丢更新检测」（同 base 的并发保存会双双成功）。
+ * ② 唯一例外：客户端**只给整秒**（无小数部分，如 `...T00:00:00Z`）时容差 1 秒 —— Bitwarden
+ * 2026.11 的扩展把 lastKnownRevisionDate 截到了整秒，强判会让它自己刚保存就被拒。
+ * 显式带小数部分（含 `.000`）仍走 ①。
  */
 const BOUNDARY_BASE = '2026-03-01T00:00:00.000Z';
 
-async function updateWithRevisionOffset(offsetMs: number) {
+/** 模拟把时间戳截到整秒的客户端（去掉 `.sss`）。 */
+function toWholeSeconds(iso: string): string {
+  return iso.replace(/\.\d{3}Z$/, 'Z');
+}
+
+async function updateWithRevision(
+  serverUpdatedAt: string,
+  clientRevision: string
+) {
   const h = createHarness();
   const id = await seedCipher(h);
-  // 固定服务端 updated_at，使差值只由客户端偏移决定（负 = 服务端更新过，正 = 客户端那份更新）
-  h.connection.prepare('UPDATE ciphers SET updated_at = ? WHERE id = ?').run(BOUNDARY_BASE, id);
-  const clientRevision = new Date(Date.parse(BOUNDARY_BASE) + offsetMs).toISOString();
+  // 固定服务端 updated_at，使判定只取决于客户端传的串
+  h.connection.prepare('UPDATE ciphers SET updated_at = ? WHERE id = ?').run(serverUpdatedAt, id);
   const result = await callUpdate(h.env, USER_A, id, {
     type: 1,
     name: enc('boundary'),
     lastKnownRevisionDate: clientRevision,
   });
   return { h, result };
+}
+
+async function updateWithRevisionOffset(offsetMs: number) {
+  return updateWithRevision(
+    BOUNDARY_BASE,
+    new Date(Date.parse(BOUNDARY_BASE) + offsetMs).toISOString()
+  );
 }
 
 test('客户端与服务端版本一致时必须接受', async () => {
@@ -341,6 +357,31 @@ for (const offsetMs of [-1, -1000, -60_000]) {
 test('客户端比服务端新时不判为陈旧（单向：只看服务端是否更新过）', async () => {
   const { h, result } = await updateWithRevisionOffset(60_000);
   assert.equal(result.status, 200, `客户端偏移 +60s 不属陈旧，实际 ${result.status}`);
+  h.handle.close();
+});
+
+// ---------------------------------------------------------------- 整秒客户端（例外 ②）
+
+/** 整秒客户端的上报格式：`...T00:00:00Z`，无小数部分。 */
+test('整秒客户端：服务端在同一秒内推进过也必须接受', async () => {
+  // 服务端 00:00:00.400，客户端只知道到秒（00:00:00）—— 那是它刚保存后拿到的版本，强判会自我拒绝。
+  const { h, result } = await updateWithRevision('2026-03-01T00:00:00.400Z', toWholeSeconds(BOUNDARY_BASE));
+  assert.equal(result.status, 200, `同一秒内的推进不应判陈旧，实际 ${result.status}：${JSON.stringify(result.body)}`);
+  h.handle.close();
+});
+
+test('整秒客户端：落后整整 1 秒仍必须拒绝', async () => {
+  // 容差只到「同一秒」。服务端 00:00:01.000 vs 客户端 00:00:00Z ⇒ 差 1 秒，属真陈旧。
+  const { h, result } = await updateWithRevision('2026-03-01T00:00:01.000Z', toWholeSeconds(BOUNDARY_BASE));
+  assert.equal(result.status, 400, `落后 1 秒应拒绝，实际 ${result.status}`);
+  assert.match(String(result.body.error), /out of date/i, '应提示客户端重新同步');
+  h.handle.close();
+});
+
+test('显式带小数部分的同一时刻仍按零容差处理', async () => {
+  // 客户端写了 `.000` ⇒ 声明自己有毫秒精度 ⇒ 不再享受整秒宽容（哪怕时刻与整秒写法相同）。
+  const { h, result } = await updateWithRevision('2026-03-01T00:00:00.400Z', BOUNDARY_BASE);
+  assert.equal(result.status, 400, `带小数部分时服务端更新过即为陈旧，实际 ${result.status}`);
   h.handle.close();
 });
 

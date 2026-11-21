@@ -387,7 +387,8 @@ export async function handleUpdateAttachmentMetadata(
   }
 
   // 必须把刷新后的 cipher 带回：改名真的改了条目数据 ⇒ 该推进版本，但客户端只能从响应里的
-  // revisionDate 学到新值。字段名同 handleDeleteAttachment（客户端读 Cipher / cipher 两种拼法）。
+  // revisionDate 学到新值。字段名与 handleDeleteAttachment 保持一致：只给小写 `cipher`，
+  // 不再附带 PascalCase 的 `Cipher` —— 新版 Bitwarden SDK 不读后者（见 a09b8c5）。
   const updatedCipher = await storage.getCipherForUser(cipherId, userId);
   const attachments = await storage.getAttachmentsByCipher(cipherId);
   const cipherResponse = cipherToResponse(updatedCipher!, attachments);
@@ -399,7 +400,6 @@ export async function handleUpdateAttachmentMetadata(
     key: attachment.key,
     size: String(Number(attachment.size) || 0),
     sizeName: attachment.sizeName,
-    Cipher: cipherResponse,
     cipher: cipherResponse,
   });
 }
@@ -510,9 +510,7 @@ export async function handleDeleteAttachment(
   const cipherResponse = cipherToResponse(updatedCipher!, attachments);
 
   return jsonResponse({
-    Cipher: cipherResponse,
     cipher: cipherResponse,
-    Object: 'deleteAttachment',
     object: 'deleteAttachment',
   });
 }
